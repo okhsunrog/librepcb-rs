@@ -14,12 +14,15 @@
 //! - [`algorithm`]: air wire calculation and net segment simplification.
 //! - [`fileio`]: file paths, file utilities, the transactional file system,
 //!   directory locks, ZIP and CSV files.
+//! - [`export`]: generators of manufacturing data (Gerber, Excellon,
+//!   IPC-D-356A, BOM and pick&place CSV).
 //! - [`system_info`]: user, host and process information.
 //! - [`sqlite_database`]: thin wrapper around SQLite (for the library index).
 //! - [`utils`]: helpers from `core/utils` needed by the above.
 
 pub mod algorithm;
 pub mod attribute;
+pub mod export;
 pub mod fileio;
 pub mod font;
 pub mod geometry;

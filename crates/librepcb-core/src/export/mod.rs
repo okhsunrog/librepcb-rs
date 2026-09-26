@@ -1,0 +1,52 @@
+//! Port of libs/librepcb/core/export (low-level generators of manufacturing
+//! data).
+//!
+//! The generators only know geometry and strings; the board/project level
+//! code decides what to export and feeds them:
+//!
+//! - [`GerberGenerator`] (with [`GerberApertureList`], [`GerberAttribute`]
+//!   and [`GerberAttributeWriter`]): Gerber X2/X3 files (copper, masks,
+//!   silkscreen, outlines, assembly).
+//! - [`ExcellonGenerator`]: Excellon drill files.
+//! - [`D356NetlistGenerator`]: IPC-D-356A netlists.
+//! - [`Bom`] + [`BomCsvWriter`]: bill of materials as CSV.
+//! - [`PickPlaceData`] + [`PickPlaceCsvWriter`]: pick&place CSV files.
+//!
+//! All generated content is byte-identical to upstream. Values that upstream
+//! takes from the environment (`Application::getVersion()`,
+//! `QDateTime::currentDateTime()`) are passed in by the caller, see
+//! [`GerberFileInfo`] and [`Timestamp`].
+//!
+//! Not ported yet: `graphicsexport*` and `graphicspainter` (PDF/SVG/image
+//! rendering) and `interactivehtmlbom`.
+
+mod bom;
+mod bom_csv_writer;
+mod d356_netlist_generator;
+mod error;
+mod excellon_generator;
+mod gerber_aperture_list;
+mod gerber_attribute;
+mod gerber_attribute_writer;
+mod gerber_generator;
+mod pick_place_csv_writer;
+mod pick_place_data;
+mod timestamp;
+
+pub use bom::{Bom, BomItem};
+pub use bom_csv_writer::BomCsvWriter;
+pub use d356_netlist_generator::{D356Land, D356NetlistGenerator};
+pub use error::{Error, Result};
+pub use excellon_generator::{ExcellonGenerator, Plating};
+pub use gerber_aperture_list::GerberApertureList;
+pub use gerber_attribute::{
+    ApertureFunction, BoardSide, CopperSide, GerberAttribute, GerberAttributeType, MountType,
+    Polarity,
+};
+pub use gerber_attribute_writer::GerberAttributeWriter;
+pub use gerber_generator::{
+    ComponentAttributes, GerberFileInfo, GerberGenerator, ObjectAttributes,
+};
+pub use pick_place_csv_writer::{PickPlaceCsvWriter, PickPlaceSides};
+pub use pick_place_data::{PickPlaceData, PickPlaceDataItem, PickPlaceType};
+pub use timestamp::Timestamp;
