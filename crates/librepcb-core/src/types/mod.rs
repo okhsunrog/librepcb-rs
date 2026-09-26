@@ -26,7 +26,7 @@ mod point;
 mod ratio;
 mod signalrole;
 mod simplestring;
-mod string_newtype;
+pub(crate) mod string_newtype;
 mod stroketextspacing;
 mod tag;
 mod uuid;
