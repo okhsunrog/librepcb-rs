@@ -139,6 +139,33 @@ stated otherwise. Entries are grouped by module.
   top-level iteration.
 - **`Toolbox::incrementNumberInString()`** wraps on `i32` overflow (like the
   upstream release build of the Rust code, which panics in debug builds).
+- **Numeric sorting** (`toolbox::compare_numeric()`, upstream
+  `Toolbox::sortNumeric()`): ICU4X's collator for the root locale (numeric
+  ordering, secondary strength = case-insensitive, punctuation not ignored)
+  instead of `QCollator` with the system ICU and the system locale. Same
+  order for typical designators (`R1 < R2 < R10`, `D1 < D1:1 < D2`, case
+  ignored); may differ for locales with tailored collation rules (e.g.
+  Lithuanian or Estonian letter order) and between ICU/Unicode versions.
+  Callers use a stable sort; upstream uses `std::sort`, whose order of
+  elements comparing equal (e.g. `r1` vs. `R1`) is unspecified. Affects the
+  row order of exported BOM and pick&place files in these edge cases.
+
+## export
+
+- **Gerber attribute values** are truncated to 65535 characters instead of
+  65535 UTF-16 code units. Only differs for (object attribute) values longer
+  than 65535 code units that contain characters outside the BMP; upstream
+  could even cut a surrogate pair in half there.
+- **Generation software version and dates** are passed in by the caller
+  (`GerberFileInfo`, `Timestamp`) instead of read from
+  `Application::getVersion()` and `QDateTime::currentDateTime()`; the
+  written format is `QDateTime::toString(Qt::ISODate)` (local time without
+  offset, UTC with `Z`, otherwise `+hh:mm`).
+- **NFKD normalization** of Gerber attributes and IPC-D-356A strings uses
+  `unicode-normalization` instead of Qt; results only differ between
+  Unicode versions (for characters new in one of them).
+- Invalid paths and failed arc computations are logged with `log` instead of
+  `qWarning()`/`qCritical()`; the output is the same.
 
 ## sqlite_database
 

@@ -4,7 +4,8 @@
 //!
 //! Not ported:
 //! - The Qt container helpers (`toSet()`, `sortedQSet()`, `sortNumeric()`,
-//!   ...): use the standard library instead.
+//!   ...): use the standard library instead, with [`compare_numeric()`] as
+//!   comparison for `sortNumeric()`.
 //! - The Qt graphics helpers (`shapeFromPath()`, `boundingRectFromRadius()`,
 //!   `adjustedBoundingRect()`) and the locale dependent `floatToString()` and
 //!   `prettyPrintLocale()`: they belong to the UI layer.
@@ -13,8 +14,12 @@
 //! (e.g. `kurbo`) because their exact floating point operations and rounding
 //! define the file content (arc centers, flattened arcs, ...).
 
+use std::cmp::Ordering;
 use std::sync::LazyLock;
 
+use icu_collator::options::{AlternateHandling, CollatorOptions, Strength};
+use icu_collator::preferences::CollationNumericOrdering;
+use icu_collator::{CollatorBorrowed, CollatorPreferences};
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
@@ -528,6 +533,32 @@ pub fn clean_user_input_string(
         ret = ret.trim().to_owned();
     }
     ret
+}
+
+/// The collator behind [`compare_numeric()`].
+static NUMERIC_COLLATOR: LazyLock<CollatorBorrowed<'static>> = LazyLock::new(|| {
+    let mut prefs = CollatorPreferences::default();
+    prefs.numeric_ordering = Some(CollationNumericOrdering::True);
+    let mut options = CollatorOptions::default();
+    // Secondary strength ignores case differences (like QCollator with
+    // Qt::CaseInsensitive), non-ignorable punctuation is QCollator's
+    // `ignorePunctuation == false`.
+    options.strength = Some(Strength::Secondary);
+    options.alternate_handling = Some(AlternateHandling::NonIgnorable);
+    CollatorBorrowed::try_new(prefs, options)
+        .expect("compiled collation data for the root locale is always available")
+});
+
+/// Compares two strings for sorting them "naturally" for humans: numbers
+/// are compared numerically (`R2` < `R10`), case is ignored.
+///
+/// This is the comparison of upstream `Toolbox::sortNumeric()` (a
+/// `QCollator` in numeric mode, case insensitive, punctuation not
+/// ignored), implemented with ICU4X's collator for the root locale instead
+/// of the system ICU with the system locale. Used to sort designators in
+/// exported files (BOM, pick&place), so it defines the file content.
+pub fn compare_numeric(lhs: &str, rhs: &str) -> Ordering {
+    NUMERIC_COLLATOR.compare(lhs, rhs)
 }
 
 #[cfg(test)]

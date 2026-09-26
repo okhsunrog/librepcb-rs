@@ -4,6 +4,7 @@
 
 mod algorithm;
 mod attribute;
+mod export;
 mod fileio;
 mod font;
 mod geometry;
