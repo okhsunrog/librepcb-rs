@@ -117,11 +117,6 @@ stated otherwise. Entries are grouped by module.
   `Toolbox::shapeFromPath()`, `Toolbox::floatToString()`,
   `Toolbox::prettyPrintLocale()`, `Transform::mapPx()`.
 
-## library
-
-- Not ported (UI specific, will live in the rendering layer):
-  `FootprintPainter`.
-
 ## utils
 
 - **Math parser** (user input of lengths/angles/ratios): evaluated with
@@ -305,6 +300,22 @@ differ between platforms/implementations:
   until `OutputJob` is ported (written back unchanged).
 - **`Component::duplicate_from()`**: a pin-signal-map entry referring to a
   non-existent signal becomes unconnected (upstream: undefined behavior).
+- **Package check geometry** (pad clearances, legend clearance, annular
+  rings, pad origin): upstream decides with `QPainterPath::intersects()` /
+  `contains()`, whose curve approximations (e.g. only 3 samples per quarter
+  circle of a pad corner in `QPathClipper`) change the results of real
+  libraries by tens of µm. These predicates, `QPainterPathStroker` (square
+  caps, bevel joins) and `Transform::mapPx()` are ported in
+  `utils::painter_path` and give the same results as upstream on all test
+  libraries, the official LibrePCB libraries and 12,000 random cases near
+  the thresholds. Remaining differences: the rotation of pads by other
+  angles than multiples of 90° uses `libm` instead of the platform's
+  `sin`/`cos`, and the union of multi-segment slot outlines
+  (`QPainterPath::united()`) is approximated by the outlines with winding
+  fill. Both can only matter if a distance is within about 1 nm of a check
+  threshold.
+- Not ported (UI specific, will live in the rendering layer):
+  `FootprintPainter`.
 
 ## network (crate librepcb-network)
 

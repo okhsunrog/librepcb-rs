@@ -136,6 +136,9 @@ pub enum Error {
     /// A geometry object failed validation.
     #[error(transparent)]
     Geometry(#[from] crate::geometry::Error),
+    /// A package attribute failed validation.
+    #[error(transparent)]
+    Package(#[from] crate::library::pkg::Error),
 }
 
 impl Error {
