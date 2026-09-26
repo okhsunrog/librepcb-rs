@@ -82,8 +82,10 @@ Round-trip test pattern (`tests/unittests/geometry/mod.rs`): serialize,
 deserialize, serialize again and compare the strings (`assert_roundtrip()`);
 plus a test deserializing the upstream test vector string. Real files are
 covered by `tests/geometry_roundtrip.rs` and `tests/sexpression_roundtrip.rs`,
-which re-serialize everything in `../LibrePCB/tests/data` and require
-byte-identical output. Add new object types there.
+which re-serialize everything in the upstream `tests/data` and require
+byte-identical output. Add new object types there. Library elements are
+covered by `tests/library_roundtrip.rs`, which opens and saves every
+current-format element (add new element types there).
 
 ## Errors and translations
 
@@ -164,9 +166,12 @@ byte-identical output. Add new object types there.
   Parametrized suites become loops over data tables.
 - Small tests of private helpers go into `#[cfg(test)] mod tests` in the
   source file.
-- Test data is never copied: reference `../LibrePCB/tests/data` relative to
-  `CARGO_MANIFEST_DIR`:
-  `Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../LibrePCB/tests/data")`.
+- Test data is never copied: reference it through the upstream checkout
+  location `LIBREPCB_UPSTREAM_DIR`, which `.cargo/config.toml` sets to
+  `../LibrePCB` (relative to the workspace root) unless the environment
+  variable is already set:
+  `Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data")`.
+  Don't hardcode paths relative to `CARGO_MANIFEST_DIR`.
 - Shared helpers: `tests/unittests/helpers.rs` (temp dirs, dummy process),
   `tests/unittests/geometry/mod.rs` (`parse()`, `assert_roundtrip()`).
 - Before finishing: `cargo fmt --check`,

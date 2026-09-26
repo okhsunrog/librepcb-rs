@@ -95,4 +95,27 @@ pub enum Error {
     /// Invalid color string (not translated upstream).
     #[error("Invalid color: '{0}'")]
     InvalidColor(String),
+    /// Invalid `ComponentPrefix` (see
+    /// [`crate::library::cmp::ComponentPrefix`]).
+    #[error("{}", tr!("ComponentPrefix", "Invalid component prefix: '{0}'", .0))]
+    InvalidComponentPrefix(String),
+    /// Invalid `ComponentSymbolVariantItemSuffix` (see
+    /// [`crate::library::cmp::ComponentSymbolVariantItemSuffix`]).
+    #[error(
+        "{}",
+        tr!(
+            "ComponentSymbolVariantItemSuffix",
+            "Invalid component symbol suffix: '{0}'",
+            .0
+        )
+    )]
+    InvalidComponentSymbolVariantItemSuffix(String),
+    /// Unknown component signal pin display type (not translated upstream,
+    /// see [`crate::library::cmp::CmpSigPinDisplayType`]).
+    #[error("Invalid component signal pin display type: '{0}'")]
+    InvalidCmpSigPinDisplayType(String),
+    /// Unknown allowed slots value of DRC settings (not translated upstream,
+    /// see [`crate::library::org::AllowedSlots`]).
+    #[error("Unknown allowed slots value: '{0}'")]
+    UnknownAllowedSlots(String),
 }

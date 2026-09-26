@@ -45,8 +45,10 @@ const EXCLUDED: &[(&str, &str)] = &[
     ),
 ];
 
+/// Upstream test data directory (see `LIBREPCB_UPSTREAM_DIR` in
+/// `.cargo/config.toml`).
 fn data_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../LibrePCB/tests/data")
+    Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data")
 }
 
 fn collect_files(dir: &Path, files: &mut Vec<PathBuf>) {
@@ -123,7 +125,7 @@ fn expectation(file: &Path, root: &Path) -> Option<Expectation> {
 fn roundtrip_test_data() {
     let root = data_dir()
         .canonicalize()
-        .expect("upstream test data not found (expected at ../LibrePCB/tests/data)");
+        .expect("upstream test data not found (set LIBREPCB_UPSTREAM_DIR)");
     let mut files = Vec::new();
     collect_files(&root, &mut files);
 

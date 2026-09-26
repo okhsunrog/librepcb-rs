@@ -226,6 +226,54 @@ differ between platforms/implementations:
   output directory (upstream `QDir::rmpath()` may also remove empty
   directories above it).
 
+## library, rule_check
+
+- **URLs** (library URL, resource URLs, organization and PCB design rules
+  URLs) are stored verbatim as strings. Upstream parses them with
+  `QUrl(…, QUrl::StrictMode)` and writes `toString(QUrl::PrettyDecoded)`
+  (library, organization: an empty string if the URL is invalid). Files
+  written by upstream are always normalized, so they round-trip
+  identically; a hand-edited, non-normalized or invalid URL is written back
+  unchanged instead of being normalized or cleared. **File output can
+  differ** in that case.
+- **Old file formats**: elements in a file format older than the current
+  one are rejected (`Error::MigrationRequired`) since the file format
+  migrations are not ported yet. Upstream upgrades them when opening.
+- **Title case check** (`is_title_case()`, `title_case_fixed_name()`):
+  "lowercase letter" is general category Ll (upstream `QChar::isLetter() &&
+  isLower()` on UTF-16 code units, identical for BMP names). The fixed name
+  converts a letter only if it has a single-character uppercase mapping
+  (Rust `char::to_uppercase()`), like `QChar::toUpper()`; results can differ
+  only where the Unicode versions of Rust and Qt differ.
+- **Pin names in "Overlapping pins: …"** are sorted by natural order
+  (`alphanumeric-sort`, case-insensitive), upstream by `QCollator` in numeric
+  mode (ICU). Both order digit sequences numerically ("A2" < "A10"); they
+  can differ in the relative order of punctuation characters (pin names are
+  circuit identifiers, i.e. ASCII letters, digits and `-._+/!?&@#$()`).
+- **Message order**: the overlapping pins messages are emitted in order of
+  the first pin of each position (upstream: `QHash` iteration order, i.e.
+  unspecified). `librepcb-cli` sorts the messages, so its output is not
+  affected.
+- **Image check** (port of `Image::tryLoad()`): PNG and JPEG files are
+  decoded with the `image` crate (only the format given by the file
+  extension is tried, like `QImage::loadFromData()` with a format), SVG
+  files are parsed with `usvg` and must have a default size of at least 1×1
+  pixels (rounded) like with `QSvgRenderer`. Files which one decoder accepts
+  and the other rejects (e.g. truncated or exotic PNG/JPEG variants, SVGs
+  that `usvg` cannot parse) give different results; the error details in
+  the message description are not the Qt texts. Like upstream, empty image
+  files are reported as read error ("Failed to read image file").
+- **DRC settings sources** (`BoardDesignRuleCheckSettings`, currently in
+  `library::org`) keep their insertion order; upstream stores them in a
+  `std::unordered_set` and writes multiple sources in unspecified order.
+  Sources are always empty in organizations.
+- **`Organization::duplicate_from()`** copies the output jobs with new UUIDs;
+  upstream clears the job lists before iterating over them and thus drops
+  all jobs of the duplicate. Output jobs are kept as raw S-expression nodes
+  until `OutputJob` is ported (written back unchanged).
+- **`Component::duplicate_from()`**: a pin-signal-map entry referring to a
+  non-existent signal becomes unconnected (upstream: undefined behavior).
+
 ## network (crate librepcb-network)
 
 - Async (tokio/reqwest); progress is a `watch` channel, so intermediate

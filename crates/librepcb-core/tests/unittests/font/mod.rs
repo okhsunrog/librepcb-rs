@@ -11,8 +11,9 @@ use librepcb_core::types::{
     UnsignedLength, VAlign,
 };
 
+/// Upstream checkout (see `LIBREPCB_UPSTREAM_DIR` in `.cargo/config.toml`).
 fn upstream_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../LibrePCB")
+    PathBuf::from(env!("LIBREPCB_UPSTREAM_DIR"))
 }
 
 fn newstroke() -> Vec<u8> {
