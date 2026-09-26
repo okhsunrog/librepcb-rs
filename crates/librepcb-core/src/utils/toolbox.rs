@@ -1,11 +1,244 @@
-//! Port of parts of libs/librepcb/core/utils/toolbox.{h,cpp}:
-//! `decimalFixedPointToString()`, `decimalFixedPointFromString()` and
-//! `cleanUserInputString()`.
+//! Port of libs/librepcb/core/utils/toolbox.{h,cpp} (plus
+//! `increment_number_in_string()` of libs/librepcb/rust-core/src/toolbox.rs,
+//! which upstream calls via FFI).
+//!
+//! Not ported:
+//! - The Qt container helpers (`toSet()`, `sortedQSet()`, `sortNumeric()`,
+//!   ...): use the standard library instead.
+//! - The Qt graphics helpers (`shapeFromPath()`, `boundingRectFromRadius()`,
+//!   `adjustedBoundingRect()`) and the locale dependent `floatToString()` and
+//!   `prettyPrintLocale()`: they belong to the UI layer.
+//!
+//! The geometry functions are hand-written instead of using a geometry crate
+//! (e.g. `kurbo`) because their exact floating point operations and rounding
+//! define the file content (arc centers, flattened arcs, ...).
 
+use std::sync::LazyLock;
+
+use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
+use super::math;
 use super::unicode::{digit_value, trimmed, truncate_utf16};
-use crate::types::Error;
+use crate::types::{Angle, Error, Length, Point, UnsignedLength};
+
+/// Returns whether a text with the given rotation would be upside down
+/// (i.e. the rotation mapped to ]-180°..180°] is not within ]-90°..90°]).
+pub fn is_text_upside_down(rotation: Angle) -> bool {
+    let mapped180 = rotation.mapped_to_180deg();
+    (mapped180 <= -Angle::DEG90) || (mapped180 > Angle::DEG90)
+}
+
+/// Returns the radius of an arc given by start point, end point and angle.
+///
+/// The radius is negative for clockwise arcs. Returns `None` if the input
+/// is a straight line or the radius is too large.
+pub fn arc_radius(p1: Point, p2: Point, angle: Angle) -> Option<Length> {
+    let angle_mapped = angle.mapped_to_180deg();
+    if (angle_mapped == Angle::DEG0) || (p1 == p2) {
+        return None; // Given input is a straight line.
+    }
+    let delta = p2 - p1;
+    let r = math::arc_radius(
+        delta.x.to_nm() as f64,
+        delta.y.to_nm() as f64,
+        angle_mapped.to_deg(),
+    );
+    Length::try_from_nm_f64(r) // `None` for too large radius.
+}
+
+/// Returns the center of an arc given by start point, end point and angle.
+///
+/// Returns `None` if the input is a straight line or the center is too far
+/// away (i.e. it is practically a straight line).
+pub fn arc_center(p1: Point, p2: Point, angle: Angle) -> Option<Point> {
+    let angle_mapped = angle.mapped_to_180deg();
+    if (angle_mapped == Angle::DEG0) || (p1 == p2) {
+        return None; // Given input is a straight line.
+    }
+    let delta = p2 - p1;
+    let (_, (x, y)) = math::arc_radius_and_center(
+        delta.x.to_nm() as f64,
+        delta.y.to_nm() as f64,
+        angle_mapped.to_deg(),
+    );
+    let x = Length::try_from_nm_f64(x + p1.x.to_nm() as f64)?;
+    let y = Length::try_from_nm_f64(y + p1.y.to_nm() as f64)?;
+    Some(Point::new(x, y))
+}
+
+/// Returns the angle of the arc from `p1` to `p2` around `center`, mapped to
+/// [0°..360°[ (0° if a point equals the center).
+pub fn arc_angle(p1: Point, p2: Point, center: Point) -> Angle {
+    let delta1 = p1 - center;
+    let delta2 = p2 - center;
+    if delta1.is_origin() || delta2.is_origin() {
+        return Angle::DEG0;
+    }
+    let angle1 = delta1.y.to_mm().atan2(delta1.x.to_mm());
+    let angle2 = delta2.y.to_mm().atan2(delta2.x.to_mm());
+    Angle::try_from_rad(angle2 - angle1)
+        .map(Angle::mapped_to_0_360deg)
+        .unwrap_or(Angle::DEG0)
+}
+
+/// Returns the angle of the arc from `start` to `end` passing through `mid`
+/// (approximation, not exact).
+pub fn arc_angle_from_3_points(start: Point, mid: Point, end: Point) -> Angle {
+    let (h, _) = shortest_distance_between_point_and_line(mid, start, end);
+    let c = (end - start).length();
+    let phi = 4.0 * ((2.0 * h.to_mm()) / c.to_mm()).atan();
+    match Angle::try_from_rad(phi) {
+        Some(angle) => {
+            let angle_mid = angle_between_points(start, mid);
+            let angle_end = angle_between_points(start, end);
+            let angle_delta = angle_mid - angle_end;
+            if angle_delta.mapped_to_180deg() < Angle::DEG0 {
+                angle
+            } else {
+                -angle
+            }
+        }
+        None => Angle::DEG0,
+    }
+}
+
+/// Returns the angle of the vector from `p1` to `p2`, mapped to [0°..360°[
+/// (0° if both points are equal).
+pub fn angle_between_points(p1: Point, p2: Point) -> Angle {
+    let delta = p2 - p1;
+    if delta.is_origin() {
+        return Angle::DEG0;
+    }
+    // The angle is always within [-180°..180°], i.e. valid.
+    Angle::from_deg(math::angle_to_point(
+        delta.x.to_nm() as f64,
+        delta.y.to_nm() as f64,
+    ))
+    .unwrap_or_default()
+    .mapped_to_0_360deg()
+}
+
+/// Returns the point on the line segment `l1`..`l2` which is nearest to `p`.
+pub fn nearest_point_on_line(p: Point, l1: Point, l2: Point) -> Point {
+    let a = l2 - l1;
+    let b = p - l1;
+    let c = p - l2;
+    let d = (b.x.to_mm() * a.x.to_mm()) + (b.y.to_mm() * a.y.to_mm());
+    let e = (a.x.to_mm() * a.x.to_mm()) + (a.y.to_mm() * a.y.to_mm());
+    if a.is_origin() || b.is_origin() || (d <= 0.0) {
+        l1
+    } else if c.is_origin() || (e <= d) {
+        l2
+    } else {
+        // The result lies between l1 and l2, i.e. is always in range.
+        let offset = Point::from_mm(a.x.to_mm() * d / e, a.y.to_mm() * d / e).unwrap_or_default();
+        l1 + offset
+    }
+}
+
+/// Returns the shortest distance between `p` and the line segment
+/// `l1`..`l2`, together with the nearest point on the line.
+pub fn shortest_distance_between_point_and_line(
+    p: Point,
+    l1: Point,
+    l2: Point,
+) -> (UnsignedLength, Point) {
+    let nearest = nearest_point_on_line(p, l1, l2);
+    ((p - nearest).length(), nearest)
+}
+
+/// Copies a string while incrementing its contained number.
+///
+/// If the string contains numbers, the last one gets incremented, otherwise
+/// a `"1"` is appended. Useful to generate unique names like `"X1"`, `"X2"`.
+pub fn increment_number_in_string(s: &str) -> String {
+    static NUMBER: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"[0-9]+").expect("valid regex literal"));
+    if let Some(m) = NUMBER.find_iter(s).last()
+        && let Ok(num) = m.as_str().parse::<i32>()
+    {
+        // Wrapping like the upstream (release build) Rust code.
+        let mut ret = s.to_owned();
+        ret.replace_range(m.range(), &num.wrapping_add(1).to_string());
+        return ret;
+    }
+    format!("{s}1") // Fallback: just add a "1" at the end.
+}
+
+/// Expands number and letter ranges in a string, e.g. `"X1..3"` to `["X1",
+/// "X2", "X3"]` or `"0..1_A..B"` to `["0_A", "0_B", "1_A", "1_B"]`.
+///
+/// Signs are not considered part of numbers (`"X-1..3"` expands to `"X-1"`,
+/// `"X-2"`, `"X-3"`), descending ranges are allowed, and at most 4 ranges
+/// are expanded.
+pub fn expand_ranges_in_string(s: &str) -> Vec<String> {
+    static RANGE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?<num>(?<num_start>[0-9]+)\.\.(?<num_end>[0-9]+))|(?<char>(?<char_start>[a-zA-Z])\.\.(?<char_end>[a-zA-Z]))",
+        )
+        .expect("valid regex literal")
+    });
+    let mut replacements: Vec<(std::ops::Range<usize>, Vec<String>)> = Vec::new();
+    for caps in RANGE.captures_iter(s) {
+        let mut values: Vec<String> = Vec::new();
+        if let Some(num) = caps.name("num") {
+            let start = caps["num_start"].parse::<i32>();
+            let end = caps["num_end"].parse::<i32>();
+            if let (Ok(start), Ok(end)) = (start, end) {
+                values = if start > end {
+                    (end..=start).rev().map(|i| i.to_string()).collect()
+                } else {
+                    (start..=end).map(|i| i.to_string()).collect()
+                };
+            }
+            push_range(&mut replacements, num.range(), values);
+        } else if let Some(chars) = caps.name("char") {
+            let start = caps["char_start"].as_bytes()[0];
+            let end = caps["char_end"].as_bytes()[0];
+            let (lo, hi) = (start.min(end), start.max(end));
+            if (lo >= b'a' && hi <= b'z') || (lo >= b'A' && hi <= b'Z') {
+                values = (lo..=hi).map(|c| char::from(c).to_string()).collect();
+                if start > end {
+                    values.reverse();
+                }
+            }
+            push_range(&mut replacements, chars.range(), values);
+        }
+    }
+    expand_ranges(s, &replacements)
+}
+
+/// Adds a range replacement (max. 4 to avoid huge results).
+fn push_range(
+    replacements: &mut Vec<(std::ops::Range<usize>, Vec<String>)>,
+    range: std::ops::Range<usize>,
+    values: Vec<String>,
+) {
+    if !values.is_empty() && replacements.len() < 4 {
+        replacements.push((range, values));
+    }
+}
+
+fn expand_ranges(
+    input: &str,
+    replacements: &[(std::ops::Range<usize>, Vec<String>)],
+) -> Vec<String> {
+    let Some(((range, values), rest)) = replacements.split_first() else {
+        return vec![input.to_owned()];
+    };
+    // Later ranges are replaced first, so the byte offsets stay valid.
+    let tails = expand_ranges(input, rest);
+    let mut result = Vec::with_capacity(values.len() * tails.len());
+    for value in values {
+        for tail in &tails {
+            let mut s = tail.clone();
+            s.replace_range(range.clone(), value);
+            result.push(s);
+        }
+    }
+    result
+}
 
 /// Converts a fixed point decimal number to a string, e.g. `1234567` with
 /// `point_pos = 6` to `"1.234567"`.

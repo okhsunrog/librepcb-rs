@@ -133,6 +133,9 @@ pub enum Error {
     /// Invalid attribute type, unit or value.
     #[error(transparent)]
     Attribute(#[from] crate::attribute::Error),
+    /// A geometry object failed validation.
+    #[error(transparent)]
+    Geometry(#[from] crate::geometry::Error),
 }
 
 impl Error {
