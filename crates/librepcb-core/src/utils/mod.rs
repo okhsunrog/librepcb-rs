@@ -8,8 +8,8 @@
 //! - [`clipper_helpers`]: `utils/clipperhelpers.{h,cpp}` (polygon clipping
 //!   with the [`clipper`] crate).
 //! - [`tangent_path_joiner`]: port of `utils/tangentpathjoiner.{h,cpp}`.
-//! - [`painter_path`]: the `QPainterPath` bounding rectangle of paths, which
-//!   the stroke font needs.
+//! - [`painter_path`]: the `QPainterPath` of paths (for the canvas) and its
+//!   bounding rectangle, which the stroke font needs.
 //! - [`math_parser`]: evaluation of mathematical expressions in user input.
 //! - [`overline_markup_parser`]: overline markup (`!RESET`) in texts.
 //! - [`tag_matcher`]: selection of the best option by preferred tags.
