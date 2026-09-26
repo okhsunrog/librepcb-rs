@@ -130,6 +130,9 @@ pub enum Error {
     /// A value failed validation.
     #[error(transparent)]
     Value(#[from] crate::types::Error),
+    /// Invalid attribute type, unit or value.
+    #[error(transparent)]
+    Attribute(#[from] crate::attribute::Error),
 }
 
 impl Error {

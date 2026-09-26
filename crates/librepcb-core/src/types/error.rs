@@ -68,6 +68,9 @@ pub enum Error {
     /// Invalid `Tag`.
     #[error("{}", tr!("Tag", "Invalid tag: '{0}'", .0))]
     InvalidTag(String),
+    /// Invalid `AttributeKey` (see [`crate::attribute::AttributeKey`]).
+    #[error("{}", tr!("AttributeKey", "Invalid attribute key: '{0}'", .0))]
+    InvalidAttributeKey(String),
     /// Unknown layer identifier.
     #[error("{}", tr!("Layer", "Unknown layer: '{0}'", .0))]
     UnknownLayer(String),
