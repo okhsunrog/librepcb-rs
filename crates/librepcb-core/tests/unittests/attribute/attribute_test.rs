@@ -91,7 +91,7 @@ fn test_roundtrip_test_data() {
             check(child, count);
         }
     }
-    let data_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../LibrePCB/tests/data");
+    let data_dir = Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data");
     let mut files = Vec::new();
     collect(&data_dir, &mut files);
     let mut count = 0;

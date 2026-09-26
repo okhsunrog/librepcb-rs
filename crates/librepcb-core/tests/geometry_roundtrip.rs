@@ -20,8 +20,10 @@ use librepcb_core::serialization::{
 /// Upstream `LIBREPCB_FILE_FORMAT_VERSION`.
 const CURRENT_FILE_FORMAT: &str = "2";
 
+/// Upstream test data directory (see `LIBREPCB_UPSTREAM_DIR` in
+/// `.cargo/config.toml`).
 fn data_dir() -> PathBuf {
-    FsPath::new(env!("CARGO_MANIFEST_DIR")).join("../../../LibrePCB/tests/data")
+    FsPath::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data")
 }
 
 fn collect_files(dir: &FsPath, files: &mut Vec<PathBuf>) {
@@ -138,7 +140,7 @@ fn walk(
 fn geometry_roundtrip_test_data() {
     let root = data_dir()
         .canonicalize()
-        .expect("upstream test data not found (expected at ../LibrePCB/tests/data)");
+        .expect("upstream test data not found (set LIBREPCB_UPSTREAM_DIR)");
     let mut files = Vec::new();
     collect_files(&root, &mut files);
 

@@ -2,6 +2,7 @@
 //!
 //! Modules mirror the upstream directory layout:
 //!
+//! - [`application`]: the file format version.
 //! - [`types`]: basic value types (lengths, angles, points, UUIDs, versions,
 //!   validated string newtypes, the layer registry, ...).
 //! - [`serialization`]: the S-expression file format and the traits used to
@@ -16,13 +17,19 @@
 //!   directory locks, ZIP and CSV files.
 //! - [`system_info`]: user, host and process information.
 //! - [`sqlite_database`]: thin wrapper around SQLite (for the library index).
+//! - [`rule_check`]: messages of rule checks (library element check, ...).
+//! - [`library`]: libraries and library elements (categories, symbols,
+//!   components, devices, organizations).
 //! - [`utils`]: helpers from `core/utils` needed by the above.
 
 pub mod algorithm;
+pub mod application;
 pub mod attribute;
 pub mod fileio;
 pub mod font;
 pub mod geometry;
+pub mod library;
+pub mod rule_check;
 pub mod serialization;
 pub mod sqlite_database;
 pub mod system_info;

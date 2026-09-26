@@ -1,0 +1,9 @@
+# Location of the upstream LibrePCB (C++) checkout, whose test data
+# (`tests/data`) and test resources are used by the tests as
+# `env!("LIBREPCB_UPSTREAM_DIR")`.
+#
+# Defaults to a checkout next to this workspace. Override it by setting the
+# environment variable of the same name, e.g.
+# `LIBREPCB_UPSTREAM_DIR=/path/to/LibrePCB cargo test`.
+[env]
+LIBREPCB_UPSTREAM_DIR = { value = "../LibrePCB", relative = true }

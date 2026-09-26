@@ -281,8 +281,8 @@ fn test_parse_error_message() {
 
 #[test]
 fn test_parse_performance() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../LibrePCB/tests/data/projects/Nested Planes/boards/default/board.lp");
+    let path = Path::new(env!("LIBREPCB_UPSTREAM_DIR"))
+        .join("tests/data/projects/Nested Planes/boards/default/board.lp");
     let content = std::fs::read(&path).unwrap();
     let start = Instant::now();
     let n = 50; // Upstream uses 5000 loops (in release builds).

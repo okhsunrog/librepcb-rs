@@ -19,9 +19,10 @@ use tokio::task::JoinHandle;
 use wiremock::matchers::any;
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
-/// Returns the upstream test data directory.
+/// Returns the upstream test data directory (see `LIBREPCB_UPSTREAM_DIR` in
+/// `.cargo/config.toml`).
 pub fn data_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../LibrePCB/tests/data")
+    Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data")
 }
 
 /// Returns a `file://` URL for a file in the test data directory.
