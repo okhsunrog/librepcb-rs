@@ -1,0 +1,23 @@
+[package]
+name = "canvas-spike"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0.104"
+kurbo = "0.13.1"
+png = "0.18.1"
+pollster = "1.0.1"
+rstar = "0.13.0"
+slint = { version = "1.18.1", default-features = false, features = ["std", "backend-default", "accessibility", "compat-1-2", "renderer-femtovg", "renderer-femtovg-wgpu", "renderer-skia", "renderer-software", "software-renderer-path", "renderer-vello", "unstable-wgpu-29", "unstable-wgpu-30"] }
+tiny-skia = "0.12.0"
+vello29 = { version = "0.10", package = "vello" }
+vello30 = { git = "https://github.com/linebender/vello", rev = "a9f11bbe752c391a2e420657d65cbd1fc97f4fae", version = "0.10.0", package = "vello" }
+vello_cpu = { version = "0.2.0", features = ["multithreading"] }
+
+# Standalone: not part of the librepcb-rs workspace.
+[workspace]
+
+[build-dependencies]
+slint-build = "1.18.1"

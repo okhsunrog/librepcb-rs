@@ -1,0 +1,168 @@
+// Canvas spike UI. Coordinates in path commands are world micrometres,
+// relative to each group's tile origin (x, y).
+
+export struct PathGroup {
+    x: float,
+    y: float,
+    w: float,
+    h: float,
+    commands: string,
+    fill: color,
+    stroke: color,
+    stroke-width: float,
+}
+
+// Mode A1: static paths in world units, pan/zoom via a parent transform.
+component TransformScene inherits Rectangle {
+    in property <[PathGroup]> groups;
+    in property <float> zoom;
+    width: 1px;
+    height: 1px;
+    // transform-scale is rejected on a component's root element.
+    Rectangle {
+    width: 1px;
+    height: 1px;
+    transform-origin: { x: 0, y: 0 };
+    transform-scale: zoom;
+    for g in groups: Path {
+        x: g.x * 1px;
+        y: g.y * 1px;
+        width: g.w * 1px;
+        height: g.h * 1px;
+        fit: preserve;
+        commands: g.commands;
+        fill: g.fill;
+        stroke: g.stroke;
+        stroke-width: g.stroke-width * 1px;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+    }
+}
+
+// Mode A2: every Path maps its viewbox to screen geometry (works on the
+// software renderer, which has no transforms). Off-screen tiles are hidden.
+component ViewboxScene inherits Rectangle {
+    in property <[PathGroup]> groups;
+    in property <float> zoom;
+    in property <length> pan-x;
+    in property <length> pan-y;
+    for g in groups: Path {
+        property <length> sw: g.stroke-width * zoom * 1px;
+        x: pan-x + g.x * zoom * 1px - sw / 2;
+        y: pan-y + g.y * zoom * 1px - sw / 2;
+        width: max(g.w * zoom * 1px, 0.01px) + sw;
+        height: max(g.h * zoom * 1px, 0.01px) + sw;
+        visible: self.x < root.width && self.x + self.width > 0 && self.y < root.height && self.y + self.height > 0;
+        viewbox-x: 0;
+        viewbox-y: 0;
+        viewbox-width: max(g.w, 0.01);
+        viewbox-height: max(g.h, 0.01);
+        fit: fill;
+        commands: g.commands;
+        fill: g.fill;
+        stroke: g.stroke;
+        stroke-width: sw;
+        stroke-line-cap: round;
+        stroke-line-join: round;
+    }
+}
+
+export component CanvasWindow inherits Window {
+    preferred-width: 1600px;
+    preferred-height: 1000px;
+    title: "LibrePCB canvas spike";
+    background: #000000;
+
+    // 0 = Slint paths + transform, 1 = Slint paths + viewbox, 2 = image
+    in property <int> mode: 0;
+    in property <[PathGroup]> groups;
+    in property <[PathGroup]> overlay;
+    // px per world um; keep small so the first frame (before the fit) stays within
+    // the software renderer's i16 physical coordinate range.
+    in property <float> zoom: 0.001;
+    in property <length> pan-x;
+    in property <length> pan-y;
+    in property <image> raster;
+    in property <string> status;
+    in property <bool> cache-hint: false;
+
+    callback press(float, float);
+    callback drag(float, float);
+    callback release(float, float);
+    callback wheel(float, float, float);
+
+    if mode == 0: Rectangle {
+        cache-rendering-hint: root.cache-hint;
+        TransformScene {
+            x: root.pan-x;
+            y: root.pan-y;
+            zoom: root.zoom;
+            groups: root.groups;
+        }
+    }
+    if mode == 0: TransformScene {
+        x: root.pan-x;
+        y: root.pan-y;
+        zoom: root.zoom;
+        groups: root.overlay;
+    }
+    if mode == 1: ViewboxScene {
+        width: root.width;
+        height: root.height;
+        zoom: root.zoom;
+        pan-x: root.pan-x;
+        pan-y: root.pan-y;
+        groups: root.groups;
+    }
+    if mode == 1: ViewboxScene {
+        width: root.width;
+        height: root.height;
+        zoom: root.zoom;
+        pan-x: root.pan-x;
+        pan-y: root.pan-y;
+        groups: root.overlay;
+    }
+    if mode == 2: Image {
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+        source: root.raster;
+        image-fit: fill;
+    }
+    if mode == 2: ViewboxScene {
+        width: root.width;
+        height: root.height;
+        zoom: root.zoom;
+        pan-x: root.pan-x;
+        pan-y: root.pan-y;
+        groups: root.overlay;
+    }
+
+    Text {
+        x: 8px;
+        y: 8px;
+        text: root.status;
+        color: #ffff80;
+        font-size: 13px;
+    }
+
+    TouchArea {
+        pointer-event(ev) => {
+            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left {
+                root.press(self.mouse-x / 1px, self.mouse-y / 1px);
+            }
+            if ev.kind == PointerEventKind.up && ev.button == PointerEventButton.left {
+                root.release(self.mouse-x / 1px, self.mouse-y / 1px);
+            }
+        }
+        moved => {
+            root.drag(self.mouse-x / 1px, self.mouse-y / 1px);
+        }
+        scroll-event(ev) => {
+            root.wheel(self.mouse-x / 1px, self.mouse-y / 1px, ev.delta-y / 1px);
+            accept
+        }
+    }
+}
