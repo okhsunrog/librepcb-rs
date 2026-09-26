@@ -6,12 +6,17 @@
 //! [`u32`]/[`i32`]/[`i64`], `QDateTime` to [`chrono::DateTime<Utc>`] and
 //! `QColor` to [`Color`]. Like upstream, floating point numbers can only be
 //! deserialized (their serialization would not be exact).
+//!
+//! Numbers are parsed with [`str::parse()`] instead of `QString::toInt()`
+//! etc. (see COMPAT.md): the accepted set only differs for surrounding
+//! whitespace and non-finite or underflowing floats.
+
+use std::str::FromStr;
 
 use chrono::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 
 use super::{Error, FromSExpression, Result, SExpression, ToSExpression};
 use crate::types::Color;
-use crate::utils::unicode::{parse_f32, parse_f64, parse_i32, parse_i64, parse_u32};
 
 impl ToSExpression for str {
     fn to_sexpression(&self) -> SExpression {
@@ -32,7 +37,7 @@ impl FromSExpression for String {
 }
 
 macro_rules! impl_integer {
-    ($t:ty, $parse:ident, $err:ident) => {
+    ($t:ty, $err:ident) => {
         impl ToSExpression for $t {
             fn to_sexpression(&self) -> SExpression {
                 SExpression::token(self.to_string())
@@ -42,27 +47,33 @@ macro_rules! impl_integer {
         impl FromSExpression for $t {
             fn from_sexpression(node: &SExpression) -> Result<Self> {
                 let value = node.value()?;
-                $parse(value).ok_or_else(|| Error::$err(value.to_owned()))
+                value.parse().map_err(|_| Error::$err(value.to_owned()))
             }
         }
     };
 }
 
-impl_integer!(u32, parse_u32, InvalidUnsignedInteger);
-impl_integer!(i32, parse_i32, InvalidInteger);
-impl_integer!(i64, parse_i64, InvalidLongLong);
+impl_integer!(u32, InvalidUnsignedInteger);
+impl_integer!(i32, InvalidInteger);
+impl_integer!(i64, InvalidLongLong);
+
+/// Parses a finite floating point number (overflow to infinity is rejected
+/// like upstream; `inf`/`nan` are rejected too).
+fn parse_finite<T: FromStr + Into<f64> + Copy>(value: &str) -> Option<T> {
+    value.parse::<T>().ok().filter(|v| (*v).into().is_finite())
+}
 
 impl FromSExpression for f32 {
     fn from_sexpression(node: &SExpression) -> Result<Self> {
         let value = node.value()?;
-        parse_f32(value).ok_or_else(|| Error::InvalidFloat(value.to_owned()))
+        parse_finite(value).ok_or_else(|| Error::InvalidFloat(value.to_owned()))
     }
 }
 
 impl FromSExpression for f64 {
     fn from_sexpression(node: &SExpression) -> Result<Self> {
         let value = node.value()?;
-        parse_f64(value).ok_or_else(|| Error::InvalidDouble(value.to_owned()))
+        parse_finite(value).ok_or_else(|| Error::InvalidDouble(value.to_owned()))
     }
 }
 
@@ -174,6 +185,20 @@ mod tests {
         assert_eq!(i32::from_sexpression(&token("-1")).unwrap(), -1);
         assert!(i32::from_sexpression(&token("1.0")).is_err());
         assert_eq!(i64::MIN.to_sexpression(), token("-9223372036854775808"));
+        assert_eq!(i32::from_sexpression(&token("+42")).unwrap(), 42);
+        assert!(i32::from_sexpression(&token("2147483648")).is_err());
+        assert!(u32::from_sexpression(&token("-0")).is_err());
+    }
+
+    #[test]
+    fn floats() {
+        assert_eq!(f64::from_sexpression(&token("1e3")).unwrap(), 1000.0);
+        assert_eq!(f64::from_sexpression(&token("+.5")).unwrap(), 0.5);
+        assert!(f64::from_sexpression(&token("1e400")).is_err());
+        assert!(f64::from_sexpression(&token("inf")).is_err());
+        assert!(f64::from_sexpression(&token("1,5")).is_err());
+        assert!(f32::from_sexpression(&token("1e39")).is_err());
+        assert_eq!(f32::from_sexpression(&token("-1.5")).unwrap(), -1.5);
     }
 
     #[test]

@@ -109,7 +109,7 @@ fn poly_tree_with_hole() {
         .unwrap();
     assert_eq!(tree.total(), 2);
     assert!(tree.root().is_hole()); // Like upstream.
-    let outline = tree.get_first().unwrap();
+    let outline = tree.first().unwrap();
     assert!(!outline.is_hole());
     assert_eq!(
         outline.contour(),
@@ -122,8 +122,8 @@ fn poly_tree_with_hole() {
         hole.contour(),
         &path(&[(10, 10), (10, 20), (20, 20), (20, 10)])
     );
-    assert_eq!(outline.get_next(), Some(hole));
-    assert_eq!(hole.get_next(), None);
+    assert_eq!(outline.next(), Some(hole));
+    assert_eq!(hole.next(), None);
     assert_eq!(
         clipper::poly_tree_to_paths(&tree),
         [outline.contour().clone(), hole.contour().clone()]
@@ -266,7 +266,7 @@ fn std_sort_order_of_ties() {
     // compared by key only.
     let keys = [3, 1, 3, 2, 1, 3, 2, 2, 1, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3, 2];
     let mut v: Vec<(i32, usize)> = keys.iter().copied().zip(0..).collect();
-    clipper::stdsort::sort_by(&mut v, |a, b| a.0 < b.0);
+    clipper::std_sort::sort_by(&mut v, |a, b| a.0 < b.0);
     let order: Vec<usize> = v.iter().map(|x| x.1).collect();
     assert_eq!(
         order,

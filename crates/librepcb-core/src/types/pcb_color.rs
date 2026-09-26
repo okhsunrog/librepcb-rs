@@ -54,19 +54,18 @@ impl PcbColor {
     /// at the end.
     pub fn all() -> Vec<PcbColor> {
         let mut list = Self::ALL_UNSORTED.to_vec();
-        // Compare by UTF-16 code units like `QString`.
-        list.sort_by_cached_key(|c| c.name_tr().encode_utf16().collect::<Vec<u16>>());
+        list.sort_by_cached_key(|c| c.name_tr());
         list.push(Self::Other);
         list
     }
 
-    /// Returns the color with the given identifier.
-    pub fn get(id: &str) -> Result<Self, Error> {
+    /// Returns the color with the given identifier, if it exists (see also
+    /// [`FromStr`], which returns an error instead).
+    pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL_UNSORTED
             .into_iter()
             .chain([Self::Other])
             .find(|c| c.id() == id)
-            .ok_or_else(|| Error::UnknownPcbColor(id.to_owned()))
     }
 
     /// Returns the serialization identifier (lower_snake_case).
@@ -160,7 +159,7 @@ impl fmt::Display for PcbColor {
 impl FromStr for PcbColor {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Error> {
-        Self::get(s)
+        Self::from_id(s).ok_or_else(|| Error::UnknownPcbColor(s.to_owned()))
     }
 }
 
@@ -172,7 +171,7 @@ impl ToSExpression for PcbColor {
 
 impl FromSExpression for PcbColor {
     fn from_sexpression(node: &SExpression) -> serialization::Result<Self> {
-        Ok(Self::get(node.value()?)?)
+        Ok(node.value()?.parse()?)
     }
 }
 
@@ -190,7 +189,7 @@ impl FromSExpression for Option<PcbColor> {
     fn from_sexpression(node: &SExpression) -> serialization::Result<Self> {
         match node.value()? {
             "none" => Ok(None),
-            id => Ok(Some(PcbColor::get(id)?)),
+            id => Ok(Some(id.parse()?)),
         }
     }
 }

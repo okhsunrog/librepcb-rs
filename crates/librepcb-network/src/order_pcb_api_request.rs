@@ -11,6 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::watch;
 
+use crate::api_endpoint::parse_object;
 use crate::error::{Error, Result};
 use crate::network_access_manager::NetworkAccessManager;
 use crate::network_request::{NetworkRequest, Progress, format_file_size};
@@ -84,7 +85,7 @@ impl OrderPcbApiRequest {
             .send(nam)
             .await?;
         log_json(&reply.data);
-        let obj = parse_object(&reply.data)?;
+        let obj = parse_object(&reply.data).ok_or(Error::InvalidOrderJson)?;
         let url = |key| {
             obj.get(key)
                 .and_then(Value::as_str)
@@ -162,7 +163,7 @@ impl OrderPcbApiRequest {
             None => request.send(nam).await,
         }?;
         log_json(&reply.data);
-        let obj = parse_object(&reply.data)?;
+        let obj = parse_object(&reply.data).ok_or(Error::InvalidOrderJson)?;
         let redirect_url = obj
             .get("redirect_url")
             .and_then(Value::as_str)
@@ -176,11 +177,4 @@ impl OrderPcbApiRequest {
 fn log_json(data: &[u8]) {
     let text = String::from_utf8_lossy(&data[..data.len().min(500)]).replace('\n', " ");
     log::debug!("Received JSON: {text}");
-}
-
-fn parse_object(data: &[u8]) -> Result<serde_json::Map<String, Value>> {
-    match serde_json::from_slice(data) {
-        Ok(Value::Object(obj)) if !obj.is_empty() => Ok(obj),
-        _ => Err(Error::InvalidOrderJson),
-    }
 }

@@ -158,7 +158,7 @@ fn test_from_rad() {
         }
     }
     assert!(Angle::from_rad(f64::NAN).is_err());
-    assert_eq!(Angle::try_from_rad(f64::INFINITY), None);
+    assert!(Angle::from_rad(f64::INFINITY).is_err());
 }
 
 /// Ported from the upstream Rust unit tests (rust-core/src/types/angle.rs).

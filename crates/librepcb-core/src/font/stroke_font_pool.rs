@@ -16,6 +16,9 @@ pub struct StrokeFontPool {
     fonts: HashMap<String, StrokeFont>,
 }
 
+// Shared by all threads rendering stroke texts (fonts are loaded lazily).
+static_assertions::assert_impl_all!(StrokeFontPool: Send, Sync);
+
 impl StrokeFontPool {
     /// Creates an empty pool.
     pub fn new() -> Self {

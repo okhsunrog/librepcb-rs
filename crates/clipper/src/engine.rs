@@ -10,9 +10,10 @@
 
 use std::collections::BinaryHeap;
 
-use crate::polytree::{NodeData, NodeId, PolyTree};
+use crate::poly_tree::{NodeData, NodeId, PolyTree};
 use crate::{
-    ClipType, Error, IntPoint, IntRect, Path, Paths, PolyFillType, PolyType, Result, round, stdsort,
+    ClipType, Error, IntPoint, IntRect, Path, Paths, PolyFillType, PolyType, Result, round,
+    std_sort,
 };
 
 const HORIZONTAL: f64 = -1.0E+40;
@@ -1222,7 +1223,7 @@ impl Clipper {
         if self.minima_list.is_empty() {
             return; // Ie nothing to process.
         }
-        stdsort::sort_by(&mut self.minima_list, |lm1, lm2| lm2.y < lm1.y);
+        std_sort::sort_by(&mut self.minima_list, |lm1, lm2| lm2.y < lm1.y);
 
         self.scanbeam.clear();
         // Reset all edges.
@@ -2918,7 +2919,7 @@ impl Clipper {
         // crucial that intersections are made only between adjacent edges,
         // so to ensure this the order of intersections may need adjusting.
         self.copy_ael_to_sel();
-        stdsort::sort_by(&mut self.intersect_list, |node1, node2| {
+        std_sort::sort_by(&mut self.intersect_list, |node1, node2| {
             node2.pt.y < node1.pt.y
         });
         let cnt = self.intersect_list.len();

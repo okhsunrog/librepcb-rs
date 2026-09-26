@@ -45,11 +45,13 @@ impl<P: KeyValueMapPolicy> SerializableKeyValueMap<P> {
     pub fn deserialize(node: &SExpression) -> Result<Self> {
         let mut values = BTreeMap::new();
         for child in node.children_named(P::TAG_NAME) {
-            let (key, value) = if child.get_child("@0")?.is_list() {
-                let key = child.get_child(&format!("{}/@0", P::KEY_NAME))?.value()?;
-                (key.to_owned(), child.get_child("@1")?)
+            let (key, value) = if child.required_child("@0")?.is_list() {
+                let key = child
+                    .required_child(&format!("{}/@0", P::KEY_NAME))?
+                    .value()?;
+                (key.to_owned(), child.required_child("@1")?)
             } else {
-                (String::new(), child.get_child("@0")?)
+                (String::new(), child.required_child("@0")?)
             };
             if values.contains_key(&key) {
                 return Err(Error::DuplicateKey(key));
@@ -85,7 +87,7 @@ impl<P: KeyValueMapPolicy> SerializableKeyValueMap<P> {
     }
 
     /// Returns the value for `key`, if any.
-    pub fn try_get(&self, key: &str) -> Option<&P::Value> {
+    pub fn get(&self, key: &str) -> Option<&P::Value> {
         self.values.get(key)
     }
 

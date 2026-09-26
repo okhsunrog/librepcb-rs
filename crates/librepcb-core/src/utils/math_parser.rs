@@ -49,25 +49,26 @@ type UnaryFunction = fn(f64) -> f64;
 type BinaryFunction = fn(f64, f64) -> f64;
 type VariadicFunction = fn(&[f64]) -> f64;
 
-/// Unary functions of muparser.
+/// Unary functions of muparser (transcendental functions from [`libm`] for
+/// cross-platform determinism).
 const UNARY_FUNCTIONS: &[(&str, UnaryFunction)] = &[
-    ("sin", f64::sin),
-    ("cos", f64::cos),
-    ("tan", f64::tan),
-    ("asin", f64::asin),
-    ("acos", f64::acos),
-    ("atan", f64::atan),
-    ("sinh", f64::sinh),
-    ("cosh", f64::cosh),
-    ("tanh", f64::tanh),
-    ("asinh", f64::asinh),
-    ("acosh", f64::acosh),
-    ("atanh", f64::atanh),
-    ("log2", f64::log2),
-    ("log10", f64::log10),
-    ("log", f64::ln),
-    ("ln", f64::ln),
-    ("exp", f64::exp),
+    ("sin", libm::sin),
+    ("cos", libm::cos),
+    ("tan", libm::tan),
+    ("asin", libm::asin),
+    ("acos", libm::acos),
+    ("atan", libm::atan),
+    ("sinh", libm::sinh),
+    ("cosh", libm::cosh),
+    ("tanh", libm::tanh),
+    ("asinh", libm::asinh),
+    ("acosh", libm::acosh),
+    ("atanh", libm::atanh),
+    ("log2", libm::log2),
+    ("log10", libm::log10),
+    ("log", libm::log),
+    ("ln", libm::log),
+    ("exp", libm::exp),
     ("sqrt", f64::sqrt),
     ("sign", sign),
     ("rint", rint),
@@ -85,7 +86,7 @@ const VARIADIC_FUNCTIONS: &[(&str, VariadicFunction)] = &[
 ];
 
 /// Binary functions of muparser.
-const BINARY_FUNCTIONS: &[(&str, BinaryFunction)] = &[("atan2", f64::atan2)];
+const BINARY_FUNCTIONS: &[(&str, BinaryFunction)] = &[("atan2", libm::atan2)];
 
 /// Constants of muparser.
 const CONSTANTS: &[(&str, f64)] = &[("_pi", PI), ("_e", E)];

@@ -96,12 +96,6 @@ impl Length {
         }
     }
 
-    /// Rounds the length in place, see [`mapped_to_grid()`](Self::mapped_to_grid).
-    pub fn map_to_grid(&mut self, grid_interval: Length) -> &mut Self {
-        *self = self.mapped_to_grid(grid_interval);
-        self
-    }
-
     /// Returns the length rounded down to the next multiple of `multiple`
     /// (towards negative infinity). A zero interval returns `self`.
     pub fn rounded_down_to(self, multiple: Length) -> Self {
@@ -146,27 +140,23 @@ impl Length {
     /// Returns the length scaled by `factor` (rounded to nanometers; may lose
     /// precision). Returns zero if the result is out of range, like upstream.
     pub fn scaled(self, factor: f64) -> Self {
-        Self::try_from_nm_f64(self.0 as f64 * factor).unwrap_or_default()
+        Self::from_nm_f64(self.0 as f64 * factor).unwrap_or_default()
     }
 
     /// Converts floating point nanometers (rounded to the nearest integer,
-    /// halfway cases away from zero). Returns `None` for NaN or values out
-    /// of range.
-    pub fn try_from_nm_f64(nanometers: f64) -> Option<Self> {
+    /// halfway cases away from zero). Fails for NaN or values out of range.
+    pub fn from_nm_f64(nanometers: f64) -> Result<Self, Error> {
         let rounded = nanometers.round();
         // Note: `i64::MAX as f64` is 2^63, which saturates to `i64::MAX`.
-        ((rounded >= i64::MIN as f64) && (rounded <= i64::MAX as f64))
-            .then_some(Self(rounded as i64))
-    }
-
-    /// Same as [`try_from_nm_f64()`](Self::try_from_nm_f64), but returns a
-    /// range error.
-    pub fn from_nm_f64(nanometers: f64) -> Result<Self, Error> {
-        Self::try_from_nm_f64(nanometers).ok_or(Error::Range {
-            value: nanometers,
-            min: i64::MIN,
-            max: i64::MAX,
-        })
+        if (rounded >= i64::MIN as f64) && (rounded <= i64::MAX as f64) {
+            Ok(Self(rounded as i64))
+        } else {
+            Err(Error::Range {
+                value: nanometers,
+                min: i64::MIN,
+                max: i64::MAX,
+            })
+        }
     }
 
     /// Converts floating point millimeters (may lose precision).
@@ -239,24 +229,10 @@ impl Neg for Length {
     }
 }
 
-impl Mul for Length {
-    type Output = Self;
-    fn mul(self, rhs: Self) -> Self {
-        Self(self.0 * rhs.0)
-    }
-}
-
 impl Mul<i64> for Length {
     type Output = Self;
     fn mul(self, rhs: i64) -> Self {
         Self(self.0 * rhs)
-    }
-}
-
-impl Div for Length {
-    type Output = Self;
-    fn div(self, rhs: Self) -> Self {
-        Self(self.0 / rhs.0)
     }
 }
 
@@ -286,39 +262,15 @@ impl SubAssign for Length {
     }
 }
 
-impl MulAssign for Length {
-    fn mul_assign(&mut self, rhs: Self) {
-        self.0 *= rhs.0;
-    }
-}
-
 impl MulAssign<i64> for Length {
     fn mul_assign(&mut self, rhs: i64) {
         self.0 *= rhs;
     }
 }
 
-impl DivAssign for Length {
-    fn div_assign(&mut self, rhs: Self) {
-        self.0 /= rhs.0;
-    }
-}
-
 impl DivAssign<i64> for Length {
     fn div_assign(&mut self, rhs: i64) {
         self.0 /= rhs;
-    }
-}
-
-impl PartialEq<i64> for Length {
-    fn eq(&self, other: &i64) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialOrd<i64> for Length {
-    fn partial_cmp(&self, other: &i64) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(other)
     }
 }
 
@@ -412,18 +364,6 @@ macro_rules! constrained_length {
             }
         }
 
-        impl PartialEq<i64> for $name {
-            fn eq(&self, other: &i64) -> bool {
-                self.0 == *other
-            }
-        }
-
-        impl PartialOrd<i64> for $name {
-            fn partial_cmp(&self, other: &i64) -> Option<std::cmp::Ordering> {
-                self.0.partial_cmp(other)
-            }
-        }
-
         impl Add<Length> for $name {
             type Output = Length;
             fn add(self, rhs: Length) -> Length {
@@ -490,14 +430,14 @@ macro_rules! constrained_length {
 constrained_length!(
     /// A [`Length`] which is guaranteed to be >= 0.
     UnsignedLength,
-    |l| l >= 0,
+    |l| l >= Length::ZERO,
     Error::NegativeLength
 );
 
 constrained_length!(
     /// A [`Length`] which is guaranteed to be > 0.
     PositiveLength,
-    |l| l > 0,
+    |l| l > Length::ZERO,
     Error::NonPositiveLength
 );
 

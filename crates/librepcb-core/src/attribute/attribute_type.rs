@@ -272,10 +272,7 @@ impl AttributeType {
     ///
     /// The first unit (in ascending order) with a matching suffix wins; the
     /// remaining value is trimmed. Returns `None` if no suffix matches.
-    pub fn try_extract_unit_from_value(
-        self,
-        value: &str,
-    ) -> Option<(&str, &'static AttributeUnit)> {
+    pub fn extract_unit_from_value(self, value: &str) -> Option<(&str, &'static AttributeUnit)> {
         self.available_units().iter().find_map(|unit| {
             unit.user_input_suffixes
                 .iter()
@@ -416,14 +413,14 @@ mod tests {
     #[test]
     fn extract_unit() {
         let t = AttributeType::Resistance;
-        let (value, unit) = t.try_extract_unit_from_value("4.7 k").unwrap();
+        let (value, unit) = t.extract_unit_from_value("4.7 k").unwrap();
         assert_eq!((value, unit.name()), ("4.7", "kiloohm"));
-        let (value, unit) = t.try_extract_unit_from_value("10meg").unwrap();
+        let (value, unit) = t.extract_unit_from_value("10meg").unwrap();
         assert_eq!((value, unit.name()), ("10", "megaohm"));
-        assert!(t.try_extract_unit_from_value("100").is_none());
+        assert!(t.extract_unit_from_value("100").is_none());
         assert!(
             AttributeType::String
-                .try_extract_unit_from_value("1k")
+                .extract_unit_from_value("1k")
                 .is_none()
         );
     }

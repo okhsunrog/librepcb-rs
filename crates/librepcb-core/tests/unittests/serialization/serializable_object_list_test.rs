@@ -11,7 +11,7 @@ use librepcb_core::serialization::{
 };
 use librepcb_core::types::Uuid;
 
-use super::serializableobjectmock::{
+use super::serializable_object_mock::{
     MinimalSerializableObjectMock as MinimalMock, SerializableObjectMock as Mock,
 };
 
@@ -161,18 +161,21 @@ fn test_contains_name() {
 }
 
 #[test]
-fn test_get_by_uuid_and_name() {
+fn test_lookup_by_uuid_and_name() {
     let m = mocks();
     let l = list(&[&m[0], &m[1], &m[2]]);
-    assert_eq!(l.get_by_uuid(&m[1].uuid), Ok(&m[1]));
-    assert_eq!(l.get_by_name("pcb"), Ok(&m[2]));
+    assert_eq!(l.by_uuid(&m[1].uuid), Some(&m[1]));
+    assert_eq!(l.required_by_uuid(&m[1].uuid), Ok(&m[1]));
+    assert_eq!(l.by_name("PCB", false), Some(&m[2]));
+    assert_eq!(l.required_by_name("pcb"), Ok(&m[2]));
     let uuid = Uuid::new_random();
+    assert_eq!(l.by_uuid(&uuid), None);
     assert_eq!(
-        l.get_by_uuid(&uuid).unwrap_err().to_string(),
+        l.required_by_uuid(&uuid).unwrap_err().to_string(),
         format!("There is no element of type \"test\" with the UUID \"{uuid}\" in the list.")
     );
     assert_eq!(
-        l.get_by_name("PCB").unwrap_err().to_string(),
+        l.required_by_name("PCB").unwrap_err().to_string(),
         "There is no element of type \"test\" with the name \"PCB\" in the list."
     );
 }

@@ -77,7 +77,7 @@ impl Point {
 
     /// Returns whether this is the origin.
     pub fn is_origin(self) -> bool {
-        self.x == 0 && self.y == 0
+        self == Self::ORIGIN
     }
 
     /// Returns the coordinates in millimeters (may lose precision).
@@ -107,12 +107,6 @@ impl Point {
             self.x.mapped_to_grid(*grid_interval),
             self.y.mapped_to_grid(*grid_interval),
         )
-    }
-
-    /// Maps the point to the grid in place.
-    pub fn map_to_grid(&mut self, grid_interval: PositiveLength) -> &mut Self {
-        *self = self.mapped_to_grid(grid_interval);
-        self
     }
 
     /// Returns whether the point lies on the grid.
@@ -149,24 +143,12 @@ impl Point {
         }
     }
 
-    /// Rotates the point in place, see [`rotated()`](Self::rotated).
-    pub fn rotate(&mut self, angle: Angle, center: Point) -> &mut Self {
-        *self = self.rotated(angle, center);
-        self
-    }
-
     /// Returns the point mirrored around `center`.
     pub fn mirrored(self, orientation: Orientation, center: Point) -> Self {
         match orientation {
             Orientation::Horizontal => Self::new(self.x + (center.x - self.x) * 2, self.y),
             Orientation::Vertical => Self::new(self.x, self.y + (center.y - self.y) * 2),
         }
-    }
-
-    /// Mirrors the point in place, see [`mirrored()`](Self::mirrored).
-    pub fn mirror(&mut self, orientation: Orientation, center: Point) -> &mut Self {
-        *self = self.mirrored(orientation, center);
-        self
     }
 }
 
@@ -205,24 +187,10 @@ impl Neg for Point {
     }
 }
 
-impl Mul<Length> for Point {
-    type Output = Self;
-    fn mul(self, rhs: Length) -> Self {
-        Self::new(self.x * rhs, self.y * rhs)
-    }
-}
-
 impl Mul<i64> for Point {
     type Output = Self;
     fn mul(self, rhs: i64) -> Self {
         Self::new(self.x * rhs, self.y * rhs)
-    }
-}
-
-impl Div<Length> for Point {
-    type Output = Self;
-    fn div(self, rhs: Length) -> Self {
-        Self::new(self.x / rhs, self.y / rhs)
     }
 }
 
@@ -252,23 +220,9 @@ impl SubAssign for Point {
     }
 }
 
-impl MulAssign for Point {
-    /// Component-wise multiplication.
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = Self::new(self.x * rhs.x, self.y * rhs.y);
-    }
-}
-
 impl MulAssign<i64> for Point {
     fn mul_assign(&mut self, rhs: i64) {
         *self = *self * rhs;
-    }
-}
-
-impl DivAssign for Point {
-    /// Component-wise division.
-    fn div_assign(&mut self, rhs: Self) {
-        *self = Self::new(self.x / rhs.x, self.y / rhs.y);
     }
 }
 

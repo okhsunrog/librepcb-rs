@@ -88,11 +88,11 @@ impl SerializeObject for TraceAnchor {
 
 impl DeserializeObject for TraceAnchor {
     fn deserialize(node: &SExpression) -> serialization::Result<Self> {
-        if let Some(junction) = node.try_get_child("junction") {
+        if let Some(junction) = node.child("junction") {
             Ok(Self::Junction(junction.child_value("@0")?))
-        } else if let Some(via) = node.try_get_child("via") {
+        } else if let Some(via) = node.child("via") {
             Ok(Self::Via(via.child_value("@0")?))
-        } else if let Some(device) = node.try_get_child("device") {
+        } else if let Some(device) = node.child("device") {
             Ok(Self::FootprintPad {
                 device: device.child_value("@0")?,
                 pad: node.child_value("pad/@0")?,
@@ -213,8 +213,8 @@ impl DeserializeObject for Trace {
             node.child_value("@0")?,
             node.child_value("layer/@0")?,
             node.child_value("width/@0")?,
-            TraceAnchor::deserialize(node.get_child("from")?)?,
-            TraceAnchor::deserialize(node.get_child("to")?)?,
+            TraceAnchor::deserialize(node.required_child("from")?)?,
+            TraceAnchor::deserialize(node.required_child("to")?)?,
         ))
     }
 }

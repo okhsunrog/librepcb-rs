@@ -80,7 +80,7 @@ fn test_roundtrip_test_data() {
         let Some(list) = node.as_list() else {
             return;
         };
-        if list.name() == "attribute" && node.try_get_child("type").is_some() {
+        if list.name() == "attribute" && node.child("type").is_some() {
             let attribute = Attribute::deserialize(node).unwrap();
             let mut root = List::new("attribute");
             attribute.serialize(&mut root);

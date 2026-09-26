@@ -46,7 +46,7 @@ impl SerializeObject for Vertex {
 impl DeserializeObject for Vertex {
     fn deserialize(node: &SExpression) -> serialization::Result<Self> {
         Ok(Self::new(
-            Point::deserialize(node.get_child("position")?)?,
+            Point::deserialize(node.required_child("position")?)?,
             node.child_value("angle/@0")?,
         ))
     }

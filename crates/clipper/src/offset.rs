@@ -1,6 +1,6 @@
 //! Port of the `ClipperOffset` class of clipper.cpp.
 
-use crate::polytree::{NodeId, PolyTree};
+use crate::poly_tree::{NodeId, PolyTree};
 use crate::{
     ClipType, Clipper, EndType, IntPoint, JoinType, Path, Paths, PolyFillType, PolyType, Result,
     orientation, reverse_path, round,
@@ -321,12 +321,12 @@ impl ClipperOffset {
             self.arc_tolerance
         };
         // See offset_triginometry2.svg in the documentation folder.
-        let mut steps = PI / (1.0 - y / delta.abs()).acos();
+        let mut steps = PI / libm::acos(1.0 - y / delta.abs());
         if steps > delta.abs() * PI {
             steps = delta.abs() * PI; // Ie excessive precision check.
         }
-        self.sin = (TWO_PI / steps).sin();
-        self.cos = (TWO_PI / steps).cos();
+        self.sin = libm::sin(TWO_PI / steps);
+        self.cos = libm::cos(TWO_PI / steps);
         self.steps_per_rad = steps / TWO_PI;
         if delta < 0.0 {
             self.sin = -self.sin;
@@ -513,7 +513,7 @@ impl ClipperOffset {
     fn do_square(&mut self, j: usize, k: usize) {
         let (nj, nk) = (self.normals[j], self.normals[k]);
         let src = self.src_poly[j];
-        let dx = (self.sin_a.atan2(nk.x * nj.x + nk.y * nj.y) / 4.0).tan();
+        let dx = libm::tan(libm::atan2(self.sin_a, nk.x * nj.x + nk.y * nj.y) / 4.0);
         self.dest_poly.push(IntPoint::new(
             round(src.x as f64 + self.delta * (nk.x - nk.y * dx)),
             round(src.y as f64 + self.delta * (nk.y + nk.x * dx)),
@@ -537,7 +537,7 @@ impl ClipperOffset {
     fn do_round(&mut self, j: usize, k: usize) {
         let (nj, nk) = (self.normals[j], self.normals[k]);
         let src = self.src_poly[j];
-        let a = self.sin_a.atan2(nk.x * nj.x + nk.y * nj.y);
+        let a = libm::atan2(self.sin_a, nk.x * nj.x + nk.y * nj.y);
         // Note: `(int)Round(...)` truncates to 32 bits like upstream.
         let steps = (round(self.steps_per_rad * a.abs()) as i32).max(1);
 

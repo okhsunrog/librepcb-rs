@@ -140,11 +140,11 @@ impl DeserializeObject for Image {
         Ok(Self {
             uuid: node.child_value("@0")?,
             file_name: node.child_value("file/@0")?,
-            position: Point::deserialize(node.get_child("position")?)?,
+            position: Point::deserialize(node.required_child("position")?)?,
             rotation: node.child_value("rotation/@0")?,
             width: node.child_value("width/@0")?,
             height: node.child_value("height/@0")?,
-            border_width: deserialize_border(node.get_child("border/@0")?)?,
+            border_width: deserialize_border(node.required_child("border/@0")?)?,
         })
     }
 }

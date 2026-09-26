@@ -82,7 +82,7 @@ impl OutputDirectoryWriter {
     /// logged); the writer is usable anyway.
     pub fn load_index(&mut self) -> bool {
         self.index.clear();
-        let success = match self.try_load_index() {
+        let success = match self.read_index() {
             Ok(()) => true,
             Err(e) => {
                 log::error!("{e}");
@@ -94,7 +94,7 @@ impl OutputDirectoryWriter {
         success
     }
 
-    fn try_load_index(&mut self) -> Result<()> {
+    fn read_index(&mut self) -> Result<()> {
         if self.index_file_path.is_existing_file() {
             let content = file_utils::read_file(&self.index_file_path)?;
             let content = String::from_utf8_lossy(&content);

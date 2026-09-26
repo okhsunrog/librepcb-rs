@@ -95,9 +95,9 @@ impl SerializeObject for NetLineAnchor {
 
 impl DeserializeObject for NetLineAnchor {
     fn deserialize(node: &SExpression) -> serialization::Result<Self> {
-        if let Some(junction) = node.try_get_child("junction/@0") {
+        if let Some(junction) = node.child("junction/@0") {
             let junction = serialization::FromSExpression::from_sexpression(junction)?;
-            if let Some(bus) = node.try_get_child("bus/@0") {
+            if let Some(bus) = node.child("bus/@0") {
                 Ok(Self::BusJunction {
                     segment: serialization::FromSExpression::from_sexpression(bus)?,
                     junction,
@@ -210,8 +210,8 @@ impl DeserializeObject for NetLine {
         Ok(Self::new(
             node.child_value("@0")?,
             node.child_value("width/@0")?,
-            NetLineAnchor::deserialize(node.get_child("from")?)?,
-            NetLineAnchor::deserialize(node.get_child("to")?)?,
+            NetLineAnchor::deserialize(node.required_child("from")?)?,
+            NetLineAnchor::deserialize(node.required_child("to")?)?,
         ))
     }
 }

@@ -5,6 +5,63 @@ Behavior differences of the Rust port compared to the C++ reference
 on Qt semantics that are not reproduced. File formats are unaffected unless
 stated otherwise. Entries are grouped by module.
 
+## General
+
+- **Whitespace**: `char::is_whitespace()` / `str::trim()` /
+  `str::split_whitespace()` replace `QChar::isSpace()` /
+  `QString::trimmed()` / `QString::simplified()`. Both use the same set
+  (Unicode White_Space = categories Zs, Zl, Zp plus `\t`..`\r` and U+0085),
+  so results are identical apart from Unicode version differences.
+- **String ordering** is `str` ordering (code points) instead of `QString`
+  ordering (UTF-16 code units). The two only differ when comparing
+  characters outside the Basic Multilingual Plane with U+E000..U+FFFF.
+  Affected: `SExpression`'s `Ord` impl, `PcbColor::all()` (sorted by
+  translated name), and the file lists noted under fileio below.
+- **Transcendental functions** (`sin`, `cos`, `tan`, `acos`, `atan`,
+  `atan2`, `hypot`, the math parser functions) come from the `libm` crate in
+  `librepcb-core` and `clipper`, so results are identical on all platforms.
+  Upstream calls the platform C library (glibc, MSVC CRT, ...) except for
+  the functions it routes through its own Rust code (`Point::rotated()`,
+  arc radius/center), which already use `libm`. `libm` differs from glibc
+  in the last bit for some inputs (1–18% of random inputs, depending on the
+  function); none of the test vectors captured with glibc/upstream (Clipper
+  golden vectors incl. round and square offsets, upstream arc flattening
+  and geometry tests, round-trip files) changed after rounding to integer
+  coordinates. A different result
+  would require an intermediate value within one ulp of a rounding
+  boundary. `sqrt` and basic arithmetic stay native (correctly rounded
+  everywhere). Exception: `^` in the math parser is evaluated by `evalexpr`
+  with `f64::powf()` (platform library).
+
+## types
+
+- **`ElementName` / `SimpleString` validity** is expressed natively: at most
+  70 characters (`ElementName` only), BMP characters only, no characters of
+  general category Control, Format, Surrogate, Private Use or Unassigned.
+  This is exactly the set upstream accepts (`QString::length() <= 70` and
+  `QChar::isPrint()` per UTF-16 code unit, which rejects surrogates).
+- **Decimal numbers in files** (`Length`, `Angle`, `Ratio`, ... via
+  `decimal_fixed_point_from_string()`): only ASCII digits are accepted.
+  Upstream uses `QChar::isDigit()` and also accepts other Unicode decimal
+  digits (e.g. Arabic-Indic `١.٥`), which it never writes.
+- **`Version`** numbers are parsed with `str::parse::<u32>()` instead of
+  `QString::toUInt()`: whitespace around a number (e.g. `"1. 2"`) is
+  rejected.
+
+## serialization
+
+- **Integers** (`u32`, `i32`, `i64` values) are parsed with `str::parse()`
+  instead of `QString::toUInt()`/`toInt()`/`toLongLong()`: surrounding
+  whitespace (only possible in quoted values like `" 42"`) is rejected.
+  Signs and leading zeros are accepted like upstream.
+- **Floating point values** (only used by importers) are parsed with
+  `str::parse()` and must be finite: `inf`/`nan` are rejected (upstream
+  accepts them), values that underflow to zero are accepted (upstream
+  rejects them), surrounding whitespace is rejected.
+- **Child paths** (`SExpression::child("@3")`) parse the index with
+  `str::parse::<usize>()` (no surrounding whitespace). Paths are given by
+  code, not by files.
+
 ## attribute
 
 - **Numeric attribute values** (`AttributeType::is_value_valid()`): checked
@@ -23,8 +80,8 @@ stated otherwise. Entries are grouped by module.
   corrupts the text; the port restarts the search behind the filtered value.
   Results without filter, or with a length-preserving filter, are identical.
 - **Whitespace** next to removed variables and around keys uses
-  `char::is_whitespace()` instead of `QChar::isSpace()` (same character set
-  for all practical purposes).
+  `char::is_whitespace()` instead of `QChar::isSpace()` (same character
+  set, see "General").
 
 ## algorithm
 
@@ -50,9 +107,7 @@ stated otherwise. Entries are grouped by module.
 - **FontoBene parsing** (`font::fontobene`) uses Rust number parsing and
   `str::trim()` instead of `QString::toDouble()`/`toUShort(16)` and
   `QString::trimmed()`: non-finite numbers (`inf`, `nan`) and `0x` prefixed
-  codepoints are rejected, and only Unicode whitespace (not other
-  `QChar::isSpace()` characters) is trimmed. Irrelevant for the bundled
-  fonts.
+  codepoints are rejected. Irrelevant for the bundled fonts.
 - **Fonts which fail to load** behave like an empty font with letter spacing
   0 and line spacing 9 (the FontoBene defaults). Upstream uses a
   default-constructed header whose spacings are uninitialized.

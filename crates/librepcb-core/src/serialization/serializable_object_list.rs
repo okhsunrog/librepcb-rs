@@ -178,29 +178,23 @@ impl<T: HasUuid, P: ListTagName> SerializableObjectList<T, P> {
         self.index_of_uuid(uuid).is_some()
     }
 
-    /// Returns the element with the given UUID, if any.
-    pub fn find_by_uuid(&self, uuid: &Uuid) -> Option<&T> {
+    /// Returns the element with the given UUID, if any (upstream `find()`).
+    pub fn by_uuid(&self, uuid: &Uuid) -> Option<&T> {
         self.objects.iter().find(|o| o.uuid() == *uuid)
     }
 
     /// Returns the element with the given UUID mutably, if any.
-    pub fn find_by_uuid_mut(&mut self, uuid: &Uuid) -> Option<&mut T> {
+    pub fn by_uuid_mut(&mut self, uuid: &Uuid) -> Option<&mut T> {
         self.objects.iter_mut().find(|o| o.uuid() == *uuid)
     }
 
-    /// Returns the element with the given UUID, or an error if not found.
-    pub fn get_by_uuid(&self, uuid: &Uuid) -> Result<&T> {
-        self.find_by_uuid(uuid)
-            .ok_or_else(|| Self::uuid_not_found(uuid))
-    }
-
-    /// Returns the element with the given UUID mutably, or an error if not
-    /// found.
-    pub fn get_by_uuid_mut(&mut self, uuid: &Uuid) -> Result<&mut T> {
-        self.objects
-            .iter_mut()
-            .find(|o| o.uuid() == *uuid)
-            .ok_or_else(|| Self::uuid_not_found(uuid))
+    /// Same as [`by_uuid()`](Self::by_uuid), but returns an error if not
+    /// found (upstream `get()`), e.g. for references in files.
+    pub fn required_by_uuid(&self, uuid: &Uuid) -> Result<&T> {
+        self.by_uuid(uuid).ok_or_else(|| Error::UuidNotFound {
+            tag: P::TAG_NAME,
+            uuid: uuid.to_string(),
+        })
     }
 
     /// Removes and returns the element with the given UUID, if any.
@@ -215,13 +209,6 @@ impl<T: HasUuid, P: ListTagName> SerializableObjectList<T, P> {
         T: Clone,
     {
         self.sorted_by(|a, b| a.uuid().cmp(&b.uuid()))
-    }
-
-    fn uuid_not_found(uuid: &Uuid) -> Error {
-        Error::UuidNotFound {
-            tag: P::TAG_NAME,
-            uuid: uuid.to_string(),
-        }
     }
 }
 
@@ -246,20 +233,19 @@ impl<T: HasName, P: ListTagName> SerializableObjectList<T, P> {
         self.index_of_name(name, true).is_some()
     }
 
-    /// Returns the element with the given name, if any.
-    pub fn find_by_name(&self, name: &str, case_sensitive: bool) -> Option<&T> {
+    /// Returns the element with the given name, if any (upstream `find()`).
+    pub fn by_name(&self, name: &str, case_sensitive: bool) -> Option<&T> {
         self.index_of_name(name, case_sensitive)
             .map(|i| &self.objects[i])
     }
 
-    /// Returns the element with the given name (case sensitive), or an error
-    /// if not found.
-    pub fn get_by_name(&self, name: &str) -> Result<&T> {
-        self.find_by_name(name, true)
-            .ok_or_else(|| Error::NameNotFound {
-                tag: P::TAG_NAME,
-                name: name.to_owned(),
-            })
+    /// Same as [`by_name()`](Self::by_name) (case sensitive), but returns an
+    /// error if not found (upstream `get()`).
+    pub fn required_by_name(&self, name: &str) -> Result<&T> {
+        self.by_name(name, true).ok_or_else(|| Error::NameNotFound {
+            tag: P::TAG_NAME,
+            name: name.to_owned(),
+        })
     }
 
     /// Removes and returns the element with the given name (case sensitive),

@@ -6,7 +6,6 @@ use std::str::FromStr;
 
 use super::Error;
 use crate::serialization::{self, FromSExpression, SExpression, ToSExpression};
-use crate::utils::unicode::parse_u32;
 
 /// Maximum number of segments.
 const MAX_SEGMENTS: usize = 10;
@@ -96,7 +95,7 @@ impl FromStr for Version {
         let invalid = || Error::InvalidVersion(s.to_owned());
         let mut numbers = s
             .split('.')
-            .map(|n| parse_u32(n).filter(|&n| n <= MAX_NUMBER))
+            .map(|n| n.parse::<u32>().ok().filter(|&n| n <= MAX_NUMBER))
             .collect::<Option<Vec<u32>>>()
             .ok_or_else(invalid)?;
         while numbers.len() > 1 && numbers.last() == Some(&0) {

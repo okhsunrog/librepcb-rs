@@ -64,6 +64,13 @@ pub struct SqliteDatabase {
     connection: Connection,
 }
 
+// Deliberately `Send` but not `Sync` (like `rusqlite::Connection`): a
+// connection is moved to the thread using it (e.g. the library scanner);
+// wrap it in a `Mutex` to share one, or open one connection per thread
+// (WAL mode allows concurrent readers).
+static_assertions::assert_impl_all!(SqliteDatabase: Send);
+static_assertions::assert_not_impl_any!(SqliteDatabase: Sync);
+
 impl SqliteDatabase {
     /// Opens the database, creating the file if it doesn't exist.
     pub fn open(path: &Path) -> Result<Self> {

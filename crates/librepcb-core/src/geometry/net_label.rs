@@ -76,7 +76,7 @@ impl DeserializeObject for NetLabel {
     fn deserialize(node: &SExpression) -> serialization::Result<Self> {
         Ok(Self {
             uuid: node.child_value("@0")?,
-            position: Point::deserialize(node.get_child("position")?)?,
+            position: Point::deserialize(node.required_child("position")?)?,
             rotation: node.child_value("rotation/@0")?,
             mirrored: node.child_value("mirror/@0")?,
         })

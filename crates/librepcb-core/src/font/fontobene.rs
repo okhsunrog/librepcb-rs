@@ -23,11 +23,6 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-/// Trims whitespace (native replacement of `QString::trimmed()`).
-fn trimmed(s: &str) -> &str {
-    s.trim()
-}
-
 /// Error of the FontoBene parser (upstream `fontobene::Exception`).
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[non_exhaustive]
@@ -101,12 +96,12 @@ impl Header {
         let mut section = Section::None;
         let (mut format, mut format_version) = (String::new(), String::new());
         for line in lines.by_ref() {
-            let line = trimmed(line);
+            let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
             let (key, value) = match line.split_once('=') {
-                Some((key, value)) => (trimmed(key), trimmed(value)),
+                Some((key, value)) => (key.trim(), value.trim()),
                 None => ("", ""),
             };
             let unexpected = || Error::Parse(format!("Unexpected content: \"{line}\""));
@@ -238,7 +233,7 @@ impl Glyph {
         let mut glyph = Self::default();
         let mut in_body = false;
         for line in lines.by_ref() {
-            let line = trimmed(line);
+            let line = line.trim();
             if line.starts_with('#') {
                 continue;
             }
@@ -274,13 +269,13 @@ fn find_glyph_codepoint(line: &str) -> &str {
 
 /// Parses a hexadecimal codepoint of the Basic Multilingual Plane.
 fn parse_codepoint(s: &str) -> Result<u16, Error> {
-    u16::from_str_radix(trimmed(s), 16)
+    u16::from_str_radix(s.trim(), 16)
         .map_err(|_| Error::Parse(format!("Invalid codepoint: \"{s}\"")))
 }
 
 /// Parses a (finite) number.
 fn parse_number(s: &str) -> Result<f64, Error> {
-    trimmed(s)
+    s.trim()
         .parse::<f64>()
         .ok()
         .filter(|v| v.is_finite())

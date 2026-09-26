@@ -6,6 +6,7 @@ license = "BSL-1.0"
 description = "Pure Rust port of the Clipper 1 (polyclipping 6.4.2) polygon clipping and offsetting library"
 
 [dependencies]
+libm = "0.2.16"
 thiserror = "2.0.21"
 
 [lints]

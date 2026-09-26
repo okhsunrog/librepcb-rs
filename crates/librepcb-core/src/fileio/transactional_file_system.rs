@@ -104,6 +104,9 @@ pub struct TransactionalFileSystem {
     inner: Mutex<Inner>,
 }
 
+// Shared between threads via `Arc` (e.g. by `TransactionalDirectory`).
+static_assertions::assert_impl_all!(TransactionalFileSystem: Send, Sync);
+
 impl TransactionalFileSystem {
     /// Opens a directory (which may not exist yet).
     ///
@@ -747,26 +750,28 @@ fn load_diff(fp: &FilePath) -> Result<State> {
         Some(fp.as_path()),
         Mode::LibrePcb,
     )?;
-    let dir_name = root.get_child("modified_files_directory/@0")?.value()?;
+    let dir_name = root
+        .required_child("modified_files_directory/@0")?
+        .value()?;
     let modified_files_dir = fp
         .parent_dir()
         .unwrap_or_else(|| fp.clone())
         .path_to(dir_name);
     let mut state = State::default();
     for node in root.children_named("modified_file") {
-        let rel_path = node.get_child("@0")?.value()?;
+        let rel_path = node.required_child("@0")?.value()?;
         let content = file_utils::read_file(&modified_files_dir.path_to(rel_path))?;
         state.modified_files.insert(rel_path.to_owned(), content);
     }
     for node in root.children_named("removed_file") {
         state
             .removed_files
-            .insert(node.get_child("@0")?.value()?.to_owned());
+            .insert(node.required_child("@0")?.value()?.to_owned());
     }
     for node in root.children_named("removed_directory") {
         state
             .removed_dirs
-            .insert(node.get_child("@0")?.value()?.to_owned());
+            .insert(node.required_child("@0")?.value()?.to_owned());
     }
     Ok(state)
 }

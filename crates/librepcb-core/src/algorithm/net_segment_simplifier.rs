@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::types::{Layer, Length, Point};
+use crate::utils::toolbox::shortest_distance_between_point_and_line;
 
 /// Type of a line anchor. The order matters: at the same position, vias are
 /// preferred over pins/pads, which are preferred over junctions.
@@ -520,33 +521,7 @@ fn is_straight_line(p0: Point, p1: Point, p2: Point) -> bool {
         // Not sure what tolerance we should allow for non-90° lines...
         let length = *(p2 - p0).length();
         let tolerance = (length / 100).min(Length::new(50));
-        *shortest_distance_between_point_and_line(p1, p0, p2) < tolerance
+        let (distance, _) = shortest_distance_between_point_and_line(p1, p0, p2);
+        *distance < tolerance
     }
-}
-
-/// Port of `Toolbox::nearestPointOnLine()`.
-// TODO: Move to utils::toolbox once the geometry helpers are ported there.
-fn nearest_point_on_line(p: Point, l1: Point, l2: Point) -> Point {
-    let a = l2 - l1;
-    let b = p - l1;
-    let c = p - l2;
-    let d = b.x.to_mm() * a.x.to_mm() + b.y.to_mm() * a.y.to_mm();
-    let e = a.x.to_mm() * a.x.to_mm() + a.y.to_mm() * a.y.to_mm();
-    if a.is_origin() || b.is_origin() || d <= 0.0 {
-        l1
-    } else if c.is_origin() || e <= d {
-        l2
-    } else {
-        // 0 < d/e < 1, so the offset is within the line and can't overflow.
-        Point::from_mm(a.x.to_mm() * d / e, a.y.to_mm() * d / e).map_or(l1, |offset| l1 + offset)
-    }
-}
-
-/// Port of `Toolbox::shortestDistanceBetweenPointAndLine()`.
-fn shortest_distance_between_point_and_line(
-    p: Point,
-    l1: Point,
-    l2: Point,
-) -> crate::types::UnsignedLength {
-    (p - nearest_point_on_line(p, l1, l2)).length()
 }

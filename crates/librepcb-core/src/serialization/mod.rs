@@ -24,17 +24,17 @@
 
 mod error;
 mod primitives;
-mod serializablekeyvaluemap;
-mod serializableobjectlist;
+mod serializable_key_value_map;
+mod serializable_object_list;
 mod sexpression;
 
 pub use error::{Error, ParseError, Result};
-pub use serializablekeyvaluemap::{
+pub use serializable_key_value_map::{
     KeyValueMapPolicy, LocalizedDescriptionMap, LocalizedDescriptionMapPolicy,
     LocalizedKeywordsMap, LocalizedKeywordsMapPolicy, LocalizedNameMap, LocalizedNameMapPolicy,
     SerializableKeyValueMap,
 };
-pub use serializableobjectlist::{HasName, HasUuid, ListTagName, SerializableObjectList};
+pub use serializable_object_list::{HasName, HasUuid, ListTagName, SerializableObjectList};
 pub use sexpression::{List, Mode, SExpression};
 
 /// Conversion of a value into a single S-expression node (upstream

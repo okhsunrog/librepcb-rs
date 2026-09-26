@@ -57,7 +57,7 @@ impl DeserializeObject for Junction {
     fn deserialize(node: &SExpression) -> serialization::Result<Self> {
         Ok(Self {
             uuid: node.child_value("@0")?,
-            position: Point::deserialize(node.get_child("position")?)?,
+            position: Point::deserialize(node.required_child("position")?)?,
         })
     }
 }

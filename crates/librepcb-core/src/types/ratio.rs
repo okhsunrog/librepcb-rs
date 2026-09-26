@@ -93,38 +93,59 @@ impl FromStr for Ratio {
     }
 }
 
-macro_rules! impl_ops {
-    ($($tr:ident::$f:ident, $atr:ident::$af:ident, $op:tt;)*) => {$(
-        impl $tr for Ratio {
-            type Output = Self;
-            fn $f(self, rhs: Self) -> Self {
-                Self(self.0 $op rhs.0)
-            }
-        }
-        impl $tr<i32> for Ratio {
-            type Output = Self;
-            fn $f(self, rhs: i32) -> Self {
-                Self(self.0 $op rhs)
-            }
-        }
-        impl $atr for Ratio {
-            fn $af(&mut self, rhs: Self) {
-                self.0 = self.0 $op rhs.0;
-            }
-        }
-        impl $atr<i32> for Ratio {
-            fn $af(&mut self, rhs: i32) {
-                self.0 = self.0 $op rhs;
-            }
-        }
-    )*};
+// Ratio ± Ratio and scaling by an integer factor; there is no Ratio × Ratio
+// (the ppm representation would make its result meaningless).
+
+impl Add for Ratio {
+    type Output = Self;
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
 }
 
-impl_ops! {
-    Add::add, AddAssign::add_assign, +;
-    Sub::sub, SubAssign::sub_assign, -;
-    Mul::mul, MulAssign::mul_assign, *;
-    Div::div, DivAssign::div_assign, /;
+impl Sub for Ratio {
+    type Output = Self;
+    fn sub(self, rhs: Self) -> Self {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl Mul<i32> for Ratio {
+    type Output = Self;
+    fn mul(self, rhs: i32) -> Self {
+        Self(self.0 * rhs)
+    }
+}
+
+impl Div<i32> for Ratio {
+    type Output = Self;
+    fn div(self, rhs: i32) -> Self {
+        Self(self.0 / rhs)
+    }
+}
+
+impl AddAssign for Ratio {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+
+impl SubAssign for Ratio {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0;
+    }
+}
+
+impl MulAssign<i32> for Ratio {
+    fn mul_assign(&mut self, rhs: i32) {
+        self.0 *= rhs;
+    }
+}
+
+impl DivAssign<i32> for Ratio {
+    fn div_assign(&mut self, rhs: i32) {
+        self.0 /= rhs;
+    }
 }
 
 impl Rem for Ratio {
@@ -138,18 +159,6 @@ impl Neg for Ratio {
     type Output = Self;
     fn neg(self) -> Self {
         Self(-self.0)
-    }
-}
-
-impl PartialEq<i32> for Ratio {
-    fn eq(&self, other: &i32) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialOrd<i32> for Ratio {
-    fn partial_cmp(&self, other: &i32) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(other)
     }
 }
 
@@ -236,13 +245,13 @@ macro_rules! constrained_ratio {
 constrained_ratio!(
     /// A [`Ratio`] which is guaranteed to be >= 0.
     UnsignedRatio,
-    |r| r >= 0,
+    |r| r >= Ratio::ZERO,
     Error::NegativeRatio
 );
 
 constrained_ratio!(
     /// A [`Ratio`] which is guaranteed to be in the range 0..1 (0..100%).
     UnsignedLimitedRatio,
-    |r| (r >= 0) && (r <= Ratio::ONE),
+    |r| (r >= Ratio::ZERO) && (r <= Ratio::ONE),
     Error::RatioNotInUnitRange
 );

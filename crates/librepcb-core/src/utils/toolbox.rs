@@ -19,7 +19,6 @@ use regex::Regex;
 use unicode_normalization::UnicodeNormalization;
 
 use super::math;
-use super::unicode::{digit_value, trimmed, truncate_utf16};
 use crate::types::{Angle, Error, Length, Point, UnsignedLength};
 
 /// Returns whether a text with the given rotation would be upside down
@@ -44,7 +43,7 @@ pub fn arc_radius(p1: Point, p2: Point, angle: Angle) -> Option<Length> {
         delta.y.to_nm() as f64,
         angle_mapped.to_deg(),
     );
-    Length::try_from_nm_f64(r) // `None` for too large radius.
+    Length::from_nm_f64(r).ok() // `None` for too large radius.
 }
 
 /// Returns the center of an arc given by start point, end point and angle.
@@ -62,8 +61,8 @@ pub fn arc_center(p1: Point, p2: Point, angle: Angle) -> Option<Point> {
         delta.y.to_nm() as f64,
         angle_mapped.to_deg(),
     );
-    let x = Length::try_from_nm_f64(x + p1.x.to_nm() as f64)?;
-    let y = Length::try_from_nm_f64(y + p1.y.to_nm() as f64)?;
+    let x = Length::from_nm_f64(x + p1.x.to_nm() as f64).ok()?;
+    let y = Length::from_nm_f64(y + p1.y.to_nm() as f64).ok()?;
     Some(Point::new(x, y))
 }
 
@@ -75,9 +74,9 @@ pub fn arc_angle(p1: Point, p2: Point, center: Point) -> Angle {
     if delta1.is_origin() || delta2.is_origin() {
         return Angle::DEG0;
     }
-    let angle1 = delta1.y.to_mm().atan2(delta1.x.to_mm());
-    let angle2 = delta2.y.to_mm().atan2(delta2.x.to_mm());
-    Angle::try_from_rad(angle2 - angle1)
+    let angle1 = libm::atan2(delta1.y.to_mm(), delta1.x.to_mm());
+    let angle2 = libm::atan2(delta2.y.to_mm(), delta2.x.to_mm());
+    Angle::from_rad(angle2 - angle1)
         .map(Angle::mapped_to_0_360deg)
         .unwrap_or(Angle::DEG0)
 }
@@ -87,9 +86,9 @@ pub fn arc_angle(p1: Point, p2: Point, center: Point) -> Angle {
 pub fn arc_angle_from_3_points(start: Point, mid: Point, end: Point) -> Angle {
     let (h, _) = shortest_distance_between_point_and_line(mid, start, end);
     let c = (end - start).length();
-    let phi = 4.0 * ((2.0 * h.to_mm()) / c.to_mm()).atan();
-    match Angle::try_from_rad(phi) {
-        Some(angle) => {
+    let phi = 4.0 * libm::atan((2.0 * h.to_mm()) / c.to_mm());
+    match Angle::from_rad(phi) {
+        Ok(angle) => {
             let angle_mid = angle_between_points(start, mid);
             let angle_end = angle_between_points(start, end);
             let angle_delta = angle_mid - angle_end;
@@ -99,7 +98,7 @@ pub fn arc_angle_from_3_points(start: Point, mid: Point, end: Point) -> Angle {
                 -angle
             }
         }
-        None => Angle::DEG0,
+        Err(_) => Angle::DEG0,
     }
 }
 
@@ -359,7 +358,9 @@ fn parse_fixed_point<T: FixedPointInt>(s: &str, point_pos: u32) -> Option<T> {
     }
 
     for c in s.chars() {
-        let digit = digit_value(c);
+        // Only ASCII digits (upstream `QChar::isDigit()` also accepts other
+        // Unicode decimal digits, see COMPAT.md).
+        let digit = c.to_digit(10);
         state = match state {
             State::Invalid => break,
             State::Start => match (c, digit) {
@@ -495,7 +496,8 @@ fn parse_fixed_point<T: FixedPointInt>(s: &str, point_pos: u32) -> Option<T> {
 /// Performs NFKD normalization, optional case conversion and trimming,
 /// replaces spaces by `space_replacement`, removes all characters for which
 /// `is_allowed` returns `false`, and truncates the result to `max_length`
-/// UTF-16 code units.
+/// characters (upstream: UTF-16 code units, which is the same for all
+/// callers since they only allow ASCII characters).
 pub fn clean_user_input_string(
     input: &str,
     is_allowed: impl Fn(char) -> bool,
@@ -513,15 +515,17 @@ pub fn clean_user_input_string(
         ret = ret.to_uppercase();
     }
     if trim {
-        ret = trimmed(&ret).to_owned();
+        ret = ret.trim().to_owned();
     }
     ret = ret.replace(' ', space_replacement);
     ret.retain(is_allowed);
-    if let Some(max) = max_length {
-        truncate_utf16(&mut ret, max);
+    if let Some(max) = max_length
+        && let Some((index, _)) = ret.char_indices().nth(max)
+    {
+        ret.truncate(index);
     }
     if trim {
-        ret = trimmed(&ret).to_owned();
+        ret = ret.trim().to_owned();
     }
     ret
 }
@@ -572,10 +576,8 @@ mod tests {
 
     #[test]
     fn from_string_unicode_digits() {
-        assert_eq!(
-            decimal_fixed_point_from_string::<i64>("\u{0661}.\u{0665}", 6).unwrap(),
-            1_500_000
-        );
+        // Only ASCII digits are accepted (see COMPAT.md).
+        assert!(decimal_fixed_point_from_string::<i64>("\u{0661}.\u{0665}", 6).is_err());
     }
 
     #[test]

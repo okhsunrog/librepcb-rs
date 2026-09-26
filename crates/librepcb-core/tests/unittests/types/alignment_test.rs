@@ -78,19 +78,6 @@ fn test_serialize() {
 fn test_mirror() {
     for data in DATA {
         let alignment = Alignment::new(data.h, data.v);
-
-        let mut a = alignment;
-        a.mirror();
-        assert_eq!(a, Alignment::new(data.h_mirrored, data.v_mirrored));
-
-        let mut a = alignment;
-        a.mirror_h();
-        assert_eq!(a, Alignment::new(data.h_mirrored, data.v));
-
-        let mut a = alignment;
-        a.mirror_v();
-        assert_eq!(a, Alignment::new(data.h, data.v_mirrored));
-
         assert_eq!(
             alignment.mirrored(),
             Alignment::new(data.h_mirrored, data.v_mirrored)

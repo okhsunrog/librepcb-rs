@@ -18,7 +18,6 @@ use std::path::Path;
 
 use super::error::{Error, ParseError, Result};
 use super::{FromSExpression, ToSExpression};
-use crate::utils::unicode::{cmp_utf16, is_space, parse_i32};
 
 /// Parsing/formatting mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -43,6 +42,8 @@ pub enum SExpression {
     /// A manual line break inside a list.
     LineBreak,
 }
+
+static_assertions::assert_impl_all!(SExpression: Send, Sync);
 
 /// A list node: a name followed by child nodes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -226,36 +227,30 @@ impl SExpression {
         self.children().contains(child)
     }
 
-    /// Gets a (nested) child by path.
+    /// Returns a (nested) child by path, or `None` if it does not exist
+    /// (upstream `tryGetChild()`).
     ///
     /// The path consists of segments separated by `/`. A segment is either
     /// the name of a child list (the first match is taken) or `@` followed
     /// by an index. Indices skip line breaks, i.e. `@3` is the fourth child
     /// which is not a line break. For example, `via/position/@1` returns the
     /// Y coordinate of the first via.
-    pub fn get_child(&self, path: &str) -> Result<&SExpression> {
-        self.try_get_child(path)
-            .ok_or_else(|| Error::parse(ParseError::ChildNotFound(path.to_owned()), ""))
-    }
-
-    /// Same as [`get_child()`](Self::get_child), but returns a mutable
-    /// reference.
-    pub fn get_child_mut(&mut self, path: &str) -> Result<&mut SExpression> {
-        self.try_get_child_mut(path)
-            .ok_or_else(|| Error::parse(ParseError::ChildNotFound(path.to_owned()), ""))
-    }
-
-    /// Same as [`get_child()`](Self::get_child), but returns `None` if the
-    /// child does not exist.
-    pub fn try_get_child(&self, path: &str) -> Option<&SExpression> {
+    pub fn child(&self, path: &str) -> Option<&SExpression> {
         path.split('/').try_fold(self, |node, segment| {
             node.children().get(Self::child_index(node, segment)?)
         })
     }
 
-    /// Same as [`try_get_child()`](Self::try_get_child), but returns a
-    /// mutable reference.
-    pub fn try_get_child_mut(&mut self, path: &str) -> Option<&mut SExpression> {
+    /// Same as [`child()`](Self::child), but returns an error if the child
+    /// does not exist (upstream `getChild()`). Use this in deserialization,
+    /// where a missing child means an invalid file.
+    pub fn required_child(&self, path: &str) -> Result<&SExpression> {
+        self.child(path)
+            .ok_or_else(|| Error::parse(ParseError::ChildNotFound(path.to_owned()), ""))
+    }
+
+    /// Same as [`child()`](Self::child), but returns a mutable reference.
+    pub fn child_mut(&mut self, path: &str) -> Option<&mut SExpression> {
         let mut node = self;
         for segment in path.split('/') {
             let index = Self::child_index(node, segment)?;
@@ -268,7 +263,7 @@ impl SExpression {
     fn child_index(node: &SExpression, segment: &str) -> Option<usize> {
         let children = node.children();
         if let Some(index) = segment.strip_prefix('@') {
-            let index = usize::try_from(parse_i32(index)?).ok()?;
+            let index: usize = index.parse().ok()?;
             children
                 .iter()
                 .enumerate()
@@ -282,11 +277,14 @@ impl SExpression {
         }
     }
 
-    /// Deserializes the child at `path` (see [`get_child()`](Self::get_child)).
+    /// Deserializes the child at `path` (see [`child()`](Self::child)); a
+    /// missing child is an error.
     ///
-    /// Shorthand for `T::from_sexpression(node.get_child(path)?)`.
+    /// Shorthand for `T::from_sexpression(node.required_child(path)?)`. For
+    /// optional children, use
+    /// `node.child(path).map(T::from_sexpression).transpose()?`.
     pub fn child_value<T: FromSExpression>(&self, path: &str) -> Result<T> {
-        T::from_sexpression(self.get_child(path)?)
+        T::from_sexpression(self.required_child(path)?)
     }
 
     /// Removes (recursively) all children which directly contain a child
@@ -427,11 +425,12 @@ impl SExpression {
 
 impl Ord for SExpression {
     /// Orders by node type (list < token < string < line break), then by
-    /// name/value (by UTF-16 code units, like `QString`), then by children.
+    /// name/value (`str` ordering; upstream compares UTF-16 code units, see
+    /// COMPAT.md), then by children.
     fn cmp(&self, other: &Self) -> Ordering {
         self.type_rank()
             .cmp(&other.type_rank())
-            .then_with(|| cmp_utf16(self.raw_value(), other.raw_value()))
+            .then_with(|| self.raw_value().cmp(other.raw_value()))
             .then_with(|| self.children().cmp(other.children()))
     }
 }
@@ -471,7 +470,7 @@ fn is_valid_token(token: &str, mode: Mode) -> bool {
 fn is_valid_token_char(c: char, mode: Mode) -> bool {
     c.is_ascii_alphanumeric()
         || matches!(c, '\\' | '.' | ':' | '_' | '-')
-        || ((mode == Mode::Permissive) && (c != '(') && (c != ')') && !is_space(c))
+        || ((mode == Mode::Permissive) && (c != '(') && (c != ')') && !c.is_whitespace())
 }
 
 /// Recursive descent parser over the decoded file content.

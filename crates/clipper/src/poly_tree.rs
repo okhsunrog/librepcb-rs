@@ -48,8 +48,8 @@ impl PolyTree {
         }
     }
 
-    /// Returns the first top-level node, if any.
-    pub fn get_first(&self) -> Option<PolyNode<'_>> {
+    /// Returns the first top-level node, if any (upstream `GetFirst()`).
+    pub fn first(&self) -> Option<PolyNode<'_>> {
         self.root
             .children
             .first()
@@ -201,7 +201,7 @@ impl<'a> PolyNode<'a> {
     }
 
     /// Returns the next node in depth-first order (upstream `GetNext()`).
-    pub fn get_next(&self) -> Option<PolyNode<'a>> {
+    pub fn next(&self) -> Option<PolyNode<'a>> {
         match self.data().children.first() {
             Some(&i) => Some(self.tree.node(NodeId::Node(i))),
             None => self.next_sibling_up(),

@@ -53,7 +53,7 @@ fn test_parse_string() {
     let s = parse("(test \"foo bar\")").unwrap();
     assert!(s.is_list());
     assert_eq!(s.child_count(), 1);
-    assert_eq!(s.get_child("@0").unwrap().value().unwrap(), "foo bar");
+    assert_eq!(s.child("@0").unwrap().value().unwrap(), "foo bar");
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn test_parse_string_with_quotes() {
     let s = parse("(test \"foo \\\"bar\\\"\")").unwrap();
     assert!(s.is_list());
     assert_eq!(s.child_count(), 1);
-    assert_eq!(s.get_child("@0").unwrap().value().unwrap(), "foo \"bar\"");
+    assert_eq!(s.child("@0").unwrap().value().unwrap(), "foo \"bar\"");
 }
 
 #[test]
@@ -69,7 +69,7 @@ fn test_parse_string_with_newlines() {
     let s = parse("(test \"foo\\nbar\")").unwrap();
     assert!(s.is_list());
     assert_eq!(s.child_count(), 1);
-    assert_eq!(s.get_child("@0").unwrap().value().unwrap(), "foo\nbar");
+    assert_eq!(s.child("@0").unwrap().value().unwrap(), "foo\nbar");
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn test_parse_string_with_backslash() {
     let s = parse("(test \"foo\\\\bar\")").unwrap();
     assert!(s.is_list());
     assert_eq!(s.child_count(), 1);
-    assert_eq!(s.get_child("@0").unwrap().value().unwrap(), "foo\\bar");
+    assert_eq!(s.child("@0").unwrap().value().unwrap(), "foo\\bar");
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn test_parse_expression_with_children_and_comments() {
                  )\n\
                  )\n";
     let s = parse(input).unwrap();
-    let value = |path: &str| s.get_child(path).unwrap().value().unwrap().to_owned();
+    let value = |path: &str| s.child(path).unwrap().value().unwrap().to_owned();
     assert_eq!(value("default_font/@0"), "newstroke.bene");
     assert_eq!(value("grid/interval/@0"), "0.15875");
     assert_eq!(
@@ -186,13 +186,14 @@ fn test_roundtrip() {
 }
 
 #[test]
-fn test_get_child_skips_line_breaks() {
+fn test_child_skips_line_breaks() {
     let s = parse("(root \n (child \n 0 \n 1 \n 2 \n ))").unwrap();
-    assert_eq!(s.get_child("child/@0").unwrap().value().unwrap(), "0");
-    assert_eq!(s.get_child("child/@1").unwrap().value().unwrap(), "1");
-    assert_eq!(s.get_child("child/@2").unwrap().value().unwrap(), "2");
-    assert!(s.get_child("child/@3").is_err());
-    assert!(s.get_child("child/@-1").is_err());
+    assert_eq!(s.child("child/@0").unwrap().value().unwrap(), "0");
+    assert_eq!(s.child("child/@1").unwrap().value().unwrap(), "1");
+    assert_eq!(s.child("child/@2").unwrap().value().unwrap(), "2");
+    assert!(s.child("child/@3").is_none());
+    assert!(s.child("child/@-1").is_none());
+    assert!(s.required_child("child/@3").is_err());
 }
 
 #[test]

@@ -1,6 +1,6 @@
 //! Port of the miscellaneous public functions of clipper.cpp.
 
-use crate::polytree::{NodeId, PolyTree};
+use crate::poly_tree::{NodeId, PolyTree};
 use crate::{ClipType, Clipper, IntPoint, Path, Paths, PolyFillType, PolyType, Result};
 
 /// Returns the orientation of a polygon: `true` for a non-negative

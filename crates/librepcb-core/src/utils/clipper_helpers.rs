@@ -430,7 +430,7 @@ fn prepare_holes(holes: &[ClipperPath]) -> ClipperPaths {
     // Important: sort holes by the y coordinate of their connection point (to
     // make sure no cut-ins are overlapping in the resulting plane). Upstream
     // uses the unstable std::sort(), so ties must be ordered the same way.
-    clipper::stdsort::sort_by(&mut prepared, |p1, p2| p1[0].y < p2[0].y);
+    clipper::std_sort::sort_by(&mut prepared, |p1, p2| p1[0].y < p2[0].y);
     prepared
 }
 

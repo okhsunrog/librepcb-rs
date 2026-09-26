@@ -32,12 +32,6 @@ impl HAlign {
         }
     }
 
-    /// Mirrors the alignment in place.
-    pub fn mirror(&mut self) -> &mut Self {
-        *self = self.mirrored();
-        self
-    }
-
     /// Returns the serialization token.
     pub fn to_str(self) -> &'static str {
         match self {
@@ -68,12 +62,6 @@ impl VAlign {
             Self::Center => Self::Center,
             Self::Bottom => Self::Top,
         }
-    }
-
-    /// Mirrors the alignment in place.
-    pub fn mirror(&mut self) -> &mut Self {
-        *self = self.mirrored();
-        self
     }
 
     /// Returns the serialization token.
@@ -150,24 +138,6 @@ impl Alignment {
     /// Returns the alignment with mirrored vertical alignment.
     pub fn mirrored_v(self) -> Self {
         Self::new(self.h, self.v.mirrored())
-    }
-
-    /// Mirrors the alignment in both directions in place.
-    pub fn mirror(&mut self) -> &mut Self {
-        *self = self.mirrored();
-        self
-    }
-
-    /// Mirrors the horizontal alignment in place.
-    pub fn mirror_h(&mut self) -> &mut Self {
-        *self = self.mirrored_h();
-        self
-    }
-
-    /// Mirrors the vertical alignment in place.
-    pub fn mirror_v(&mut self) -> &mut Self {
-        *self = self.mirrored_v();
-        self
     }
 }
 

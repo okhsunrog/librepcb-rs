@@ -221,13 +221,10 @@ impl Layer {
         }
     }
 
-    /// Returns the layer with the given identifier.
-    pub fn get(id: &str) -> Result<Layer, Error> {
-        Self::all()
-            .iter()
-            .copied()
-            .find(|l| l.id() == id)
-            .ok_or_else(|| Error::UnknownLayer(id.to_owned()))
+    /// Returns the layer with the given identifier, if it exists (see also
+    /// [`FromStr`], which returns an error instead).
+    pub fn from_id(id: &str) -> Option<Layer> {
+        Self::all().iter().copied().find(|l| l.id() == id)
     }
 
     /// Returns the serialization identifier (lower_snake_case), e.g. `"top_cu"`.
@@ -355,7 +352,7 @@ impl fmt::Display for Layer {
 impl FromStr for Layer {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Error> {
-        Self::get(s)
+        Self::from_id(s).ok_or_else(|| Error::UnknownLayer(s.to_owned()))
     }
 }
 
@@ -367,7 +364,7 @@ impl ToSExpression for Layer {
 
 impl FromSExpression for Layer {
     fn from_sexpression(node: &SExpression) -> serialization::Result<Self> {
-        Ok(Self::get(node.value()?)?)
+        Ok(node.value()?.parse()?)
     }
 }
 
@@ -432,7 +429,8 @@ mod tests {
         let actual: Vec<&str> = Layer::all().iter().map(|l| l.id()).collect();
         assert_eq!(actual, expected);
         for layer in Layer::all() {
-            assert_eq!(Layer::get(layer.id()), Ok(*layer));
+            assert_eq!(Layer::from_id(layer.id()), Some(*layer));
+            assert_eq!(layer.id().parse(), Ok(*layer));
         }
     }
 

@@ -96,7 +96,7 @@ impl DeserializeObject for Circle {
             line_width: node.child_value("width/@0")?,
             is_filled: node.child_value("fill/@0")?,
             is_grab_area: node.child_value("grab_area/@0")?,
-            center: Point::deserialize(node.get_child("position")?)?,
+            center: Point::deserialize(node.required_child("position")?)?,
             diameter: node.child_value("diameter/@0")?,
         })
     }

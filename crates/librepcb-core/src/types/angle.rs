@@ -132,7 +132,7 @@ impl Angle {
     /// cases away from zero). Fails for NaN and values out of range of
     /// [`i64`] microdegrees.
     pub fn from_deg(degrees: f64) -> Result<Self, Error> {
-        Self::try_from_udeg_f64(degrees * 1e6).ok_or(Error::Range {
+        Self::from_udeg_f64(degrees * 1e6).ok_or(Error::Range {
             value: degrees * 1e6,
             min: i64::MIN,
             max: i64::MAX,
@@ -141,19 +141,15 @@ impl Angle {
 
     /// Converts floating point radians. Fails for NaN and values out of range.
     pub fn from_rad(radians: f64) -> Result<Self, Error> {
-        Self::try_from_rad(radians).ok_or(Error::Range {
-            value: radians * (180.0 / std::f64::consts::PI) * 1e6,
+        let microdegrees = math::to_degrees(radians) * 1e6;
+        Self::from_udeg_f64(microdegrees).ok_or(Error::Range {
+            value: microdegrees,
             min: i64::MIN,
             max: i64::MAX,
         })
     }
 
-    /// Same as [`from_rad()`](Self::from_rad), but returns `None` on error.
-    pub fn try_from_rad(radians: f64) -> Option<Self> {
-        Self::try_from_udeg_f64(math::to_degrees(radians) * 1e6)
-    }
-
-    fn try_from_udeg_f64(microdegrees: f64) -> Option<Self> {
+    fn from_udeg_f64(microdegrees: f64) -> Option<Self> {
         let rounded = microdegrees.round();
         ((rounded >= i64::MIN as f64) && (rounded <= i64::MAX as f64))
             .then(|| Self::from_i64(rounded as i64))
@@ -202,24 +198,10 @@ impl Neg for Angle {
     }
 }
 
-impl Mul for Angle {
-    type Output = Self;
-    fn mul(self, rhs: Self) -> Self {
-        Self::from_i64(i64::from(self.0) * i64::from(rhs.0))
-    }
-}
-
 impl Mul<i32> for Angle {
     type Output = Self;
     fn mul(self, rhs: i32) -> Self {
         Self::from_i64(i64::from(self.0) * i64::from(rhs))
-    }
-}
-
-impl Div for Angle {
-    type Output = Self;
-    fn div(self, rhs: Self) -> Self {
-        Self::new(self.0 / rhs.0)
     }
 }
 
@@ -246,18 +228,6 @@ impl AddAssign for Angle {
 impl SubAssign for Angle {
     fn sub_assign(&mut self, rhs: Self) {
         *self = *self - rhs;
-    }
-}
-
-impl PartialEq<i32> for Angle {
-    fn eq(&self, other: &i32) -> bool {
-        self.0 == *other
-    }
-}
-
-impl PartialOrd<i32> for Angle {
-    fn partial_cmp(&self, other: &i32) -> Option<std::cmp::Ordering> {
-        self.0.partial_cmp(other)
     }
 }
 

@@ -38,12 +38,16 @@
 //! - Same algorithm, same floating point expressions (evaluated in the same
 //!   order), same rounding (including the behavior of the C++ double to
 //!   integer conversion on x86-64 for out-of-range values), same 128 bit
-//!   integer math and coordinate range checks.
+//!   integer math and coordinate range checks. Transcendental functions
+//!   (`sin`, `cos`, `tan`, `acos`, `atan2`) come from the [`libm`] crate,
+//!   so results do not depend on the platform's C library; they differ from
+//!   glibc in the last bit for some inputs, which did not change any golden
+//!   vector (captured with glibc) after rounding to integer coordinates.
 //! - The linked data structures (edges, output points, output records, joins,
 //!   poly nodes) live in arenas and reference each other by index instead of
 //!   raw pointers. No `unsafe` code.
 //! - `std::sort()` is replaced by an exact replica of the libstdc++
-//!   implementation (see [`stdsort`]), because the (unstable) order of equal
+//!   implementation (see [`std_sort`]), because the (unstable) order of equal
 //!   elements affects the output.
 //! - Exceptions are replaced by [`Error`]; `Execute()` returning `false` is
 //!   mapped to [`Error::ExecutionFailed`] (except for the "nothing to do"
@@ -59,8 +63,8 @@
 mod engine;
 mod misc;
 mod offset;
-mod polytree;
-pub mod stdsort;
+mod poly_tree;
+pub mod std_sort;
 
 pub use engine::Clipper;
 pub use misc::{
@@ -69,7 +73,7 @@ pub use misc::{
     poly_tree_to_paths, reverse_path, reverse_paths, simplify_polygon, simplify_polygons,
 };
 pub use offset::ClipperOffset;
-pub use polytree::{PolyNode, PolyTree};
+pub use poly_tree::{PolyNode, PolyTree};
 
 /// Integer coordinate type (upstream `cInt`).
 pub type CInt = i64;

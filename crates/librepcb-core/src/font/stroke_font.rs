@@ -51,6 +51,9 @@ pub struct StrokeFont {
     loaded: OnceLock<Loaded>,
 }
 
+// The lazy loading must stay thread-safe (`OnceLock`, not `OnceCell`).
+static_assertions::assert_impl_all!(StrokeFont: Send, Sync);
+
 impl StrokeFont {
     /// Creates the font from the content of a `.bene` file. Parsing is done
     /// lazily.

@@ -136,19 +136,13 @@ fn apply_filter(
     end: usize,
     filter: &mut dyn FnMut(&str) -> String,
 ) -> usize {
-    let start = floor_char_boundary(s, start);
-    let region_end = floor_char_boundary(s, s.len().saturating_sub(end)).max(start);
+    let start = s.floor_char_boundary(start);
+    let region_end = s
+        .floor_char_boundary(s.len().saturating_sub(end))
+        .max(start);
     let filtered = filter(&s[start..region_end]);
     s.replace_range(start..region_end, &filtered);
     start + filtered.len()
-}
-
-/// Returns the largest char boundary <= `index` (clamped to the length).
-fn floor_char_boundary(s: &str, index: usize) -> usize {
-    (0..=index.min(s.len()))
-        .rev()
-        .find(|&i| s.is_char_boundary(i))
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

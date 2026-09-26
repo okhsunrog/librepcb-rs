@@ -86,10 +86,10 @@ impl Transformable for Point {
     fn transformed(&self, t: &Transform) -> Self {
         let mut p = *self;
         if t.mirrored {
-            p.mirror(Orientation::Horizontal, Point::ORIGIN);
+            p = p.mirrored(Orientation::Horizontal, Point::ORIGIN);
         }
         if t.rotation != Angle::DEG0 {
-            p.rotate(t.rotation, Point::ORIGIN);
+            p = p.rotated(t.rotation, Point::ORIGIN);
         }
         p + t.position
     }

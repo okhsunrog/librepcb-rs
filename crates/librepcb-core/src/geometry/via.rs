@@ -239,9 +239,9 @@ impl DeserializeObject for Via {
             node.child_value("@0")?,
             node.child_value("from/@0")?,
             node.child_value("to/@0")?,
-            Point::deserialize(node.get_child("position")?)?,
-            deserialize_size(node.get_child("drill/@0")?)?,
-            deserialize_size(node.get_child("size/@0")?)?,
+            Point::deserialize(node.required_child("position")?)?,
+            deserialize_size(node.required_child("drill/@0")?)?,
+            deserialize_size(node.required_child("size/@0")?)?,
             node.child_value("exposure/@0")?,
         )?)
     }

@@ -368,7 +368,8 @@ impl Path {
     pub fn obround_line(p1: Point, p2: Point, width: PositiveLength) -> Self {
         let diff = p2 - p1;
         // atan2() is always within [-π..π], i.e. a valid angle.
-        let angle = Angle::try_from_rad(diff.y.to_mm().atan2(diff.x.to_mm())).unwrap_or_default();
+        let angle =
+            Angle::from_rad(libm::atan2(diff.y.to_mm(), diff.x.to_mm())).unwrap_or_default();
         Self::obround(diff.length() + width, width)
             .rotated(angle, Point::ORIGIN)
             .translated((p1 + p2) / 2)
@@ -387,9 +388,9 @@ impl Path {
         let delta2 = p2 - center;
         // atan2() is always within [-π..π], i.e. a valid angle.
         let angle1 =
-            Angle::try_from_rad(delta1.y.to_px().atan2(delta1.x.to_px())).unwrap_or_default();
+            Angle::from_rad(libm::atan2(delta1.y.to_px(), delta1.x.to_px())).unwrap_or_default();
         let angle2 =
-            Angle::try_from_rad(delta2.y.to_px().atan2(delta2.x.to_px())).unwrap_or_default();
+            Angle::from_rad(libm::atan2(delta2.y.to_px(), delta2.x.to_px())).unwrap_or_default();
         let radius = delta1.length();
         let inner_radius = *radius - (width / 2);
         let outer_radius = *radius + (width / 2);
@@ -473,7 +474,7 @@ impl Path {
         let rx = width / 2;
         let ry = height / 2;
         let r = *corner_radius;
-        if corner_radius == 0 {
+        if corner_radius == UnsignedLength::ZERO {
             // Regular rectangle without rounded corners.
             p.add_vertex(Point::new(-rx, ry), Angle::DEG0);
             p.add_vertex(Point::new(rx, ry), Angle::DEG0);
@@ -595,7 +596,7 @@ impl Path {
         };
         let a0 = Angle::DEG0;
         let a45 = Angle::DEG45;
-        if corner_radius == 0 {
+        if corner_radius == UnsignedLength::ZERO {
             // Regular polygon without rounded corners.
             add(&mut p, rx, ry - inner_chamfer, a0);
             add(&mut p, rx - inner_chamfer, ry, a0);
@@ -652,7 +653,7 @@ impl Path {
                     .min(max_tolerance.to_nm() as f64)
                     .max(0.0);
                 let steps_per_rad =
-                    (0.5 / (1.0 - y / radius_abs_nm).acos()).min(radius_abs_nm / 2.0);
+                    (0.5 / libm::acos(1.0 - y / radius_abs_nm)).min(radius_abs_nm / 2.0);
                 // Truncating conversion like `qCeil()` (saturating instead of UB).
                 let steps = (steps_per_rad * angle.abs().to_rad()).ceil() as i32;
 

@@ -108,9 +108,7 @@ fn test_rotate() {
         (p(10, 0),        deg(19.0),  p(0, 0),         p(9, 3)        ),
     ];
     for (input, angle, center, output) in data {
-        let mut point = input;
-        point.rotate(angle, center);
-        assert_eq!(point, output, "{input:?} {angle:?}");
+        assert_eq!(input.rotated(angle, center), output, "{input:?} {angle:?}");
     }
 }
 

@@ -105,10 +105,10 @@ impl DeserializeObject for Text {
             uuid: node.child_value("@0")?,
             layer: node.child_value("layer/@0")?,
             text: node.child_value("value/@0")?,
-            position: Point::deserialize(node.get_child("position")?)?,
+            position: Point::deserialize(node.required_child("position")?)?,
             rotation: node.child_value("rotation/@0")?,
             height: node.child_value("height/@0")?,
-            align: Alignment::deserialize(node.get_child("align")?)?,
+            align: Alignment::deserialize(node.required_child("align")?)?,
             locked: node.child_value("lock/@0")?,
         })
     }

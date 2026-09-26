@@ -1,23 +1,27 @@
 //! Port of libs/librepcb/core/types/elementname.h.
 
-use super::string_newtype::{optional_string_newtype_serialization, string_newtype};
-use crate::utils::unicode::{is_print, trimmed, truncate_utf16, utf16_len};
+use super::string_newtype::{is_printable, optional_string_newtype_serialization, string_newtype};
 
-/// Maximum length in UTF-16 code units.
+/// Maximum length in characters.
 const MAX_LENGTH: usize = 70;
 
 string_newtype!(
     /// A valid element name (used as name of many objects).
     ///
-    /// Valid names contain 1..70 (UTF-16) characters, only printable
-    /// characters, and no leading or trailing whitespace. Like upstream,
-    /// characters outside the Basic Multilingual Plane are not printable.
+    /// Valid names contain 1..=70 characters, only printable characters of
+    /// the Basic Multilingual Plane (not of general category Control,
+    /// Format, Surrogate, Private Use or Unassigned), and no leading or
+    /// trailing whitespace.
+    ///
+    /// Upstream limits the length to 70 UTF-16 code units and rejects
+    /// surrogates as non-printable. Since only BMP characters are accepted,
+    /// "max 70 characters, BMP only" accepts exactly the same names.
     ElementName,
     |value| {
         !value.is_empty()
-            && utf16_len(value) <= MAX_LENGTH
-            && trimmed(value) == value
-            && value.chars().all(is_print)
+            && value.chars().count() <= MAX_LENGTH
+            && value.trim() == value
+            && value.chars().all(is_printable)
     },
     crate::types::Error::InvalidElementName
 );
@@ -27,14 +31,14 @@ optional_string_newtype_serialization!(ElementName);
 impl ElementName {
     /// Cleans a user input string to make it a valid element name (if not
     /// empty afterwards): trims it, removes non-printable characters and
-    /// truncates it (upstream `cleanElementName()`).
+    /// truncates it to 70 characters (upstream `cleanElementName()`).
     pub fn clean(user_input: &str) -> String {
-        let mut ret: String = trimmed(user_input)
+        user_input
+            .trim()
             .chars()
-            .filter(|&c| is_print(c))
-            .collect();
-        truncate_utf16(&mut ret, MAX_LENGTH);
-        ret
+            .filter(|&c| is_printable(c))
+            .take(MAX_LENGTH)
+            .collect()
     }
 
     /// Creates a name from a translatable string: the translation is used if

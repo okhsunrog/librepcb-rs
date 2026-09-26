@@ -135,7 +135,7 @@ impl DeserializeObject for Attribute {
         let key = node.child_value("@0")?;
         let attribute_type: AttributeType = node.child_value("type/@0")?;
         let value: String = node.child_value("value/@0")?;
-        let unit = attribute_type.unit_from_string(node.get_child("unit/@0")?.value()?)?;
+        let unit = attribute_type.unit_from_string(node.required_child("unit/@0")?.value()?)?;
         Ok(Self::new(key, attribute_type, value, unit)?)
     }
 }
@@ -157,6 +157,8 @@ impl ListTagName for AttributeListTag {
 
 /// A list of attributes, serialized as `(attribute ...)` children.
 pub type AttributeList = SerializableObjectList<Attribute, AttributeListTag>;
+
+static_assertions::assert_impl_all!(AttributeList: Send, Sync);
 
 impl AttributeList {
     /// Returns `self` extended by all attributes of `other` whose key is

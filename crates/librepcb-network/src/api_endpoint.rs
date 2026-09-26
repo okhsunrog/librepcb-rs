@@ -121,8 +121,9 @@ impl RawLibrary {
     }
 }
 
-/// Parses a JSON object (upstream: `QJsonDocument::fromJson()` + checks).
-fn parse_object(data: &[u8]) -> Option<Map<String, Value>> {
+/// Parses a non-empty JSON object (upstream: `QJsonDocument::fromJson()` +
+/// checks).
+pub(crate) fn parse_object(data: &[u8]) -> Option<Map<String, Value>> {
     match serde_json::from_slice(data) {
         Ok(Value::Object(obj)) if !obj.is_empty() => Some(obj),
         _ => None,

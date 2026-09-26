@@ -167,6 +167,9 @@ pub struct Pad {
     holes: PadHoleList,
 }
 
+// Top-level geometry aggregate (paths, object lists, value types).
+static_assertions::assert_impl_all!(Pad: Send, Sync);
+
 impl Pad {
     /// Creates a pad.
     #[allow(clippy::too_many_arguments)]
@@ -406,9 +409,10 @@ impl Pad {
         height: PositiveLength,
     ) -> UnsignedLimitedRatio {
         let size = width.min(height);
-        let mut max_radius = Ratio::from_normalized(0.5 / size.to_mm());
-        max_radius /= Ratio::from_percent(1);
-        max_radius *= Ratio::from_percent(1);
+        let max_radius = Ratio::from_normalized(0.5 / size.to_mm());
+        // Round down to whole percents (truncating integer division).
+        let one_percent = Ratio::from_percent(1).to_ppm();
+        let max_radius = Ratio::new(max_radius.to_ppm() / one_percent * one_percent);
         let clamped = max_radius.clamp(Ratio::from_percent(0), Ratio::from_percent(50));
         UnsignedLimitedRatio::new(clamped).expect("clamped to 0..50%")
     }
@@ -433,7 +437,7 @@ impl DeserializeObject for Pad {
     fn deserialize(node: &SExpression) -> serialization::Result<Self> {
         Ok(Self {
             uuid: node.child_value("@0")?,
-            position: Point::deserialize(node.get_child("position")?)?,
+            position: Point::deserialize(node.required_child("position")?)?,
             rotation: node.child_value("rotation/@0")?,
             shape: node.child_value("shape/@0")?,
             width: node.child_value("size/@0")?,

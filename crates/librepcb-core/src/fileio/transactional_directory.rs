@@ -21,6 +21,8 @@ pub struct TransactionalDirectory {
     path: String,
 }
 
+static_assertions::assert_impl_all!(TransactionalDirectory: Send, Sync);
+
 impl TransactionalDirectory {
     /// Creates a directory in a new, empty temporary file system (opened
     /// read-only, i.e. without lock file and never saved).

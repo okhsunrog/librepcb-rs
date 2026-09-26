@@ -159,3 +159,64 @@ pub(crate) use string_newtype;
 pub(crate) fn is_restricted(value: &str, max_len: usize, allowed: impl Fn(char) -> bool) -> bool {
     !value.is_empty() && value.chars().count() <= max_len && value.chars().all(allowed)
 }
+
+/// Returns whether `c` is a printable character allowed in names and simple
+/// strings: a character of the Basic Multilingual Plane which is not of
+/// general category Control, Format, Surrogate, Private Use or Unassigned.
+///
+/// This is the set of names upstream accepts (it checks `QChar::isPrint()`
+/// per UTF-16 code unit, so characters outside the BMP are rejected as
+/// surrogates), expressed natively. It decides which files are valid, so it
+/// must not be relaxed.
+pub(crate) fn is_printable(c: char) -> bool {
+    use unicode_general_category::{GeneralCategory, get_general_category};
+
+    u32::from(c) <= 0xFFFF
+        && !matches!(
+            get_general_category(c),
+            GeneralCategory::Control
+                | GeneralCategory::Format
+                | GeneralCategory::Surrogate
+                | GeneralCategory::PrivateUse
+                | GeneralCategory::Unassigned
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_printable;
+
+    #[test]
+    fn printable() {
+        assert!(is_printable('a'));
+        assert!(is_printable(' '));
+        assert!(is_printable('ä'));
+        assert!(!is_printable('\n'));
+        assert!(!is_printable('\u{200b}')); // Format
+        assert!(!is_printable('\u{e000}')); // Private use
+        assert!(!is_printable('😀')); // Outside the BMP
+        // Values verified against QChar::isPrint() of Qt 6.
+        assert!(is_printable('\u{a0}'));
+        assert!(is_printable('\u{2028}'));
+        assert!(is_printable('\u{1680}'));
+        assert!(!is_printable('\u{ad}'));
+        assert!(!is_printable('\u{85}'));
+        assert!(!is_printable('\u{378}'));
+        assert!(!is_printable('\u{180e}'));
+        assert!(!is_printable('\u{feff}'));
+    }
+
+    #[test]
+    fn whitespace_matches_qt() {
+        // `char::is_whitespace()` (Unicode White_Space) is the same set as
+        // `QChar::isSpace()`, so `str::trim()` equals `QString::trimmed()`.
+        for c in ['\t', '\n', '\u{b}', '\u{c}', '\r', ' ', '\u{85}', '\u{a0}'] {
+            assert!(c.is_whitespace());
+        }
+        for c in ['\u{1680}', '\u{2000}', '\u{2028}', '\u{2029}', '\u{3000}'] {
+            assert!(c.is_whitespace());
+        }
+        assert!(!'\u{180e}'.is_whitespace());
+        assert!(!'\u{200b}'.is_whitespace());
+    }
+}

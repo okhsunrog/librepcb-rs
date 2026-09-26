@@ -116,7 +116,7 @@ impl PainterPath {
                 let (x0, y0) = v0.pos.to_px();
                 let (dx, dy) = (x0 - cx, y0 - cy);
                 let radius = (dx * dx + dy * dy).sqrt();
-                let start_angle_deg = -(dy.atan2(dx) * (180.0 / std::f64::consts::PI));
+                let start_angle_deg = -(libm::atan2(dy, dx) * (180.0 / std::f64::consts::PI));
                 pp.arc_to(
                     RectF {
                         x: cx - radius,
@@ -421,8 +421,8 @@ fn t_for_arc_angle(angle: f64) -> f64 {
         return 1.0;
     }
     let radians = angle * (std::f64::consts::PI / 180.0);
-    let cos_angle = radians.cos();
-    let sin_angle = radians.sin();
+    let cos_angle = libm::cos(radians);
+    let sin_angle = libm::sin(radians);
     let k = KAPPA;
 
     // Initial guess, then some iterations of Newton's method to approximate

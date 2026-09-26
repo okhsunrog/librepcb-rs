@@ -113,10 +113,10 @@ fn write_tree(out: &mut String, t: &PolyTree) {
     out.push_str(&format!("T {}", t.total()));
     write_node(out, t.root());
     let mut cnt = 0;
-    let mut n = t.get_first();
+    let mut n = t.first();
     while let Some(node) = n {
         cnt += 1;
-        n = node.get_next();
+        n = node.next();
     }
     out.push_str(&format!(" next {cnt}"));
 }
@@ -248,7 +248,7 @@ pub fn run_case(line: &str) -> String {
         "Q" => {
             let n: usize = t.next();
             let mut v: Vec<(i64, usize)> = (0..n).map(|i| (t.next(), i)).collect();
-            clipper::stdsort::sort_by(&mut v, |a, b| a.0 < b.0);
+            clipper::std_sort::sort_by(&mut v, |a, b| a.0 < b.0);
             out.push('Q');
             for x in v {
                 out.push_str(&format!(" {}", x.1));
