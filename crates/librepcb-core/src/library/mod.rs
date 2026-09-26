@@ -38,7 +38,8 @@
 //! - Change signals (`onEdited`, Qt signals), see the `// upstream: emits`
 //!   notes.
 //! - UI helpers (`getIconAsPixmap()`, `SymbolPainter`, ...).
-//! - Packages (`pkg`), ported separately.
+//! - `Package` itself and its check (so far only the package sub-objects in
+//!   [`pkg`] are ported).
 
 pub mod cat;
 pub mod cmp;
@@ -54,6 +55,7 @@ mod library_element;
 mod library_element_check;
 mod library_element_check_messages;
 pub mod org;
+pub mod pkg;
 mod resource;
 pub mod sym;
 

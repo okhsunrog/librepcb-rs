@@ -2,6 +2,8 @@
 
 mod hole_test;
 mod image_test;
+mod pad_geometry_test;
+mod pad_test;
 mod path_test;
 mod polygon_test;
 mod stroke_text_test;

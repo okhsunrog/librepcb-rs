@@ -3,8 +3,9 @@
 //! checks that re-serializing them yields byte-identical output.
 //!
 //! Objects are recognized by their list name and the name of the parent list
-//! (e.g. `hole` in `pad` is a [`PadHole`], otherwise a [`Hole`]). Pads can
-//! only be deserialized (serialization belongs to footprint/board pads).
+//! (e.g. `hole` in `pad` is a [`PadHole`], otherwise a [`Hole`]). Pads are
+//! only deserialized here (serialization belongs to footprint/board pads;
+//! footprint pads are round-tripped in `package_roundtrip.rs`).
 
 use std::collections::BTreeMap;
 use std::path::{Path as FsPath, PathBuf};

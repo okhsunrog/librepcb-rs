@@ -2,8 +2,12 @@
 //!
 //! Upstream `Pad` is the base class of footprint and board pads, which add
 //! their own attributes and serialization. Here it is a plain struct meant
-//! to be embedded; it only implements deserialization of the common
-//! attributes.
+//! to be embedded (e.g. in
+//! [`FootprintPad`](crate::library::pkg::FootprintPad)). It implements
+//! deserialization of the common attributes, and
+//! [`Pad::serialize_with()`] writes them with the attributes of the
+//! embedding type (both upstream `serialize()` implementations only differ
+//! in one line).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -12,7 +16,9 @@ use std::str::FromStr;
 use librepcb_i18n::tr;
 
 use super::{Error, PadGeometry, PadHoleList, Path, property};
-use crate::serialization::{self, DeserializeObject, FromSExpression, SExpression, ToSExpression};
+use crate::serialization::{
+    self, DeserializeObject, FromSExpression, List, SExpression, SerializeObject, ToSExpression,
+};
 use crate::types::{
     Angle, Layer, Length, MaskConfig, Point, PositiveLength, Ratio, UnsignedLength,
     UnsignedLimitedRatio, Uuid,
@@ -415,6 +421,35 @@ impl Pad {
         let max_radius = Ratio::new(max_radius.to_ppm() / one_percent * one_percent);
         let clamped = max_radius.clamp(Ratio::from_percent(0), Ratio::from_percent(50));
         UnsignedLimitedRatio::new(clamped).expect("clamped to 0..50%")
+    }
+
+    /// Serializes the pad into `root` (upstream `FootprintPad::serialize()`
+    /// and `BoardPadData::serialize()`).
+    ///
+    /// `derived` appends the attributes of the embedding type (e.g.
+    /// `(package_pad ...)` or `(lock ...)`) on their own line, between the
+    /// common attributes and the custom shape outline.
+    pub fn serialize_with(&self, root: &mut List, derived: impl FnOnce(&mut List)) {
+        root.append_value(&self.uuid);
+        root.append_child("side", &self.component_side);
+        root.append_child("shape", &self.shape);
+        root.ensure_line_break();
+        self.position.serialize(root.append_list("position"));
+        root.append_child("rotation", &self.rotation);
+        Point::new(*self.width, *self.height).serialize(root.append_list("size"));
+        root.append_child("radius", &self.radius);
+        root.ensure_line_break();
+        root.append_child("stop_mask", &self.stop_mask_config);
+        root.append_child("solder_paste", &self.solder_paste_config);
+        root.append_child("clearance", &self.copper_clearance);
+        root.append_child("function", &self.function);
+        root.ensure_line_break();
+        derived(root);
+        root.ensure_line_break();
+        self.custom_shape_outline.serialize(root);
+        root.ensure_line_break();
+        self.holes.serialize(root);
+        root.ensure_line_break();
     }
 }
 

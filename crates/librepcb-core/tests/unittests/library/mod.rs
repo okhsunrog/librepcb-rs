@@ -1,5 +1,5 @@
-//! Ports of tests/unittests/core/library/*.cpp (except packages), plus tests
-//! of the library element checks.
+//! Ports of tests/unittests/core/library/**, plus tests of the library
+//! element checks.
 //!
 //! The upstream `testUpgradeV01` tests open a v0.1 element, which requires
 //! the (not yet ported) file format migrations. They are ported as a check
@@ -13,6 +13,7 @@ mod cmpcat;
 mod dev;
 mod library_base_element_test;
 mod library_test;
+mod pkg;
 mod pkgcat;
 mod sym;
 

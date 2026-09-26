@@ -1,6 +1,8 @@
 //! Port of libs/librepcb/core/geometry/padgeometry.{h,cpp}.
 //!
-//! Not ported: the `toQPainterPathPx()` family (UI specific).
+//! Not ported: the `toQPainterPathPx()` family (UI specific). Their
+//! geometry is available as paths: [`PadGeometry::to_outlines()`] (filled
+//! area) and [`PadGeometry::to_hole_outlines()`] (holes).
 
 use clipper::PolyFillType;
 
@@ -161,6 +163,17 @@ impl PadGeometry {
             }
         }
         Ok(result)
+    }
+
+    /// Returns the outlines of the holes, one closed path per hole segment
+    /// (the geometry of upstream `toHolesQPainterPathPx()`; the paths
+    /// overlap for multi-segment slots, so they have to be united with the
+    /// non-zero fill rule).
+    pub fn to_hole_outlines(&self) -> Vec<Path> {
+        self.holes
+            .iter()
+            .flat_map(|hole| hole.path().to_outline_strokes(hole.diameter()))
+            .collect()
     }
 
     /// Returns a copy with an additional offset.

@@ -68,6 +68,15 @@ pub fn bounding_rect_px(paths: &[Path]) -> RectF {
     compute_bounding_rect(&elements)
 }
 
+/// Returns whether a painter path built from `paths` (as in
+/// [`bounding_rect_px()`]) would be empty (`QPainterPath::isEmpty()`), i.e.
+/// no path draws anything.
+pub fn is_empty_px(paths: &[Path]) -> bool {
+    paths
+        .iter()
+        .all(|path| PainterPath::from_path(path).elements.len() <= 1)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ElementType {
     MoveTo,

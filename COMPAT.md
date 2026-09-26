@@ -117,6 +117,11 @@ stated otherwise. Entries are grouped by module.
   `Toolbox::shapeFromPath()`, `Toolbox::floatToString()`,
   `Toolbox::prettyPrintLocale()`, `Transform::mapPx()`.
 
+## library
+
+- Not ported (UI specific, will live in the rendering layer):
+  `FootprintPainter`.
+
 ## utils
 
 - **Math parser** (user input of lengths/angles/ratios): evaluated with
