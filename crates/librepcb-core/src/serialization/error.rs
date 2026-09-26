@@ -130,6 +130,9 @@ pub enum Error {
     /// A value failed validation.
     #[error(transparent)]
     Value(#[from] crate::types::Error),
+    /// A geometry object failed validation.
+    #[error(transparent)]
+    Geometry(#[from] crate::geometry::Error),
 }
 
 impl Error {
