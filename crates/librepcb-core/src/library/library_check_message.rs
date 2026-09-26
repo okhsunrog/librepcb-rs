@@ -12,6 +12,7 @@ use super::cmp::ComponentCheckMessage;
 use super::dev::DeviceCheckMessage;
 use super::library_base_element_check_messages::LibraryBaseElementCheckMessage;
 use super::library_element_check_messages::LibraryElementCheckMessage;
+use super::pkg::PackageCheckMessage;
 use super::sym::SymbolCheckMessage;
 use crate::rule_check::RuleCheckMessage;
 
@@ -29,6 +30,8 @@ pub enum LibraryCheckMessage {
     Symbol(SymbolCheckMessage),
     /// Component check.
     Component(ComponentCheckMessage),
+    /// Package check.
+    Package(PackageCheckMessage),
     /// Device check.
     Device(DeviceCheckMessage),
 }
@@ -43,6 +46,7 @@ impl LibraryCheckMessage {
             Self::Category(m) => m.to_message(),
             Self::Symbol(m) => m.to_message(),
             Self::Component(m) => m.to_message(),
+            Self::Package(m) => m.to_message(),
             Self::Device(m) => m.to_message(),
         }
     }
@@ -66,6 +70,7 @@ impl_from!(
     Category(LibraryCategoryCheckMessage),
     Symbol(SymbolCheckMessage),
     Component(ComponentCheckMessage),
+    Package(PackageCheckMessage),
     Device(DeviceCheckMessage),
 );
 

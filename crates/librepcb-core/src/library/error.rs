@@ -26,6 +26,9 @@ pub enum Error {
     /// A file could not be parsed or deserialized.
     #[error(transparent)]
     Serialization(#[from] crate::serialization::Error),
+    /// A package operation (e.g. the package check) failed.
+    #[error(transparent)]
+    Package(#[from] super::pkg::Error),
     /// The name of an element directory is not the element's UUID.
     #[error(
         "Directory name UUID mismatch: '{dir_name}' != '{uuid}'\n\nDirectory: '{}'",

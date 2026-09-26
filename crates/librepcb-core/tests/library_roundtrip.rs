@@ -1,6 +1,6 @@
 //! Opens all current-format libraries and library elements in the upstream
-//! test data (except packages) and checks that saving them
-//! yields byte-identical element files and version files.
+//! test data and checks that saving them yields byte-identical element files
+//! and version files.
 //!
 //! Elements are found by the root node of their `.lp` file; elements in an
 //! older file format (version file != current file format) are skipped, they
@@ -19,6 +19,7 @@ use librepcb_core::library::cat::{ComponentCategory, PackageCategory};
 use librepcb_core::library::cmp::Component;
 use librepcb_core::library::dev::Device;
 use librepcb_core::library::org::Organization;
+use librepcb_core::library::pkg::Package;
 use librepcb_core::library::sym::Symbol;
 use librepcb_core::library::{Error, Library, LibraryBaseElement};
 
@@ -112,6 +113,7 @@ fn library_roundtrip_test_data() {
             b"component_category" => ("component_category", roundtrip::<ComponentCategory>(dir)),
             b"package_category" => ("package_category", roundtrip::<PackageCategory>(dir)),
             b"symbol" => ("symbol", roundtrip::<Symbol>(dir)),
+            b"package" => ("package", roundtrip::<Package>(dir)),
             b"component" => ("component", roundtrip::<Component>(dir)),
             b"device" => ("device", roundtrip::<Device>(dir)),
             b"organization" => ("organization", roundtrip::<Organization>(dir)),
@@ -140,6 +142,7 @@ fn library_roundtrip_test_data() {
         "component_category",
         "package_category",
         "symbol",
+        "package",
         "component",
         "device",
         "organization",

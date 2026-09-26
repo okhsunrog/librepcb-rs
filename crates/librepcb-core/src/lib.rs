@@ -21,7 +21,7 @@
 //! - [`sqlite_database`]: thin wrapper around SQLite (for the library index).
 //! - [`rule_check`]: messages of rule checks (library element check, ...).
 //! - [`library`]: libraries and library elements (categories, symbols,
-//!   components, devices, package sub-objects, organizations).
+//!   packages, components, devices, organizations) and their checks.
 //! - [`utils`]: helpers from `core/utils` needed by the above.
 
 pub mod algorithm;

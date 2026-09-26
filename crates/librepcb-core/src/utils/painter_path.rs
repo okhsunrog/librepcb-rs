@@ -11,6 +11,19 @@
 //! `QPainterPath::computeBoundingRect()`, LGPL-3.0/GPL) are ported here;
 //! no crate reproduces Qt's arc approximation. Qt's fuzzy point comparisons,
 //! which drop degenerate elements, are reproduced as well.
+//!
+//! The package check decides with `QPainterPath::intersects()` and
+//! `contains()` whether pads overlap, which depends on how Qt approximates
+//! the curves in each case (e.g. `QPathClipper` samples a quarter circle of
+//! a typical pad corner at only 3 points). [`PainterPathPx`] reproduces
+//! these predicates and `QPainterPathStroker` (ported from
+//! `qpainterpath.cpp`, `qpathclipper.cpp`, `qstroker.cpp`, `qbezier.cpp`
+//! and `qline.cpp` of Qt 6), because the check results of real libraries
+//! depend on them; exact polygon clipping (e.g. Clipper) gives different
+//! results near the thresholds.
+
+mod predicates;
+mod stroker;
 
 use crate::geometry::Path;
 use crate::utils::toolbox;
@@ -118,6 +131,197 @@ pub fn painter_path_px(path: &Path) -> Vec<PathElement> {
         i += 1;
     }
     out
+}
+
+/// A `QPainterPath` built from [`Path`]s in graphics scene pixels, like
+/// upstream `Path::toQPainterPathPx()` (optionally mapped like
+/// `Transform::mapPx()`), for emulating the Qt path predicates which the
+/// package check relies on (see the `intersects()`/`contains*()` methods).
+#[derive(Debug, Clone, Default)]
+pub struct PainterPathPx {
+    elements: Vec<Element>,
+    /// Fill rule: winding (`true`) or odd-even (`false`, Qt's default).
+    winding_fill: bool,
+}
+
+impl PainterPathPx {
+    /// Builds the painter path of `paths` (added with
+    /// `QPainterPath::addPath()`, i.e. empty paths are skipped) with
+    /// odd-even fill.
+    pub fn from_paths<'a>(paths: impl IntoIterator<Item = &'a Path>) -> Self {
+        let mut elements = Vec::new();
+        for path in paths {
+            let sub = PainterPath::from_path(path);
+            if sub.elements.len() > 1 {
+                elements.extend(sub.elements);
+            }
+        }
+        Self {
+            elements,
+            winding_fill: false,
+        }
+    }
+
+    /// Builds a painter path of straight polygons (one subpath each, pixel
+    /// coordinates) with odd-even fill.
+    pub fn from_polygons(polygons: &[Vec<(f64, f64)>]) -> Self {
+        let mut elements = Vec::new();
+        for polygon in polygons.iter().filter(|p| p.len() > 1) {
+            for (i, &(x, y)) in polygon.iter().enumerate() {
+                let kind = if i == 0 {
+                    ElementType::MoveTo
+                } else {
+                    ElementType::LineTo
+                };
+                elements.push(Element { x, y, kind });
+            }
+        }
+        Self {
+            elements,
+            winding_fill: false,
+        }
+    }
+
+    /// Appends the subpaths of `other` (`QPainterPath::addPath()`).
+    pub fn append(&mut self, other: &Self) {
+        self.elements.extend_from_slice(&other.elements);
+    }
+
+    /// Sets the fill rule (`QPainterPath::setFillRule()`): winding if `true`,
+    /// odd-even otherwise.
+    pub fn set_winding_fill(&mut self, winding: bool) {
+        self.winding_fill = winding;
+    }
+
+    /// Returns whether the path is empty (`QPainterPath::isEmpty()`).
+    pub fn is_empty(&self) -> bool {
+        self.elements.is_empty()
+    }
+
+    /// Returns the path mapped by the `QTransform` of upstream
+    /// `Transform::mapPx()` (translation and rotation, without mirroring).
+    pub fn mapped(&self, position: crate::types::Point, rotation: crate::types::Angle) -> Self {
+        let (dx, dy) = position.to_px();
+        // QTransform::rotate(-degrees), with its exact special cases.
+        let a = -rotation.to_deg();
+        let (sina, cosa) = if a == 0.0 {
+            (0.0, 1.0)
+        } else if a == 90.0 || a == -270.0 {
+            (1.0, 0.0)
+        } else if a == 270.0 || a == -90.0 {
+            (-1.0, 0.0)
+        } else if a == 180.0 {
+            (0.0, -1.0)
+        } else {
+            let b = a * (std::f64::consts::PI / 180.0);
+            (libm::sin(b), libm::cos(b))
+        };
+        let rotated = a != 0.0;
+        let elements = self
+            .elements
+            .iter()
+            .map(|e| {
+                let (x, y) = if rotated {
+                    (cosa * e.x + -sina * e.y + dx, sina * e.x + cosa * e.y + dy)
+                } else {
+                    (e.x + dx, e.y + dy)
+                };
+                Element { x, y, kind: e.kind }
+            })
+            .collect();
+        Self {
+            elements,
+            winding_fill: self.winding_fill,
+        }
+    }
+
+    /// Returns the bounding rectangle of all points including control
+    /// points (`QPainterPath::controlPointRect()`), `None` if empty.
+    pub fn control_point_rect(&self) -> Option<RectF> {
+        let first = self.elements.first()?;
+        let (mut minx, mut maxx, mut miny, mut maxy) = (first.x, first.x, first.y, first.y);
+        for e in &self.elements[1..] {
+            if e.x > maxx {
+                maxx = e.x;
+            } else if e.x < minx {
+                minx = e.x;
+            }
+            if e.y > maxy {
+                maxy = e.y;
+            } else if e.y < miny {
+                miny = e.y;
+            }
+        }
+        Some(RectF {
+            x: minx,
+            y: miny,
+            width: maxx - minx,
+            height: maxy - miny,
+        })
+    }
+
+    /// Returns whether the path is exactly an axis-aligned rectangle
+    /// (`QPathClipper::pathToRect()`).
+    pub fn is_rect(&self) -> bool {
+        use ElementType::{LineTo, MoveTo};
+        let e = &self.elements;
+        if e.len() != 5
+            || e[0].kind != MoveTo
+            || e[1..].iter().any(|element| element.kind != LineTo)
+        {
+            return false;
+        }
+        let (x1, y1) = (e[0].x, e[0].y);
+        let (x2, y2) = (e[1].x, e[2].y);
+        e[1].y == y1 && e[2].x == x2 && e[3].x == x1 && e[3].y == y2 && e[4].x == x1 && e[4].y == y1
+    }
+
+    /// Returns the start points of all subpaths (the `MoveTo` elements).
+    pub fn subpath_starts(&self) -> impl Iterator<Item = (f64, f64)> + '_ {
+        self.elements
+            .iter()
+            .filter(|e| e.kind == ElementType::MoveTo)
+            .map(Element::point)
+    }
+}
+
+/// `qt_painterpath_isect_line()`
+fn isect_line(p1: (f64, f64), p2: (f64, f64), pos: (f64, f64), winding: &mut i32) {
+    let (mut x1, mut y1, mut x2, mut y2) = (p1.0, p1.1, p2.0, p2.1);
+    let y = pos.1;
+    let mut dir = 1;
+    if fuzzy_compare(y1, y2) {
+        // Ignore horizontal lines according to scan conversion rule.
+        return;
+    } else if y2 < y1 {
+        std::mem::swap(&mut x1, &mut x2);
+        std::mem::swap(&mut y1, &mut y2);
+        dir = -1;
+    }
+    if y >= y1 && y < y2 {
+        let x = x1 + ((x2 - x1) / (y2 - y1)) * (y - y1);
+        // Count up the winding number if we're left of the line.
+        if x <= pos.0 {
+            *winding += dir;
+        }
+    }
+}
+
+/// `isLine()` of qpathclipper.cpp (with its `comparePoints()`).
+fn is_bezier_line(b: &Bezier) -> bool {
+    let cmp =
+        |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() <= 1e-12 && (a.1 - b.1).abs() <= 1e-12;
+    let (p1, p2, p3, p4) = ((b.x1, b.y1), (b.x2, b.y2), (b.x3, b.y3), (b.x4, b.y4));
+    let equal_1_2 = cmp(p1, p2);
+    let equal_2_3 = cmp(p2, p3);
+    let equal_3_4 = cmp(p3, p4);
+    if equal_1_2 && equal_2_3 && equal_3_4 {
+        return true;
+    }
+    if cmp(p1, p4) {
+        return equal_1_2 || equal_3_4;
+    }
+    (equal_1_2 && equal_3_4) || (equal_1_2 && equal_2_3) || (equal_2_3 && equal_3_4)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -320,6 +524,29 @@ impl Bezier {
             y3: p3.1,
             x4: p4.0,
             y4: p4.1,
+        }
+    }
+
+    /// `QBezier::bounds()` (bounds of the control points).
+    fn control_point_bounds(&self) -> RectF {
+        let min_max = |v: [f64; 4]| {
+            let (mut min, mut max) = (v[0], v[0]);
+            for x in &v[1..] {
+                if *x < min {
+                    min = *x;
+                } else if *x > max {
+                    max = *x;
+                }
+            }
+            (min, max)
+        };
+        let (xmin, xmax) = min_max([self.x1, self.x2, self.x3, self.x4]);
+        let (ymin, ymax) = min_max([self.y1, self.y2, self.y3, self.y4]);
+        RectF {
+            x: xmin,
+            y: ymin,
+            width: xmax - xmin,
+            height: ymax - ymin,
         }
     }
 
