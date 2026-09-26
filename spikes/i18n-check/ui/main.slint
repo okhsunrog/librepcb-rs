@@ -1,0 +1,26 @@
+// Strings taken verbatim from upstream LibrePCB .slint files. The default
+// translation context is the component name, so this component is named
+// `MainMenuBar` like upstream's; strings from other components use an
+// explicit context.
+export component MainMenuBar inherits Window {
+    in property <int> count: 1;
+
+    // libs/librepcb/ui/mainmenubar.slint
+    out property <string> file: @tr("File");
+    out property <string> undo: @tr("Undo: {}", "X");
+
+    // libs/librepcb/ui/library/dev/devicedependencycards.slint
+    out property <string> choose: @tr("DeviceDependencyCard" => "Choose {}", "Symbol");
+
+    // Upstream: @tr("" | "{n} warning(s)" % n); the port repeats the plural
+    // string as singular (see tools/ts2po).
+    out property <string> warnings: @tr("LibraryRuleCheckLink" => "{n} warning(s)" | "{n} warning(s)" % count);
+    out property <string> modifications: @tr("LibrariesPanel" => "Apply {n} Modification(s)" | "Apply {n} Modification(s)" % count);
+
+    // Not in any catalog: falls back to the source text.
+    out property <string> untranslated: @tr("Not translated {}", 42);
+
+    Text {
+        text: root.undo;
+    }
+}
