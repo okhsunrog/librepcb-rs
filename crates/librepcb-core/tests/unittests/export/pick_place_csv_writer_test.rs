@@ -192,9 +192,8 @@ fn test_metadata_type_filter_and_non_mounted_parts() {
 }
 
 fn read_expected(name: &str) -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-        "../../../LibrePCB/tests/data/unittests/librepcbproject/BoardPickPlaceGeneratorTest/\
-         expected/{name}"
+    let path = crate::helpers::test_data_dir().join(format!(
+        "unittests/librepcbproject/BoardPickPlaceGeneratorTest/expected/{name}"
     ));
     std::fs::read_to_string(path).unwrap()
 }

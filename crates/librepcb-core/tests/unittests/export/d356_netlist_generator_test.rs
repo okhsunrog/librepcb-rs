@@ -187,10 +187,8 @@ fn test_via() {
 /// syntax only; the records need the board model).
 #[test]
 fn test_expected_file_syntax() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../LibrePCB/tests/data/unittests/librepcbproject/BoardD356NetlistExportTest/\
-         expected.d356",
-    );
+    let path = crate::helpers::test_data_dir()
+        .join("unittests/librepcbproject/BoardD356NetlistExportTest/expected.d356");
     let content = std::fs::read_to_string(path).unwrap();
     let header_end = content.find("P  UNITS CUST 1\n").unwrap();
     // Same comment lines except project, board, version and date.

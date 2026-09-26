@@ -1,7 +1,6 @@
 //! Port of tests/unittests/core/export/gerbergeneratortest.cpp, plus a test
 //! of the complete file layout against an upstream export result.
 
-use std::path::Path as StdPath;
 use std::sync::LazyLock;
 
 use chrono::NaiveDate;
@@ -193,9 +192,8 @@ fn test_full_file_layout() {
     let md5 = Regex::new(r"(?m)^G04 #@! TF\.MD5,([0-9a-f]{32})\*$").unwrap();
     assert!(md5.is_match(&output), "{output}");
     let actual = md5.replace(&output, "");
-    let expected = std::fs::read_to_string(StdPath::new(env!("CARGO_MANIFEST_DIR")).join(
-        "../../../LibrePCB/tests/data/unittests/librepcbproject/BoardGerberExportTest/expected/\
-         test_project_GLUE-TOP.gbr",
+    let expected = std::fs::read_to_string(crate::helpers::test_data_dir().join(
+        "unittests/librepcbproject/BoardGerberExportTest/expected/test_project_GLUE-TOP.gbr",
     ))
     .unwrap();
     assert_eq!(expected, actual);

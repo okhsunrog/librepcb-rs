@@ -1,9 +1,16 @@
 //! Test helpers (replacing `Application::getRandomTempPath()` and the
 //! upstream `dummy-binary` test executable).
 
+use std::path::PathBuf;
 use std::process::{Child, Command};
 
 use librepcb_core::fileio::FilePath;
+
+/// Returns the upstream test data directory (see `LIBREPCB_UPSTREAM_DIR` in
+/// `.cargo/config.toml`).
+pub fn test_data_dir() -> PathBuf {
+    PathBuf::from(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data")
+}
 
 /// Temporary directory which is removed on drop.
 pub struct TempDir {
