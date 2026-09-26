@@ -8,6 +8,8 @@
 //!   (de)serialize objects from/to it.
 //! - [`geometry`]: geometric primitives (paths, polygons, pads, texts,
 //!   traces, vias, ...).
+//! - [`library`]: library elements (so far the package sub-objects:
+//!   footprints, footprint pads, package pads and 3D models).
 //! - [`font`]: stroke fonts used to render stroke texts.
 //! - [`attribute`]: attributes of library elements and projects, and the
 //!   `{{KEY}}` substitution in texts.
@@ -23,6 +25,7 @@ pub mod attribute;
 pub mod fileio;
 pub mod font;
 pub mod geometry;
+pub mod library;
 pub mod serialization;
 pub mod sqlite_database;
 pub mod system_info;
