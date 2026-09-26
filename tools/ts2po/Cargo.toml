@@ -1,0 +1,15 @@
+[package]
+name = "ts2po"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1.0.104"
+quick-xml = "0.42.0"
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+librepcb-i18n = { path = "../../crates/librepcb-i18n" }
