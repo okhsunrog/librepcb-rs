@@ -1,4 +1,5 @@
-//! Emulation of the `QPainterPath` bounding rectangle of [`Path`]s (upstream
+//! Emulation of the `QPainterPath` of [`Path`]s (upstream
+//! `Path::toQPainterPathPx()`) and of its bounding rectangle (upstream
 //! `Path::toQPainterPathPx(paths, false).boundingRect()`).
 //!
 //! The stroke font uses this bounding rectangle to align glyphs, so it
@@ -75,6 +76,48 @@ pub fn is_empty_px(paths: &[Path]) -> bool {
     paths
         .iter()
         .all(|path| PainterPath::from_path(path).elements.len() <= 1)
+}
+
+/// A drawing command of [`painter_path_px()`], in pixels (Y axis pointing
+/// down).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PathElement {
+    /// Starts a new subpath.
+    MoveTo((f64, f64)),
+    /// Straight line to a point.
+    LineTo((f64, f64)),
+    /// Cubic Bézier curve (two control points, end point).
+    CubicTo((f64, f64), (f64, f64), (f64, f64)),
+}
+
+/// Returns the drawing commands of `QPainterPath` of a [`Path`] (upstream
+/// `Path::toQPainterPathPx()`): arcs become Qt's cubic Bézier approximation,
+/// so renderers draw exactly the curves upstream draws. Returns nothing if
+/// there is nothing to draw (less than two valid vertices).
+pub fn painter_path_px(path: &Path) -> Vec<PathElement> {
+    let pp = PainterPath::from_path(path);
+    if pp.elements.len() <= 1 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(pp.elements.len());
+    let mut i = 0;
+    while i < pp.elements.len() {
+        let e = pp.elements[i];
+        match e.kind {
+            ElementType::MoveTo => out.push(PathElement::MoveTo(e.point())),
+            ElementType::LineTo => out.push(PathElement::LineTo(e.point())),
+            ElementType::CurveTo => {
+                // `cubic_to()` always pushes a CurveTo and two CurveToData.
+                if let Some([c2, end]) = pp.elements.get(i + 1..i + 3) {
+                    out.push(PathElement::CubicTo(e.point(), c2.point(), end.point()));
+                }
+                i += 2;
+            }
+            ElementType::CurveToData => {}
+        }
+        i += 1;
+    }
+    out
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -721,6 +764,36 @@ mod tests {
         assert_eq!(bounding_rect_px(&[]), RectF::default());
         let single = Path::new(vec![Vertex::new(Point::from_nm(5, 5), Angle::DEG90)]);
         assert_eq!(bounding_rect_px(&[single]), RectF::default());
+    }
+
+    #[test]
+    fn path_elements() {
+        assert!(painter_path_px(&Path::default()).is_empty());
+        let line = Path::new(vec![
+            Vertex::at(Point::from_nm(0, 0)),
+            Vertex::at(Point::from_nm(25_400_000, 25_400_000)),
+        ]);
+        assert_eq!(
+            painter_path_px(&line),
+            vec![
+                PathElement::MoveTo((0.0, 0.0)),
+                PathElement::LineTo((72.0, -72.0))
+            ]
+        );
+        // A 90° arc is one cubic curve ending exactly at the end point.
+        let arc = Path::new(vec![
+            Vertex::new(Point::from_nm(25_400_000, 0), Angle::DEG90),
+            Vertex::at(Point::from_nm(0, 25_400_000)),
+        ]);
+        let els = painter_path_px(&arc);
+        assert_eq!(els.len(), 2);
+        let PathElement::CubicTo(_, _, end) = els[1] else {
+            panic!("expected a curve: {els:?}");
+        };
+        assert!(
+            (end.0 - 0.0).abs() < 1e-9 && (end.1 + 72.0).abs() < 1e-9,
+            "{end:?}"
+        );
     }
 
     #[test]
