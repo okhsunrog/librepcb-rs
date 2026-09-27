@@ -5,6 +5,7 @@
 
 mod air_wires_test;
 mod design_rules_test;
+mod drc_test;
 mod fabrication_output_settings_test;
 mod io_test;
 mod mutation_test;

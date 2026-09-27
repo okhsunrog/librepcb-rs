@@ -20,6 +20,7 @@ mod board;
 mod change;
 mod design_rules;
 mod device;
+pub mod drc;
 mod fabrication_output_settings;
 mod hole_data;
 pub(crate) mod keyed_map;

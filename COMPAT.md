@@ -423,3 +423,44 @@ differ between platforms/implementations:
 - `BoardNetSegmentSplitter`: new junction UUIDs come from a caller provided
   generator, and the elements of a resulting segment may be listed in
   another order. Files are unaffected (elements are saved sorted by UUID).
+
+## project/board/drc
+
+- **Iteration order**: the input data keeps net segments, devices, pads,
+  vias and junctions in `BTreeMap`s (UUID order) and layers in `BTreeSet`s;
+  upstream iterates `QHash`es/`QSet`s. Approvals are identical (upstream
+  sorts the objects of an approval canonically), but the order of the two
+  objects in the text of a copper clearance message (`'GND' pad ↔ 'VCC'
+  pad`) and the order of the messages may differ. Merging of copper
+  clearance violations per object pair is order independent.
+- **Missing connections**: the messages are the air wires, so among equally
+  long alternatives another connection may be reported than upstream (see
+  algorithm, air wires); the stored approval of such a message then does
+  not match. Seen in the upstream test project `DRC` (e.g. pads on a
+  regular grid).
+- **Keepout zones**: upstream tests the intersection with
+  `QPainterPath::intersects()` against the union (`|=`, `QPathClipper`) of
+  the object areas; here each area is tested with the ported Qt predicate
+  (`PainterPathPx::intersects()`) and the object intersects if any area
+  does. Via areas are circles drawn with arcs (same Bézier quarter curves)
+  instead of `QPainterPath::addEllipse()`. Results only differ for objects
+  touching a zone within Qt's curve sampling tolerance.
+- **Device names** in "Device in courtyard"/"Device overlap" messages are
+  ordered by `str` ordering instead of `QString` (UTF-16) ordering; only
+  names with characters outside the BMP can be affected.
+- **Stroke texts**: attributes are substituted with a simplified lookup
+  (device, component, first part, board, project attributes and the
+  built-in keys) until `ProjectAttributeLookup` is ported. Project dates
+  are formatted in UTC.
+- **Plane fragments**: `Project::run_drc()` does not rebuild the planes yet
+  (upstream `BoardDesignRuleCheck::start()` does); the fragments stored in
+  the board are used. Until the plane fragments builder is wired in, plane
+  related results differ (copper, board and hole clearances of planes,
+  annular rings, cutouts, missing connections through planes).
+- **Errors**: checks that fail (e.g. a non-positive calculated diameter)
+  report the error in `DrcResult::errors` like upstream, with the Rust error
+  message. A panic of a check thread is reported as error as well.
+- The approval cleanup `Board::updateDrcMessageApprovals()` is not ported
+  (it modifies the board; to be added as mutation with the editor).
+- `DrcMsgInvalidPadConnection` keeps upstream's untranslated `'%2'` in its
+  message (upstream substitutes only the first placeholder).
