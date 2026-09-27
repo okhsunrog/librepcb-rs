@@ -17,9 +17,8 @@ pub const TR: &str = "CommandLineInterface";
 
 /// Supported graphics export file extensions shown in the help texts
 /// (upstream `GraphicsExport::getSupportedExtensions()`, i.e. PDF, SVG and
-/// the image formats of Qt). Graphics export is not supported by this port
-/// yet, see COMPAT.md.
-pub const GRAPHICS_EXTENSIONS: &[&str] = &["pdf", "svg", "bmp", "jpeg", "jpg", "png"];
+/// the image formats of Qt; here those of the scene crate's export).
+pub const GRAPHICS_EXTENSIONS: &[&str] = librepcb_scene::export::SUPPORTED_EXTENSIONS;
 
 /// All arguments.
 #[derive(Debug, Parser)]

@@ -38,6 +38,11 @@ Done, in `crates/librepcb-core` unless noted:
   for byte.
 - **`crates/librepcb-canvas`:** a retained 2D scene rendered with vello_cpu,
   with hit testing and a Slint adapter.
+- **`crates/librepcb-scene`:** scene builders for schematics, boards,
+  symbols and footprints, and the graphics export (`export`: PDF via
+  `pdf-writer`, SVG, PNG/JPEG/BMP; upstream's page layout, the painters'
+  export paths and the realistic board rendering), used by the CLI and by
+  graphics output jobs.
 - **`crates/librepcb-i18n`, `tools/ts2po`, `lang/`:** translations from the
   upstream catalogs, with Slint bundled translations.
 - **`crates/librepcb-mcp` (phase 1):** MCP server with session, library,
@@ -60,7 +65,7 @@ Done, in `crates/librepcb-core` unless noted:
 3. **Then M1.5** (MCP, library manager, Specctra) per `roadmap.md` and the
    decisions in `mcp-research-konnect.md`.
 
-Deliberately deferred: the schematic/board painters (M2), Specctra
+Deliberately deferred: Specctra
 (M1.5), the interactive HTML BOM, 3D/STEP, and the Eagle/KiCad importers
 (M5).
 

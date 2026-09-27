@@ -3279,6 +3279,7 @@ dependencies = [
  "env_logger",
  "librepcb-core",
  "librepcb-i18n",
+ "librepcb-scene",
  "log",
  "tempfile",
  "thiserror 2.0.21",
@@ -3398,11 +3399,17 @@ dependencies = [
 name = "librepcb-scene"
 version = "0.1.0"
 dependencies = [
+ "clipper",
+ "image",
  "librepcb-canvas",
  "librepcb-core",
+ "librepcb-i18n",
+ "log",
+ "pdf-writer",
  "png",
  "static_assertions",
  "thiserror 2.0.21",
+ "vello_cpu",
 ]
 
 [[package]]
@@ -4324,6 +4331,18 @@ name = "pathdiff"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
+
+[[package]]
+name = "pdf-writer"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5e456864a7a304047bff84977dc6fb162bd956475d40ba50b2dcecaada7f753"
+dependencies = [
+ "bitflags 2.13.2",
+ "itoa",
+ "memchr",
+ "ryu",
+]
 
 [[package]]
 name = "peniko"

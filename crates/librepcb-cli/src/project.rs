@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use librepcb_core::export::BomCsvWriter;
-use librepcb_core::export::{BoardSide, PickPlaceSides, Timestamp};
+use librepcb_core::export::{BoardSide, GraphicsExportSettings, PickPlaceSides, Timestamp};
 use librepcb_core::fileio::{
     CleanFileNameOptions, FileNameCase, FilePath, RestoreMode, TransactionalDirectory,
     TransactionalFileSystem, file_utils,
@@ -17,14 +17,15 @@ use librepcb_core::project::board::{
     export_d356_netlist, export_pick_place_csv,
 };
 use librepcb_core::project::{
-    AssemblyVariantId, BoardId, BomGenerator, Mutation, OutputJobEvent, OutputJobRunner,
-    ProjectAttributeLookup, ProjectLoader, erc,
+    AssemblyVariantId, BoardId, BomGenerator, GraphicsExporter, GraphicsPage, GraphicsPageContent,
+    Mutation, OutputJobEvent, OutputJobRunner, ProjectAttributeLookup, ProjectLoader, erc,
 };
 use librepcb_core::serialization::{DeserializeObject, Mode, SExpression};
 use librepcb_i18n::tr;
+use librepcb_scene::export::ProjectGraphicsExporter;
 
 use crate::APP_VERSION;
-use crate::args::{GRAPHICS_EXTENSIONS, OpenProjectArgs, TR};
+use crate::args::{OpenProjectArgs, TR};
 use crate::drc;
 use crate::error::CliResult;
 use crate::output::{
@@ -58,20 +59,10 @@ fn read_sexpression_file(path: &str) -> CliResult<SExpression> {
     )?)
 }
 
-/// Message of a graphics export which is not supported by this port. For
-/// unknown file extensions, the upstream message is returned.
-pub fn graphics_export_error(fp: &FilePath) -> String {
-    let suffix = fp.suffix().to_lowercase();
-    if GRAPHICS_EXTENSIONS.contains(&suffix.as_str()) {
-        "Graphics export is not supported yet by this LibrePCB version (librepcb-rs).".to_owned()
-    } else {
-        tr!(
-            "librepcb::GraphicsExport",
-            "Failed to export image '{0}' due to unknown file extension. Supported extensions: {1}",
-            fp.to_native(),
-            GRAPHICS_EXTENSIONS.join(", ")
-        )
-    }
+/// The creator written into exported PDF files (upstream
+/// `"LibrePCB " + Application::getVersion()`).
+pub fn graphics_creator() -> String {
+    format!("LibrePCB {APP_VERSION}")
 }
 
 /// Runs `open-project`, returns whether it succeeded.
@@ -435,6 +426,9 @@ fn open_project_impl(a: &OpenProjectArgs) -> CliResult<bool> {
             }
             let result = (|| -> CliResult<()> {
                 let mut runner = OutputJobRunner::new(&mut project, info.clone())?;
+                runner.set_graphics_exporter(Some(Arc::new(ProjectGraphicsExporter::new(
+                    graphics_creator(),
+                ))));
                 let counter = Arc::clone(&written_job_files);
                 let style = project_file.to_owned();
                 runner.set_observer(Some(Box::new(move |event| match event {
@@ -474,12 +468,29 @@ fn open_project_impl(a: &OpenProjectArgs) -> CliResult<bool> {
         let lookup = ProjectAttributeLookup::for_project(&project, None);
         let dest_path = lookup.substitute_filtered(dest, &mut clean_file_name);
         let fp = absolute_path(&dest_path);
-        print_err(&format!(
-            "  {}: {}",
-            tr!(TR, "ERROR"),
-            graphics_export_error(&fp)
-        ));
-        success = false;
+        let settings = GraphicsExportSettings::default();
+        let pages: Vec<GraphicsPage> = project
+            .schematics()
+            .iter()
+            .map(|s| GraphicsPage {
+                content: GraphicsPageContent::Schematic(s.id()),
+                settings: settings.clone(),
+            })
+            .collect();
+        let result = ProjectGraphicsExporter::new(graphics_creator()).export(
+            &project,
+            &pages,
+            &fp,
+            project.metadata().name.as_str(),
+        );
+        for written in &result.written_files {
+            print(&format!("  => '{}'", pretty_path(written, &dest_path)));
+            *written_files.entry(written.clone()).or_default() += 1;
+        }
+        for error in &result.errors {
+            print_err(&format!("  {}: {}", tr!(TR, "ERROR"), error));
+            success = false;
+        }
     }
 
     // Export BOM.

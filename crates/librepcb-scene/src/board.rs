@@ -179,7 +179,7 @@ impl BoardScene {
             project,
             board: b,
             scene: Scene::new(),
-            scheme: *scheme,
+            scheme: scheme.clone(),
             objects: HashMap::new(),
             ranks: HashMap::new(),
             warnings: Vec::new(),
@@ -196,7 +196,7 @@ impl BoardScene {
         builder.add_air_wires();
         let mut scene = Self {
             scene: builder.scene,
-            scheme: *scheme,
+            scheme: scheme.clone(),
             side,
             objects: builder.objects,
             layers,
@@ -630,7 +630,21 @@ impl Builder<'_> {
             for geometry in geometries {
                 match geometry.to_outlines() {
                     Ok(outlines) => {
-                        let item = shapes::area(LayerId::default(), &outlines, xf);
+                        // Copper geometries have the pad holes cut out.
+                        let hole_outlines: Vec<_> = if layer.is_copper() {
+                            holes
+                                .iter()
+                                .flat_map(|h| h.path().get().to_outline_strokes(h.diameter()))
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
+                        let item = shapes::area_with_holes(
+                            LayerId::default(),
+                            &outlines,
+                            &hole_outlines,
+                            xf,
+                        );
                         self.insert(scene_layer, sub::PADS, item, object);
                     }
                     Err(e) => self.warnings.push(format!("Pad geometry: {e}")),
@@ -680,11 +694,8 @@ impl Builder<'_> {
                 let center = convert::point(via.position());
                 for layer in self.copper_layers.clone() {
                     if Via::is_on_layer_between(layer, via.start_layer(), via.end_layer()) {
-                        let item = Item::new(
-                            LayerId::default(),
-                            KCircle::new(center, size.to_mm() / 2.0),
-                            Style::fill(),
-                        );
+                        let item =
+                            shapes::ring(LayerId::default(), center, size.to_mm(), drill.to_mm());
                         self.insert(BoardSceneLayer::Vias(layer), sub::PADS, Some(item), object);
                     }
                 }

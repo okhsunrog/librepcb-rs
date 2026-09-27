@@ -14,6 +14,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 env_logger = "0.11.11"
 librepcb-core = { version = "0.1.0", path = "../librepcb-core" }
 librepcb-i18n = { version = "0.1.0", path = "../librepcb-i18n" }
+librepcb-scene = { version = "0.1.0", path = "../librepcb-scene" }
 log = "0.4.34"
 thiserror = "2.0.21"
 
