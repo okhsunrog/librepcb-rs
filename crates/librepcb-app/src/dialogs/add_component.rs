@@ -24,7 +24,7 @@ use librepcb_core::types::Uuid;
 use librepcb_core::workspace::{CategoryTreeNode, ElementKind, LibraryDb};
 use librepcb_editor::fsm::schematic::ComponentChoice;
 use librepcb_i18n::tr;
-use librepcb_scene::render::{RenderOptions, RenderSize, render_scene};
+use librepcb_scene::{RenderOptions, RenderSize, render_scene};
 use librepcb_scene::{ColorScheme, FootprintScene, SymbolScene};
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
 use std::rc::Rc;
@@ -79,6 +79,8 @@ pub struct AddComponentDialog {
     variants: Vec<Uuid>,
     variant: Option<usize>,
     device: Option<Uuid>,
+    /// The selected row of the component tree.
+    selected: Option<Row>,
     /// Texts and previews for the UI.
     pub view: AddComponentView,
 }
@@ -115,7 +117,7 @@ fn tree_item(level: i32, text: String, has_children: bool, expanded: bool) -> ui
 }
 
 /// Converts a rendered RGBA image to a Slint image.
-pub fn to_slint_image(image: &librepcb_scene::render::RgbaImage) -> Image {
+pub fn to_slint_image(image: &librepcb_scene::RgbaImage) -> Image {
     Image::from_rgba8(SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
         &image.data,
         image.width,
@@ -155,6 +157,7 @@ impl AddComponentDialog {
             variants: Vec::new(),
             variant: None,
             device: None,
+            selected: None,
             view: AddComponentView::default(),
         };
         dialog.rebuild_categories();
@@ -242,6 +245,7 @@ impl AddComponentDialog {
             .filter_map(|c| self.component_node(c, false, &|_| true))
             .collect();
         self.sort_nodes();
+        self.selected = None;
         self.rebuild_rows();
         self.set_selected_component(None);
     }
@@ -389,6 +393,7 @@ impl AddComponentDialog {
             }
         }
         self.sort_nodes();
+        self.selected = None;
         self.rebuild_rows();
         self.set_selected_component(None);
         if select_first_device && !self.nodes.is_empty() {
@@ -428,7 +433,11 @@ impl AddComponentDialog {
                 } else {
                     format!("{} [{}]", d.name, d.package)
                 };
-                items.push(tree_item(1, text, !d.parts.is_empty(), d.expanded));
+                let mut item = tree_item(1, text, !d.parts.is_empty(), d.expanded);
+                if d.deprecated {
+                    item.hint = tr!("AddComponentDialog", "Deprecated").into();
+                }
+                items.push(item);
                 if !d.expanded {
                     continue;
                 }
@@ -457,8 +466,17 @@ impl AddComponentDialog {
         }
     }
 
+    /// The selected row of the component tree (`-1`: none).
+    pub fn current_row(&self) -> i32 {
+        self.selected
+            .as_ref()
+            .and_then(|s| self.rows.iter().position(|r| r == s))
+            .map_or(-1, |i| i as i32)
+    }
+
     /// Upstream `treeComponents_currentItemChanged()`.
     pub fn select_row(&mut self, row: usize) {
+        self.selected = self.rows.get(row).cloned();
         let (c, d) = match self.rows.get(row) {
             Some(Row::Component(c)) => (*c, None),
             Some(Row::Device(c, d)) | Some(Row::Part(c, d, _)) => (*c, Some(*d)),

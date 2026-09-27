@@ -18,12 +18,12 @@ use librepcb_core::attribute::AttributeList;
 use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::project::circuit::ComponentAssemblyOptionList;
 use librepcb_core::project::{
-    AssemblyVariantId, ComponentInstanceId, Mutation, NetSegmentRef, SchematicId,
-    SchematicMutation, SymbolId,
+    AssemblyVariantId, BusSegmentId, BusSegmentRef, ComponentInstanceId, Mutation,
+    NetSegmentId, NetSegmentRef, SchematicId, SchematicMutation, SymbolId, SymbolRef,
 };
-use librepcb_core::types::{CircuitIdentifier, Layer, Length, LengthUnit, Uuid};
+use librepcb_core::types::{BusName, CircuitIdentifier, Layer, Length, LengthUnit, Uuid};
 use librepcb_editor::commands::{
-    ChangeNetOfSchematicSegment, EditComponent, EditNet, MoveSymbol,
+    ChangeNetOfSchematicSegment, EditComponent, EditNet, MoveSymbol, RenameBusSegment,
 };
 use librepcb_i18n::tr;
 use std::cell::RefCell;
@@ -423,46 +423,53 @@ impl FormDialog for SymbolPropertiesDialog {
     }
 }
 
-// --- Net label / net segment rename -----------------------------------------
+// --- Net / bus segment rename ------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RenameAction {
     None,
     InvalidName,
-    RenameNet,
-    MergeNets,
+    RenameWhole,
+    Merge,
     MoveToExisting,
     MoveToNew,
 }
 
-/// The rename dialog of a schematic net segment (upstream
-/// `RenameNetSegmentDialog`, opened for net labels).
-pub struct RenameNetSegmentDialog {
+/// The segment of a rename dialog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenameSegment {
+    Net(NetSegmentRef),
+    Bus(BusSegmentRef),
+}
+
+/// The rename dialogs of schematic net and bus segments (upstream
+/// `RenameNetSegmentDialog` and `RenameBusSegmentDialog`, opened for net
+/// and bus labels).
+pub struct RenameSegmentDialog {
     form: Form,
-    segment: NetSegmentRef,
-    net_name: String,
+    segment: RenameSegment,
+    old_name: String,
     action: RenameAction,
 }
 
-impl RenameNetSegmentDialog {
-    /// Opens the dialog; `None` if the segment does not exist.
-    pub fn new(project: &AppProject, schematic: SchematicId, segment: Uuid) -> Option<Self> {
+impl RenameSegmentDialog {
+    /// Opens the dialog for a net segment; `None` if it does not exist.
+    pub fn for_net(project: &AppProject, schematic: SchematicId, segment: Uuid) -> Option<Self> {
         let p = project.shared().lock();
         let prj = p.project();
         let seg = prj
             .schematic(schematic)?
             .net_segments()
-            .get(&librepcb_core::project::NetSegmentId(segment))?;
+            .get(&NetSegmentId(segment))?;
         let net = prj.circuit().net_signal(seg.net())?;
-        let net_name = net.name().to_string();
-        let mut names: Vec<String> = prj
+        let old_name = net.name().to_string();
+        let names: Vec<String> = prj
             .circuit()
             .net_signals()
             .values()
             .filter(|n| !n.has_auto_name())
             .map(|n| n.name().to_string())
             .collect();
-        sort_numeric(&mut names);
         let segment_count = prj
             .schematics()
             .iter()
@@ -470,114 +477,212 @@ impl RenameNetSegmentDialog {
             .filter(|s| s.net() == seg.net())
             .count();
         drop(p);
+        let segment = RenameSegment::Net(NetSegmentRef {
+            schematic,
+            segment: NetSegmentId(segment),
+        });
+        Some(Self::with(project, segment, old_name, names, segment_count))
+    }
+
+    /// Opens the dialog for a bus segment; `None` if it does not exist.
+    pub fn for_bus(project: &AppProject, schematic: SchematicId, segment: Uuid) -> Option<Self> {
+        let p = project.shared().lock();
+        let prj = p.project();
+        let seg = prj
+            .schematic(schematic)?
+            .bus_segments()
+            .get(&BusSegmentId(segment))?;
+        let old_name = prj.circuit().bus(seg.bus())?.name().to_string();
+        let names: Vec<String> = prj
+            .circuit()
+            .buses()
+            .values()
+            .filter(|b| !b.has_auto_name())
+            .map(|b| b.name().to_string())
+            .collect();
+        let segment_count = prj.bus_uses(seg.bus()).count();
+        drop(p);
+        let segment = RenameSegment::Bus(BusSegmentRef {
+            schematic,
+            segment: BusSegmentId(segment),
+        });
+        Some(Self::with(project, segment, old_name, names, segment_count))
+    }
+
+    fn with(
+        project: &AppProject,
+        segment: RenameSegment,
+        old_name: String,
+        mut names: Vec<String>,
+        segment_count: usize,
+    ) -> Self {
+        sort_numeric(&mut names);
         let mut form = Form::new(LengthUnit::Millimeters);
-        form.text_with_suggestions(
-            "net",
-            tr!("RenameNetSegmentDialog", "Net name:"),
-            &net_name,
-            &names,
-        );
-        form.checkbox(
-            "segment_only",
-            "",
-            tr!("RenameNetSegmentDialog", "Rename only this net segment"),
-            false,
-        );
-        form.set_hint(
-            "segment_only",
-            tr!(
-                "RenameNetSegmentDialog",
-                "Otherwise the whole net ({0} segments) gets renamed.",
-                segment_count
+        let (label, options) = match segment {
+            RenameSegment::Net(_) => (
+                tr!("RenameNetSegmentDialog", "Net name:"),
+                vec![
+                    tr!("RenameNetSegmentDialog", "Rename only this net segment"),
+                    tr!(
+                        "RenameNetSegmentDialog",
+                        "Rename whole net ({0} segments)",
+                        segment_count
+                    ),
+                ],
             ),
-        );
+            RenameSegment::Bus(_) => (
+                tr!("RenameBusSegmentDialog", "Bus name:"),
+                vec![
+                    tr!("RenameBusSegmentDialog", "Rename only this bus segment"),
+                    tr!(
+                        "RenameBusSegmentDialog",
+                        "Rename whole bus ({0} segments)",
+                        segment_count
+                    ),
+                ],
+            ),
+        };
+        form.text_with_suggestions("name", label, &old_name, &names);
+        // Upstream: "only this segment" is checked by default, the whole
+        // net/bus if it has only one segment (then the choice is disabled).
+        form.radio("scope", "", &options, usize::from(segment_count <= 1));
         if segment_count <= 1 {
-            form.set_enabled("segment_only", false);
+            form.set_enabled("scope", false);
         }
         form.note("description", "");
         let mut dialog = Self {
             form,
-            segment: NetSegmentRef {
-                schematic,
-                segment: librepcb_core::project::NetSegmentId(segment),
-            },
-            net_name,
+            segment,
+            old_name,
             action: RenameAction::None,
         };
         dialog.update_action(project);
-        Some(dialog)
+        dialog
+    }
+
+    fn is_bus(&self) -> bool {
+        matches!(self.segment, RenameSegment::Bus(_))
+    }
+
+    fn context(&self) -> &'static str {
+        if self.is_bus() {
+            "RenameBusSegmentDialog"
+        } else {
+            "RenameNetSegmentDialog"
+        }
     }
 
     fn new_name(&self) -> String {
-        CircuitIdentifier::clean(&self.form.get_text("net"))
+        let text = self.form.get_text("name");
+        if self.is_bus() {
+            BusName::clean(&text)
+        } else {
+            CircuitIdentifier::clean(&text)
+        }
     }
 
     /// Upstream `updateAction()`.
     fn update_action(&mut self, project: &AppProject) {
         let name = self.new_name();
-        let whole = !self.form.get_checked("segment_only");
-        let (action, desc) = if CircuitIdentifier::new(name.clone()).is_err() {
-            (
-                RenameAction::InvalidName,
-                tr!("RenameNetSegmentDialog", "Invalid name!"),
-            )
+        let whole = self.form.get_index("scope") == Some(1);
+        let bus = self.is_bus();
+        let valid = if bus {
+            BusName::new(name.clone()).is_ok()
         } else {
-            let exists = project
-                .shared()
-                .lock()
-                .project()
-                .circuit()
-                .net_signal_by_name(&name)
-                .is_some();
-            if name == self.net_name {
-                (
-                    RenameAction::None,
-                    tr!("RenameNetSegmentDialog", "No change is made."),
-                )
-            } else if whole && exists {
-                (
-                    RenameAction::MergeNets,
+            CircuitIdentifier::new(name.clone()).is_ok()
+        };
+        let exists = {
+            let p = project.shared().lock();
+            let circuit = p.project().circuit();
+            if bus {
+                circuit.bus_by_name(&name).is_some()
+            } else {
+                circuit.net_signal_by_name(&name).is_some()
+            }
+        };
+        let old = self.old_name.as_str();
+        let n = name.as_str();
+        let (action, desc) = if !valid {
+            (RenameAction::InvalidName, tr!(self.context(), "Invalid name!"))
+        } else if n == old {
+            (RenameAction::None, tr!(self.context(), "No change is made."))
+        } else if whole && exists {
+            (
+                RenameAction::Merge,
+                if bus {
+                    tr!(
+                        "RenameBusSegmentDialog",
+                        "The whole bus '{0}' will be merged into the bus '{1}'.",
+                        old,
+                        n
+                    )
+                } else {
                     tr!(
                         "RenameNetSegmentDialog",
                         "The whole net '{0}' will be merged into the net '{1}'.",
-                        self.net_name.as_str(),
-                        name.as_str()
-                    ),
-                )
-            } else if whole {
-                (
-                    RenameAction::RenameNet,
+                        old,
+                        n
+                    )
+                },
+            )
+        } else if whole {
+            (
+                RenameAction::RenameWhole,
+                if bus {
+                    tr!(
+                        "RenameBusSegmentDialog",
+                        "The whole bus '{0}' will be renamed to '{1}'.",
+                        old,
+                        n
+                    )
+                } else {
                     tr!(
                         "RenameNetSegmentDialog",
                         "The whole net '{0}' will be renamed to '{1}'.",
-                        self.net_name.as_str(),
-                        name.as_str()
-                    ),
-                )
-            } else if exists {
-                (
-                    RenameAction::MoveToExisting,
+                        old,
+                        n
+                    )
+                },
+            )
+        } else if exists {
+            (
+                RenameAction::MoveToExisting,
+                if bus {
+                    tr!(
+                        "RenameBusSegmentDialog",
+                        "The segment will be moved to the existing bus '{0}'.",
+                        n
+                    )
+                } else {
                     tr!(
                         "RenameNetSegmentDialog",
                         "The segment will be moved to the existing net '{0}'.",
-                        name.as_str()
-                    ),
-                )
-            } else {
-                (
-                    RenameAction::MoveToNew,
+                        n
+                    )
+                },
+            )
+        } else {
+            (
+                RenameAction::MoveToNew,
+                if bus {
+                    tr!(
+                        "RenameBusSegmentDialog",
+                        "The segment will be moved to the new bus '{0}'.",
+                        n
+                    )
+                } else {
                     tr!(
                         "RenameNetSegmentDialog",
                         "The segment will be moved to the new net '{0}'.",
-                        name.as_str()
-                    ),
-                )
-            }
+                        n
+                    )
+                },
+            )
         };
         self.action = action;
         self.form.set_text("description", desc);
         self.form.set_error(
-            "net",
+            "name",
             if action == RenameAction::InvalidName {
                 tr!("SlintHelpers", "Invalid")
             } else {
@@ -587,9 +692,13 @@ impl RenameNetSegmentDialog {
     }
 }
 
-impl FormDialog for RenameNetSegmentDialog {
+impl FormDialog for RenameSegmentDialog {
     fn title(&self) -> String {
-        tr!("RenameNetSegmentDialog", "Rename net segment")
+        if self.is_bus() {
+            tr!("RenameBusSegmentDialog", "Rename Bus Segment")
+        } else {
+            tr!("RenameNetSegmentDialog", "Rename net segment")
+        }
     }
 
     fn form(&self) -> &Form {
@@ -603,6 +712,8 @@ impl FormDialog for RenameNetSegmentDialog {
     fn options(&self) -> super::DialogOptions {
         super::DialogOptions {
             apply: false,
+            width: 450.0,
+            label_width: 80.0,
             ..super::DialogOptions::default()
         }
     }
@@ -614,19 +725,35 @@ impl FormDialog for RenameNetSegmentDialog {
     fn apply(&mut self, ctx: &DialogContext<'_>) -> Result<Applied, String> {
         self.update_action(ctx.project);
         let name = self.new_name();
-        let net = || CircuitIdentifier::new(name.clone()).map_err(|e| e.to_string());
-        let old = self.net_name.as_str();
-        match self.action {
-            RenameAction::None => Ok(Applied::Nothing),
-            RenameAction::InvalidName => Err(tr!("RenameNetSegmentDialog", "Invalid name!")),
-            RenameAction::RenameNet | RenameAction::MergeNets => {
-                let net = net()?;
-                let merge = self.action == RenameAction::MergeNets;
+        match (self.action, self.segment) {
+            (RenameAction::None, _) => Ok(Applied::Nothing),
+            (RenameAction::InvalidName, _) => Err(tr!(self.context(), "Invalid name!")),
+            (action, RenameSegment::Bus(segment)) => {
+                let name = BusName::new(name).map_err(|e| e.to_string())?;
+                let whole_bus = matches!(action, RenameAction::RenameWhole | RenameAction::Merge);
+                let text = match action {
+                    RenameAction::Merge => tr!("CmdCombineBuses", "Combine Net Signals"),
+                    RenameAction::RenameWhole => tr!("CmdBusEdit", "Edit Bus"),
+                    _ => tr!("RenameBusSegmentDialog", "Change Bus of Bus Segment"),
+                };
+                transaction(ctx.project, text, |e| {
+                    e.execute(RenameBusSegment {
+                        segment,
+                        name,
+                        whole_bus,
+                    })
+                })?;
+                Ok(Applied::Project)
+            }
+            (action @ (RenameAction::RenameWhole | RenameAction::Merge), RenameSegment::Net(_)) => {
+                let net = CircuitIdentifier::new(name).map_err(|e| e.to_string())?;
+                let merge = action == RenameAction::Merge;
                 let text = if merge {
                     tr!("CmdCombineNetSignals", "Combine Net Signals")
                 } else {
                     tr!("CmdNetSignalEdit", "Edit netsignal")
                 };
+                let old = self.old_name.as_str();
                 transaction(ctx.project, text, |e| {
                     e.execute(EditNet {
                         net: old.into(),
@@ -637,9 +764,8 @@ impl FormDialog for RenameNetSegmentDialog {
                 })?;
                 Ok(Applied::Project)
             }
-            RenameAction::MoveToExisting | RenameAction::MoveToNew => {
-                let net = net()?;
-                let segment = self.segment;
+            (_, RenameSegment::Net(segment)) => {
+                let net = CircuitIdentifier::new(name).map_err(|e| e.to_string())?;
                 transaction(
                     ctx.project,
                     tr!("RenameNetSegmentDialog", "Change net of net segment"),
@@ -763,8 +889,17 @@ impl FormDialog for SchematicPolygonDialog {
 /// `TextPropertiesDialog`).
 pub struct SchematicTextDialog {
     form: Form,
-    schematic: SchematicId,
+    owner: TextOwner,
     text: librepcb_core::geometry::Text,
+}
+
+/// Where a schematic text is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextOwner {
+    /// A text of the schematic.
+    Schematic(SchematicId),
+    /// A text of a symbol.
+    Symbol(SymbolRef),
 }
 
 impl SchematicTextDialog {
@@ -783,6 +918,31 @@ impl SchematicTextDialog {
             .texts()
             .get(&uuid)?
             .clone();
+        Some(Self::with_text(TextOwner::Schematic(schematic), text, unit))
+    }
+
+    /// Opens the dialog for a text of a symbol; `None` if it does not
+    /// exist.
+    pub fn for_symbol(
+        project: &AppProject,
+        symbol: SymbolId,
+        uuid: Uuid,
+        unit: LengthUnit,
+    ) -> Option<Self> {
+        let p = project.shared().lock();
+        let (schematic, text) = p.project().schematics().iter().find_map(|s| {
+            let text = s.symbols().get(&symbol)?.texts().get(&uuid)?.clone();
+            Some((s.id(), text))
+        })?;
+        drop(p);
+        Some(Self::with_text(
+            TextOwner::Symbol(SymbolRef { schematic, symbol }),
+            text,
+            unit,
+        ))
+    }
+
+    fn with_text(owner: TextOwner, text: librepcb_core::geometry::Text, unit: LengthUnit) -> Self {
         let mut form = Form::new(unit);
         form.multiline(
             "text",
@@ -826,11 +986,7 @@ impl SchematicTextDialog {
             tr!("TextPropertiesDialog", "Lock"),
             text.locked(),
         );
-        Some(Self {
-            form,
-            schematic,
-            text,
-        })
+        Self { form, owner, text }
     }
 }
 
@@ -862,16 +1018,19 @@ impl FormDialog for SchematicTextDialog {
         text.set_position(chosen_position(form));
         text.set_rotation(form.get_angle("rotation"));
         text.set_locked(form.get_checked("lock"));
-        let schematic = self.schematic;
+        let mutation = match self.owner {
+            TextOwner::Schematic(schematic) => SchematicMutation::UpdateText {
+                schematic,
+                text: text.clone(),
+            },
+            TextOwner::Symbol(symbol) => SchematicMutation::UpdateSymbolText {
+                symbol,
+                text: text.clone(),
+            },
+        };
         let label = tr!("CmdTextEdit", "Edit text");
         transaction(ctx.project, label.clone(), |e| {
-            e.apply_mutations(
-                label,
-                vec![Mutation::Schematic(SchematicMutation::UpdateText {
-                    schematic,
-                    text: text.clone(),
-                })],
-            )
+            e.apply_mutations(label, vec![Mutation::Schematic(mutation)])
         })?;
         self.text = text;
         Ok(Applied::Project)

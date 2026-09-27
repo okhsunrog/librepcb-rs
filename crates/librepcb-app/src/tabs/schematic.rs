@@ -532,6 +532,26 @@ impl SchematicTab {
                         segment.0,
                     )));
             }
+            SchematicRequest::BusLabelProperties(segment, _) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::BusSegment(
+                        self.schematic,
+                        segment.0,
+                    )));
+            }
+            SchematicRequest::SymbolTextProperties(symbol, uuid) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::SymbolText(
+                        symbol, uuid,
+                    )));
+            }
+            SchematicRequest::ChooseImageFile | SchematicRequest::BusMemberMenu { .. } => {
+                // The image and bus tools are not exposed in the tool bar
+                // yet (follow-up of M3d).
+                log::debug!("Unhandled schematic editor request: {request:?}");
+            }
             SchematicRequest::PolygonProperties(uuid) => {
                 update
                     .requests
@@ -1346,6 +1366,8 @@ fn tool_to_ui(tool: SchematicTool) -> ui::EditorTool {
     match tool {
         SchematicTool::Select => ui::EditorTool::Select,
         SchematicTool::Wire => ui::EditorTool::Wire,
+        SchematicTool::Bus => ui::EditorTool::Bus,
+        SchematicTool::Image => ui::EditorTool::Image,
         SchematicTool::Label => ui::EditorTool::Label,
         SchematicTool::Component => ui::EditorTool::Component,
         SchematicTool::Polygon => ui::EditorTool::Polygon,

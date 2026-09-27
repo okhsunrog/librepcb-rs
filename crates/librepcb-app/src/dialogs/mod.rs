@@ -18,6 +18,7 @@
 //! window: open them from a tab request, edit fields with
 //! [`form::Form::edit()`] and [`FormDialog::field_event()`], and apply.
 
+pub mod add_component;
 pub mod attributes;
 pub mod board;
 pub mod form;
@@ -65,7 +66,13 @@ pub fn open_properties(
             project, *symbol, unit,
         )?),
         PropertiesTarget::NetSegment(sch, segment) => Box::new(
-            schematic::RenameNetSegmentDialog::new(project, *sch, *segment)?,
+            schematic::RenameSegmentDialog::for_net(project, *sch, *segment)?,
+        ),
+        PropertiesTarget::BusSegment(sch, segment) => Box::new(
+            schematic::RenameSegmentDialog::for_bus(project, *sch, *segment)?,
+        ),
+        PropertiesTarget::SymbolText(symbol, uuid) => Box::new(
+            schematic::SchematicTextDialog::for_symbol(project, *symbol, *uuid, unit)?,
         ),
         PropertiesTarget::SchematicPolygon(sch, uuid) => Box::new(
             schematic::SchematicPolygonDialog::new(project, *sch, *uuid, unit)?,

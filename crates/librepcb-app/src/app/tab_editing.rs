@@ -1,30 +1,23 @@
 //! Editing in the schematic and board tabs, on the application side: key
 //! events of the scenes, the requests of the tabs (notifications, context
-//! menus, the "add component" chooser), cross-probing between the tabs of a
-//! project and aborting tools which keep an undo group open.
+//! menus, dialogs), cross-probing between the tabs of a project and aborting
+//! tools which keep an undo group open.
 //!
 //! Port of the corresponding parts of
 //! libs/librepcb/editor/project/projecteditor.{h,cpp} (`abortBlockingToolsInOtherEditors()`,
 //! the cross probe of `ProjectEditor::getCrossProbe()`) and
-//! libs/librepcb/editor/mainwindow.cpp (scene key events). The "add
-//! component" chooser is a temporary minimal replacement of upstream's
-//! `AddComponentDialog` (search in the workspace library database).
+//! libs/librepcb/editor/mainwindow.cpp (scene key events).
 
 use std::collections::HashMap;
 use std::rc::{Rc, Weak};
 
 use librepcb_app_ui as ui;
-use librepcb_core::workspace::{ElementKind, SearchQuery};
-use librepcb_editor::fsm::schematic::ComponentChoice;
-use slint::{ComponentHandle, SharedString};
+use slint::ComponentHandle;
 
 use super::{State, deferred};
 use crate::models::vec_model;
 use crate::project::AppProject;
 use crate::tabs::{TabId, TabRequest, TabUpdate};
-
-/// Maximum number of elements listed in the "add component" chooser.
-const CHOOSER_LIMIT: usize = 200;
 
 /// State of the editing support of the application.
 #[derive(Debug, Default)]
@@ -34,8 +27,9 @@ pub struct EditingState {
     group_owners: HashMap<usize, TabId>,
     /// The tab of the open context menu.
     menu_tab: Option<TabId>,
-    /// The tab of the open "add component" chooser and its choices.
-    chooser: Option<(TabId, Vec<ComponentChoice>)>,
+    /// The tab for which the "add component" dialog is opened again when
+    /// it finished adding the chosen component ("Add more").
+    pub(super) reopen_add_component: Option<TabId>,
 }
 
 fn project_key(project: &Rc<AppProject>) -> usize {
@@ -88,18 +82,6 @@ pub fn bind(window: &ui::AppWindow, weak: &Weak<std::cell::RefCell<State>>) {
     let w = weak.clone();
     e.on_menu_activated(move |_section, index| {
         deferred(&w, move |s| s.context_menu_activated(index));
-    });
-    let w = weak.clone();
-    e.on_chooser_filter_edited(move |filter| {
-        deferred(&w, move |s| s.update_chooser(filter.as_str()));
-    });
-    let w = weak.clone();
-    e.on_chooser_accepted(move |_section, index| {
-        deferred(&w, move |s| s.close_chooser(usize::try_from(index).ok()));
-    });
-    let w = weak.clone();
-    e.on_chooser_canceled(move |_section| {
-        deferred(&w, move |s| s.close_chooser(None));
     });
 }
 
@@ -179,14 +161,7 @@ impl State {
                     }
                 }
                 TabRequest::AddComponent { search_term } => {
-                    self.editing.chooser = Some((id, Vec::new()));
-                    if let Some(w) = self.window() {
-                        let e = w.global::<ui::SceneEditor>();
-                        e.set_chooser_section(section as i32);
-                        e.set_chooser_filter(search_term.as_str().into());
-                        e.set_chooser_shown(true);
-                    }
-                    self.update_chooser(&search_term);
+                    self.open_add_component_dialog(id, &search_term);
                 }
                 TabRequest::Properties(target) => {
                     let Some(project) = project.clone() else {
@@ -226,6 +201,7 @@ impl State {
     /// an open undo group and cross-probes the tab's selection to the other
     /// tabs of the project.
     pub(super) fn after_tab_event(&mut self, section: usize, tab: usize) {
+        self.maybe_reopen_add_component(section, tab);
         let Some(t) = self.sections.get(section).and_then(|s| s.tabs().get(tab)) else {
             return;
         };
@@ -322,75 +298,6 @@ impl State {
         };
         if let Some((si, ti)) = self.find_tab(id) {
             let update = self.sections[si].tabs_mut()[ti].context_menu_action(index);
-            self.apply_update(si, ti, update);
-            self.after_tab_event(si, ti);
-        }
-    }
-
-    /// Searches the workspace libraries for the chooser.
-    fn update_chooser(&mut self, filter: &str) {
-        let Some((_, choices)) = &mut self.editing.chooser else {
-            return;
-        };
-        let query = SearchQuery {
-            keyword: filter.trim().to_owned(),
-            kinds: vec![ElementKind::Component, ElementKind::Device],
-            include_parts: true,
-            locale_order: self
-                .workspace
-                .lock()
-                .settings()
-                .library_locale_order
-                .get()
-                .clone(),
-            limit: Some(CHOOSER_LIMIT),
-        };
-        let results = match self.workspace.lock().library_db().search(&query) {
-            Ok(r) => r,
-            Err(e) => {
-                log::warn!("Library search failed: {e}");
-                Vec::new()
-            }
-        };
-        choices.clear();
-        let mut items = Vec::new();
-        for r in results {
-            let choice = match r.kind {
-                ElementKind::Component => ComponentChoice::new(r.uuid),
-                ElementKind::Device => match &r.device {
-                    Some(d) => ComponentChoice {
-                        device: Some(r.uuid),
-                        ..ComponentChoice::new(d.component_uuid)
-                    },
-                    None => continue,
-                },
-                _ => continue,
-            };
-            choices.push(choice);
-            items.push(ui::ComponentChooserItem {
-                name: r.name.as_str().into(),
-                description: SharedString::from(r.description.lines().next().unwrap_or("")),
-                is_device: r.kind == ElementKind::Device,
-            });
-        }
-        if let Some(w) = self.window() {
-            let e = w.global::<ui::SceneEditor>();
-            e.set_chooser_current_index(if items.is_empty() { -1 } else { 0 });
-            e.set_chooser_items(vec_model(items));
-        }
-    }
-
-    /// Closes the chooser, adding the chosen component (if any).
-    fn close_chooser(&mut self, index: Option<usize>) {
-        if let Some(w) = self.window() {
-            w.global::<ui::SceneEditor>().set_chooser_shown(false);
-        }
-        let Some((id, choices)) = self.editing.chooser.take() else {
-            return;
-        };
-        let choice = index.and_then(|i| choices.get(i).cloned());
-        if let Some((si, ti)) = self.find_tab(id) {
-            let update = self.sections[si].tabs_mut()[ti].add_component(choice);
             self.apply_update(si, ti, update);
             self.after_tab_event(si, ti);
         }

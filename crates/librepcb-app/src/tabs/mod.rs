@@ -29,7 +29,7 @@ use std::collections::BTreeSet;
 use librepcb_core::project::{BoardId, ComponentInstanceId, NetSignalId, SchematicId, SymbolId};
 use librepcb_core::types::{GridStyle, Length, LengthUnit, UnsignedLength, Uuid};
 use librepcb_editor::fsm::board::BoardItemRef;
-use librepcb_editor::fsm::schematic::ComponentChoice;
+use librepcb_editor::fsm::schematic::{ComponentChoice, SchematicTool};
 use slint::language::{PointerEvent, PointerEventButton, PointerEventKind};
 
 pub use board_2d::Board2dTab;
@@ -164,6 +164,10 @@ pub enum PropertiesTarget {
     Symbol(SymbolId),
     /// A schematic net segment (net label rename dialog).
     NetSegment(SchematicId, Uuid),
+    /// A schematic bus segment (bus label rename dialog).
+    BusSegment(SchematicId, Uuid),
+    /// A text of a symbol.
+    SymbolText(SymbolId, Uuid),
     /// A schematic polygon.
     SchematicPolygon(SchematicId, Uuid),
     /// A schematic text.
@@ -314,7 +318,17 @@ impl Tab {
         }
     }
 
-    /// A component was chosen in the "add component" chooser (`None`:
+    /// Whether the tab's FSM is adding a component.
+    pub fn is_adding_component(&self) -> bool {
+        matches!(self, Self::Schematic(t) if t.fsm().tool() == SchematicTool::Component)
+    }
+
+    /// Whether the tab's FSM is in its select tool.
+    pub fn is_select_tool(&self) -> bool {
+        matches!(self, Self::Schematic(t) if t.fsm().tool() == SchematicTool::Select)
+    }
+
+    /// A component was chosen in the "add component" dialog (`None`:
     /// canceled).
     pub fn add_component(&mut self, choice: Option<ComponentChoice>) -> TabUpdate {
         match self {

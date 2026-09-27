@@ -127,6 +127,7 @@ export component AddComponentDialog inherits Rectangle {
                         horizontal-stretch: 1;
 
                         search-edt := LineEdit {
+                            vertical-stretch: 0;
                             text: AddComponentDialogData.filter;
                             placeholder-text: @tr("What are you looking for?");
                             accessible-label: "search";
@@ -187,6 +188,7 @@ export component AddComponentDialog inherits Rectangle {
                                 height: parent.height - 2px;
                                 font-size: 12px;
                                 model: AddComponentDialogData.components;
+                                current-index <=> AddComponentDialogData.current-component-row;
                                 accessible-label: "components";
 
                                 item-selected(index, item) => {

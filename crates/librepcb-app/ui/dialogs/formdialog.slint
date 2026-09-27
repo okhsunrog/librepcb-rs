@@ -45,6 +45,7 @@ export enum FormFieldKind {
     ratio,  // Ratio (ratio)
     checkbox,  // Check box (checked, text)
     choice,  // Combo box (options, index)
+    radio,  // Radio buttons, one per row (options, index)
     halign,  // Horizontal alignment (index 0..2)
     valign,  // Vertical alignment (index 0..2)
     list,  // List or table (items, columns, index, rows, list-* flags)
@@ -566,6 +567,19 @@ export component FormRow inherits VerticalLayout {
 
                 current-index-changed(index) => {
                     index-edited(index);
+                }
+            }
+
+            if field.kind == FormFieldKind.radio: VerticalLayout {
+                for option[i] in field.options: CheckBox {
+                    min-height: 22px;
+                    text: option;
+                    checked: i == field.index;
+                    enabled: field.enabled;
+
+                    toggled(checked) => {
+                        index-edited(i);
+                    }
                 }
             }
 

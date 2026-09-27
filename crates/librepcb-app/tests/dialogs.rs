@@ -184,8 +184,10 @@ fn net_label_rename() {
     };
     let target = PropertiesTarget::NetSegment(sch, segment);
     let mut dialog = dialogs::open_properties(&project, &target, LengthUnit::Millimeters).unwrap();
-    assert_eq!(dialog.form().get_text("net"), "GND");
-    edit(dialog.as_mut(), &project, "net", |f| f.text = "gnd 2".into());
+    assert_eq!(dialog.form().get_text("name"), "GND");
+    // Rename the whole net (upstream default: only this segment).
+    edit(dialog.as_mut(), &project, "scope", |f| f.index = 1);
+    edit(dialog.as_mut(), &project, "name", |f| f.text = "gnd 2".into());
     // Cleaned like upstream (spaces become underscores, case is kept).
     assert!(dialog.form().get_text("description").contains("gnd_2"));
     assert_eq!(apply(dialog.as_mut(), &project), Ok(Applied::Project));

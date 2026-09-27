@@ -73,6 +73,12 @@ impl State {
         }
     }
 
+    /// Shows a form dialog which does not belong to a tab (menu actions,
+    /// tests).
+    pub fn show_form_dialog(&mut self, project: Rc<AppProject>, dialog: Box<dyn FormDialog>) {
+        self.open_form_dialog(project, None, dialog);
+    }
+
     /// The open form dialog (tests).
     pub fn form_dialog(&mut self) -> Option<&mut OpenDialog> {
         self.form_dialog.as_mut()

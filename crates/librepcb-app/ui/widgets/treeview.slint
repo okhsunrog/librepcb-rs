@@ -14,7 +14,7 @@ export component TreeView inherits FocusScope {
     in property <length> item-height: font-size + 8px;  // 22px
     in property <length> icon-size: font-size + 4px;  // 18px
     property <length> pin-size: 14px;
-    property <int> current-index: -1;
+    in-out property <int> current-index: -1;  // librepcb-rs: in-out (see PROVENANCE.md)
 
     callback item-key-pressed(index: int, item: TreeViewItemData, event: KeyEvent) -> EventResult;
     callback control-hovered(index: int, item: TreeViewItemData);

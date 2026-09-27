@@ -397,6 +397,20 @@ impl Form {
         self.push(f)
     }
 
+    /// Radio buttons (upstream `QRadioButton` groups), one per option.
+    pub fn radio(
+        &mut self,
+        id: &str,
+        label: impl AsRef<str>,
+        options: &[String],
+        index: usize,
+    ) -> &mut Self {
+        let mut f = empty_field(id, ui::FormFieldKind::Radio, label.as_ref());
+        f.options = strings(options);
+        f.index = index as i32;
+        self.push(f)
+    }
+
     /// Horizontal (`vertical == false`) or vertical alignment selector
     /// (index 0..2: left/center/right, bottom/center/top).
     pub fn alignment(
