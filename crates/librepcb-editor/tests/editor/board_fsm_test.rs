@@ -902,9 +902,7 @@ fn upstream_projects_move_all_and_undo() {
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.join(".librepcb-project").exists())
-        .take(8)
     {
-        eprintln!("DEBUGPRJ {}", dir.display());
         let project = open_upstream(&dir);
         let boards: Vec<BoardId> = project.boards().iter().map(|b| b.id()).collect();
         let mut editor = ProjectEditor::new(project);
@@ -920,6 +918,15 @@ fn upstream_projects_move_all_and_undo() {
             h.input(BoardFsmInput::SelectAll);
             h.input(BoardFsmInput::Move(mm(2.54, 0.0)));
             h.input(BoardFsmInput::Rotate(Angle::DEG90));
+            let has_items = !h.board().devices().is_empty() || !h.board().net_segments().is_empty();
+            assert!(
+                !has_items || h.editor.undo_stack().index() == start + 2,
+                "{}: nothing moved",
+                dir.display()
+            );
+            if has_items {
+                assert!(*h.board() != original, "{}: board unchanged", dir.display());
+            }
             for _ in start..h.editor.undo_stack().index() {
                 h.editor.undo().unwrap();
             }
