@@ -24,9 +24,13 @@
 //!   footprints, and the [`export::ProjectGraphicsExporter`] of the output
 //!   job runner.
 //!
+//! - [`SchematicScene::apply_changes()`] and [`BoardScene::apply_changes()`]
+//!   update a built scene incrementally from the project's change journal
+//!   (only the items of the affected model objects are rebuilt);
+//!   [`SceneSync`] keeps the journal cursor of a scene.
+//!
 //! The canvas crate stays generic; everything LibrePCB specific about
-//! drawing lives here. Scenes are rebuilt from scratch; incremental updates
-//! from the change journal are left to the viewer (M2).
+//! drawing lives here.
 //!
 //! [`Scene`]: librepcb_canvas::Scene
 
@@ -41,7 +45,9 @@ pub mod resources;
 mod schematic;
 mod shapes;
 mod symbol;
+mod sync;
 mod text;
+mod units;
 
 pub use board::{BoardObject, BoardScene, BoardSceneLayer, BoardSide};
 pub use colors::ColorScheme;
@@ -53,6 +59,7 @@ pub use render::{
 };
 pub use schematic::{SchematicObject, SchematicScene};
 pub use symbol::SymbolScene;
+pub use sync::{IncrementalScene, SceneSync};
 
 /// Loads the application's default stroke font (upstream
 /// `Application::getDefaultStrokeFont()`, `newstroke.bene`) from the
