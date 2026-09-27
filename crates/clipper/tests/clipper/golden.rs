@@ -6,8 +6,6 @@
 //! (about one million random cases, all identical), which was run with a
 //! one-off tool outside of the repository.
 
-mod runner;
-
 #[test]
 fn golden_vectors() {
     let content = include_str!("golden.txt");
@@ -18,7 +16,7 @@ fn golden_vectors() {
     assert_eq!(lines.len() % 2, 0, "cases and results must come in pairs");
     let mut failures = Vec::new();
     for (i, pair) in lines.chunks(2).enumerate() {
-        let got = runner::run_case(pair[0]);
+        let got = crate::runner::run_case(pair[0]);
         if got != pair[1] {
             failures.push(i);
         }
