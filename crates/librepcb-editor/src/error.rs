@@ -104,6 +104,9 @@ pub enum Error {
     /// The routing problem extracted from a board is invalid.
     #[error(transparent)]
     Autoroute(#[from] librepcb_autoroute::Error),
+    /// A board export failed (e.g. the Specctra DSN export).
+    #[error(transparent)]
+    BoardExport(Box<librepcb_core::project::board::BoardExportError>),
 }
 
 impl From<project::Error> for Error {
@@ -113,6 +116,11 @@ impl From<project::Error> for Error {
 }
 
 impl Error {
+    /// Creates a [`BoardExport`](Self::BoardExport) error.
+    pub(crate) fn from_export(e: librepcb_core::project::board::BoardExportError) -> Self {
+        Self::BoardExport(Box::new(e))
+    }
+
     /// Creates a [`NotFound`](Self::NotFound) error.
     pub(crate) fn not_found(kind: &'static str, id: impl ToString) -> Self {
         Self::NotFound {

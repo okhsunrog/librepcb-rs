@@ -50,3 +50,4 @@ sysinfo = "0.39.6"
 
 [dev-dependencies]
 serde_json = "1.0.151"
+topola_specctra = "=0.1.0"

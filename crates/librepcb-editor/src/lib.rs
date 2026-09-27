@@ -21,6 +21,9 @@
 //!   `Cmd*` classes and editor states, run as one undo group (rolled back
 //!   completely on error) and return the UUIDs of the affected entities.
 //!
+//! [`FreeroutingRouter`] routes boards with the external FreeRouting
+//! autorouter (Specctra DSN export, session import).
+//!
 //! Differences to upstream: commands are data instead of `UndoCommand`
 //! objects holding pointers; there are no Qt signals (the project's change
 //! journal reports changes, the stack has a [`UndoStack::state_id()`]);
@@ -30,10 +33,16 @@
 pub mod commands;
 mod editor;
 mod error;
+mod freerouting;
 mod library_source;
 mod undo_stack;
 
 pub use editor::{Command, ProjectEditor, Transaction, create_project};
 pub use error::{Error, Result};
+pub use freerouting::{
+    FREEROUTING_MIN_JAVA_VERSION, FreeroutingConfig, FreeroutingError, FreeroutingLauncher,
+    FreeroutingOutput, FreeroutingReport, FreeroutingRouter, RoutingStats, dsn_for_freerouting,
+    routing_stats,
+};
 pub use library_source::{DirectoryLibrarySource, LibraryElementSource, NoLibrarySource};
 pub use undo_stack::{HistoryEntry, LibraryElement, Operation, UndoStack};
