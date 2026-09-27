@@ -3015,6 +3015,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "librepcb-editor"
+version = "0.1.0"
+dependencies = [
+ "librepcb-core",
+ "librepcb-i18n",
+ "log",
+ "serde",
+ "serde_json",
+ "static_assertions",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "librepcb-i18n"
 version = "0.1.0"
 dependencies = [

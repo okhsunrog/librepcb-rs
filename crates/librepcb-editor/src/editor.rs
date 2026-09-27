@@ -1,0 +1,290 @@
+//! The project editor: a project with its undo stack and library element
+//! source, and the transaction through which commands modify the project
+//! (no direct upstream counterpart: upstream `ProjectEditor` owns the
+//! project and the `UndoStack`, and each `UndoCommand` executes its child
+//! commands itself).
+
+use std::sync::Arc;
+
+use librepcb_core::fileio::{FilePath, FileSystem, TransactionalDirectory};
+use librepcb_core::project::{LibraryElementKind, Mutation, Project};
+use librepcb_core::types::Uuid;
+
+use crate::error::{Error, Result};
+use crate::library_source::{LibraryElementSource, NoLibrarySource};
+use crate::undo_stack::{LibraryElement, Operation, UndoStack};
+
+/// A high-level editor command: plain parameters, executed as one undo
+/// group (or as part of the active group).
+pub trait Command {
+    /// What the command returns (typically the UUIDs of the affected
+    /// entities).
+    type Output;
+
+    /// The (translated) text of the undo group, e.g. "Add component".
+    fn text(&self) -> String;
+
+    /// Validates the parameters and performs the command through `tx`.
+    /// On error, the editor rolls back everything the command applied.
+    fn execute(self, tx: &mut Transaction<'_>) -> Result<Self::Output>;
+}
+
+/// The access of a running command to the project: every change goes
+/// through [`apply()`](Self::apply) (or the library methods) and is
+/// recorded in the active undo group.
+pub struct Transaction<'a> {
+    project: &'a mut Project,
+    stack: &'a mut UndoStack,
+    source: &'a dyn LibraryElementSource,
+}
+
+impl Transaction<'_> {
+    /// Returns the project (current state, including the changes of this
+    /// transaction).
+    pub fn project(&self) -> &Project {
+        self.project
+    }
+
+    /// Returns the library element source.
+    pub fn source(&self) -> &dyn LibraryElementSource {
+        self.source
+    }
+
+    /// Applies a mutation and records its inverse.
+    pub fn apply(&mut self, mutation: Mutation) -> Result<()> {
+        self.stack
+            .execute(self.project, Operation::Mutation(mutation))
+    }
+
+    /// Applies several mutations (each recorded separately).
+    pub fn apply_all(&mut self, mutations: impl IntoIterator<Item = Mutation>) -> Result<()> {
+        for m in mutations {
+            self.apply(m)?;
+        }
+        Ok(())
+    }
+
+    /// Adds an element to the project library (undoable).
+    pub fn add_library_element(&mut self, element: LibraryElement) -> Result<()> {
+        self.stack.execute(
+            self.project,
+            Operation::AddLibraryElement(Box::new(element)),
+        )
+    }
+
+    /// Removes an element from the project library (undoable).
+    pub fn remove_library_element(&mut self, kind: LibraryElementKind, uuid: Uuid) -> Result<()> {
+        self.stack
+            .execute(self.project, Operation::RemoveLibraryElement { kind, uuid })
+    }
+
+    /// Runs a nested command inside this transaction; if it fails, only its
+    /// own changes are rolled back.
+    pub fn run<C: Command>(&mut self, command: C) -> Result<C::Output> {
+        let len = self.stack.active_group_len().unwrap_or(0);
+        let result = command.execute(self);
+        if result.is_err() {
+            self.stack.rollback_active_to(self.project, len);
+        }
+        result
+    }
+}
+
+/// A project opened for editing: the project, its undo stack and the
+/// library element source for adding parts.
+///
+/// Concurrency: the application wraps the editor in an
+/// `Arc<parking_lot::RwLock<ProjectEditor>>`; commands run under the write
+/// lock, readers take the read lock only to extract data (see
+/// `docs/project-model-design.md` §6). Locks are never held across
+/// `.await`.
+pub struct ProjectEditor {
+    project: Project,
+    undo_stack: UndoStack,
+    source: Arc<dyn LibraryElementSource>,
+}
+
+static_assertions::assert_impl_all!(ProjectEditor: Send, Sync);
+
+impl std::fmt::Debug for ProjectEditor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProjectEditor")
+            .field("project", &self.project.file_name())
+            .field("undo_stack", &self.undo_stack)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Creates a new project in `directory` like upstream `Project::create()`:
+/// the stroke fonts (`*.bene`) of `fonts_dir` (the application's
+/// `share/librepcb/fontobene` resources directory) are copied into
+/// `resources/fontobene/` before the project is created (the core's
+/// `Project::create()` does not know the application resources yet).
+/// Without fonts, upstream cannot open boards with texts.
+pub fn create_project(
+    mut directory: TransactionalDirectory,
+    file_name: &str,
+    fonts_dir: Option<&FilePath>,
+) -> Result<Project> {
+    if directory.file_exists(".librepcb-project") || directory.file_exists(file_name) {
+        return Err(librepcb_core::project::Error::ProjectDirectoryNotEmpty(
+            directory.abs_path(""),
+        )
+        .into());
+    }
+    if let Some(fonts_dir) = fonts_dir {
+        let mut entries: Vec<_> = std::fs::read_dir(fonts_dir.as_path())
+            .map_err(|e| {
+                Error::InvalidArgument(format!("Could not read {}: {e}", fonts_dir.to_native()))
+            })?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().is_some_and(|e| e == "bene") && p.is_file())
+            .collect();
+        entries.sort();
+        for path in entries {
+            let content = std::fs::read(&path).map_err(|e| {
+                Error::InvalidArgument(format!("Could not read {}: {e}", path.display()))
+            })?;
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            directory.write(&format!("resources/fontobene/{name}"), &content)?;
+        }
+    }
+    Ok(Project::create(directory, file_name, Uuid::new_random)?)
+}
+
+impl ProjectEditor {
+    /// Creates an editor for `project` without library element source.
+    pub fn new(project: Project) -> Self {
+        Self::with_source(project, Arc::new(NoLibrarySource))
+    }
+
+    /// Creates an editor for `project` with the given library element
+    /// source.
+    pub fn with_source(project: Project, source: Arc<dyn LibraryElementSource>) -> Self {
+        Self {
+            project,
+            undo_stack: UndoStack::new(),
+            source,
+        }
+    }
+
+    /// Returns the project.
+    pub fn project(&self) -> &Project {
+        &self.project
+    }
+
+    /// Consumes the editor and returns the project.
+    pub fn into_project(self) -> Project {
+        self.project
+    }
+
+    /// Returns the undo stack.
+    pub fn undo_stack(&self) -> &UndoStack {
+        &self.undo_stack
+    }
+
+    /// Returns the library element source.
+    pub fn source(&self) -> &Arc<dyn LibraryElementSource> {
+        &self.source
+    }
+
+    /// Replaces the library element source.
+    pub fn set_source(&mut self, source: Arc<dyn LibraryElementSource>) {
+        self.source = source;
+    }
+
+    /// Executes a command as one undo group labeled with its text, or as
+    /// part of the active group if one was started with
+    /// [`begin_group()`](Self::begin_group). On error, all changes of the
+    /// command are rolled back.
+    pub fn execute<C: Command>(&mut self, command: C) -> Result<C::Output> {
+        if self.undo_stack.is_group_active() {
+            let mut tx = self.transaction();
+            return tx.run(command);
+        }
+        self.undo_stack.begin_group(command.text())?;
+        let result = {
+            let mut tx = self.transaction();
+            command.execute(&mut tx)
+        };
+        match result {
+            Ok(output) => {
+                self.undo_stack.commit_group()?;
+                Ok(output)
+            }
+            Err(e) => {
+                self.undo_stack.abort_group(&mut self.project)?;
+                Err(e)
+            }
+        }
+    }
+
+    /// Applies mutations as one undo group (the raw escape hatch for
+    /// clients speaking the model's mutation format).
+    pub fn apply_mutations(
+        &mut self,
+        text: impl Into<String>,
+        mutations: Vec<Mutation>,
+    ) -> Result<()> {
+        self.execute(crate::commands::ApplyMutations {
+            text: Some(text.into()),
+            mutations,
+        })
+    }
+
+    /// Starts a group spanning several commands (e.g. one agent action
+    /// consisting of several tool calls).
+    pub fn begin_group(&mut self, text: impl Into<String>) -> Result<()> {
+        self.undo_stack.begin_group(text)
+    }
+
+    /// Commits the active group; returns `false` if it was empty (and
+    /// therefore dropped).
+    pub fn commit_group(&mut self) -> Result<bool> {
+        self.undo_stack.commit_group()
+    }
+
+    /// Aborts the active group and rolls back its changes.
+    pub fn abort_group(&mut self) -> Result<()> {
+        self.undo_stack.abort_group(&mut self.project)
+    }
+
+    /// Undoes the last group; returns `false` if there was nothing to undo.
+    pub fn undo(&mut self) -> Result<bool> {
+        self.undo_stack.undo(&mut self.project)
+    }
+
+    /// Redoes the next group; returns `false` if there was nothing to redo.
+    pub fn redo(&mut self) -> Result<bool> {
+        self.undo_stack.redo(&mut self.project)
+    }
+
+    /// Whether the project is unmodified since the last save.
+    pub fn is_clean(&self) -> bool {
+        self.undo_stack.is_clean()
+    }
+
+    /// Writes the project files and commits them to disk (upstream
+    /// `ProjectEditor::saveProject()`), then marks the state clean. Fails
+    /// while a group is active.
+    pub fn save(&mut self) -> Result<()> {
+        if self.undo_stack.is_group_active() {
+            return Err(Error::GroupActive);
+        }
+        self.project.save()?;
+        self.project.directory().file_system().save()?;
+        self.undo_stack.set_clean();
+        Ok(())
+    }
+
+    fn transaction(&mut self) -> Transaction<'_> {
+        Transaction {
+            project: &mut self.project,
+            stack: &mut self.undo_stack,
+            source: self.source.as_ref(),
+        }
+    }
+}
