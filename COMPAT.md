@@ -390,3 +390,36 @@ differ between platforms/implementations:
   updates. Display only.
 - The inverse of adding a non-empty schematic page is a batch removing its
   items first (a page can only be removed when empty, like upstream).
+
+## project/board
+
+- Loading rejects duplicate item UUIDs first and then validates each board
+  as a whole (upstream adds the empty board and then item by item); for a
+  file with several errors, the reported error can differ. Messages are
+  upstream's.
+- The `lock` flag of planes is loaded. Upstream's
+  `ProjectLoader::loadBoardPlane()` does not read it, so upstream saves a
+  locked plane as unlocked after opening the project; we keep the flag.
+  File output differs only for locked planes.
+- Removing, mirroring or replacing the library device/footprint of a device
+  with connected traces, changing the net of a segment with vias, junctions
+  or traces, and adding a device of a schematic-only component fail with an
+  error message (`ItemInUse`, `SchematicOnlyComponent`; upstream:
+  `LogicError` without message).
+- Updating net segment elements in place (`UpdateNetSegmentElements`) may
+  change the layer of a connected trace, the layers of a via or the side of
+  a standalone pad as long as the result is valid; upstream only allows
+  `BI_NetLine::setLayer()` on traces not added to the board (the editor
+  removes and re-adds them). Resulting files are the same.
+- Air wires are rebuilt on request (`Project::rebuild_air_wires()`, called by
+  the loader for each board and by the editor after each command) from the
+  nets marked dirty by the mutations, a superset of upstream's
+  `scheduleAirWiresRebuild()` calls (e.g. also when only traces change).
+  The anchors are added in a deterministic order, and ties between equally
+  long air wires can be resolved differently (see algorithm). Display and
+  DRC "missing connection" approvals only.
+- The DRC approval cleanup (`Board::updateDrcMessageApprovals()`) is not
+  ported yet (part of the DRC).
+- `BoardNetSegmentSplitter`: new junction UUIDs come from a caller provided
+  generator, and the elements of a resulting segment may be listed in
+  another order. Files are unaffected (elements are saved sorted by UUID).

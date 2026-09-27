@@ -118,4 +118,17 @@ pub enum Error {
     /// see [`crate::library::org::AllowedSlots`]).
     #[error("Unknown allowed slots value: '{0}'")]
     UnknownAllowedSlots(String),
+    /// Unknown connect style of a board plane (not translated upstream,
+    /// see [`crate::project::board::PlaneConnectStyle`]).
+    #[error("Unknown plane connect style: '{0}'")]
+    UnknownPlaneConnectStyle(String),
+    /// Unknown pad annular ring shape in the board design rules (not
+    /// translated upstream, see
+    /// [`crate::project::board::BoardDesignRules`]).
+    #[error("Invalid pad annular shape: '{0}'")]
+    InvalidPadAnnularShape(String),
+    /// A board zone on a non-copper layer (not translated upstream, see
+    /// [`crate::project::board::BoardZoneData`]).
+    #[error("Invalid zone layer: {0}")]
+    InvalidZoneLayer(String),
 }

@@ -5,11 +5,30 @@ use crate::serialization::{self, DeserializeObject, List, SExpression, Serialize
 
 /// A ratio whose resulting value is limited to a range given by min/max
 /// lengths, e.g. a pad radius of "25%, but at most 0.25mm".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde: `{"ratio": <ppm>, "min": <nm>, "max": <nm>}`, `min <= max` is
+/// checked when deserializing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "BoundedUnsignedRatioFields")]
 pub struct BoundedUnsignedRatio {
     ratio: UnsignedRatio,
     min: UnsignedLength,
     max: UnsignedLength,
+}
+
+/// Unvalidated serde representation of [`BoundedUnsignedRatio`].
+#[derive(serde::Deserialize)]
+struct BoundedUnsignedRatioFields {
+    ratio: UnsignedRatio,
+    min: UnsignedLength,
+    max: UnsignedLength,
+}
+
+impl TryFrom<BoundedUnsignedRatioFields> for BoundedUnsignedRatio {
+    type Error = Error;
+    fn try_from(f: BoundedUnsignedRatioFields) -> Result<Self, Error> {
+        Self::new(f.ratio, f.min, f.max)
+    }
 }
 
 impl BoundedUnsignedRatio {

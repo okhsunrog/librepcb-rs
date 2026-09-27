@@ -73,6 +73,9 @@ macro_rules! token_enum {
                 Ok(node.value()?.parse()?)
             }
         }
+
+        // Serde: the file format token.
+        crate::utils::serde_string::serde_string!($name);
     };
 }
 
@@ -153,7 +156,9 @@ impl PadFunction {
 }
 
 /// The common attributes of footprint pads and board pads.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Serde: an object with the fields below.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Pad {
     uuid: Uuid,
     position: Point,

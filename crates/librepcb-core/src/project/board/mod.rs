@@ -1,22 +1,54 @@
 //! Port of libs/librepcb/core/project/board (boards and their items).
 //!
-//! Wave 3b (board items) fills in the item types, settings and derived data
-//! of this module; the [`Board`] container, its header (UUID, name) and its
-//! place in the project are complete. Until the items are ported, the
-//! loaded `board.lp` and `settings.user.lp` are kept verbatim and written
-//! back unchanged ([`Board::raw`](Board)).
+//! A [`Board`] stores its settings ([`BoardSettings`]: layers, design
+//! rules, DRC and fabrication output settings, ...), the DRC approvals and
+//! its items as plain data: [`BoardDevice`]s keyed by component instance,
+//! [`BoardNetSegment`]s (standalone pads, vias, junctions, traces),
+//! [`BoardPlane`]s, zones, polygons, stroke texts and holes (the upstream
+//! `Board*Data` types). Footprint pads are computed
+//! [`FootprintPadView`]s. Air wires and plane fragments are derived data
+//! ([`BoardDerived`]), recomputed on demand from dirty sets maintained by
+//! the mutations ([`BoardAirWiresBuilder`]).
+//!
+//! Not ported yet: the painters, the export glue (Gerber, pick&place, D356,
+//! Specctra, interactive HTML BOM), the plane fragments builder and the DRC.
 
 mod air_wire;
+mod air_wires_builder;
 #[allow(clippy::module_inception)] // Upstream file name.
 mod board;
 mod change;
+mod design_rules;
 mod device;
+mod fabrication_output_settings;
+mod hole_data;
+pub(crate) mod keyed_map;
 mod net_segment;
+mod net_segment_splitter;
+mod pad_data;
 mod plane;
+mod polygon_data;
+mod stroke_text_data;
+mod zone_data;
 
 pub use air_wire::AirWire;
-pub use board::{Board, BoardDerived, BoardProperties};
-pub use change::BoardChange;
-pub use device::BoardDevice;
-pub use net_segment::BoardNetSegment;
-pub use plane::BoardPlane;
+pub use air_wires_builder::BoardAirWiresBuilder;
+pub use board::{
+    Board, BoardDerived, BoardItem, BoardProperties, BoardSettings, DEFAULT_STROKE_FONT_NAME,
+    PreferredFootprintTags,
+};
+pub use change::{BoardChange, BoardItemKind, BoardSegmentItems};
+pub use design_rules::BoardDesignRules;
+pub use device::{BoardDevice, FootprintPadView};
+pub use fabrication_output_settings::BoardFabricationOutputSettings;
+pub use hole_data::BoardHoleData;
+pub use net_segment::{BoardNetSegment, BoardSegmentElements};
+pub use net_segment_splitter::{BoardNetSegmentParts, BoardNetSegmentSplitter};
+pub use pad_data::BoardPadData;
+pub use plane::{BoardPlane, PlaneConnectStyle};
+pub use polygon_data::BoardPolygonData;
+pub use stroke_text_data::BoardStrokeTextData;
+pub use zone_data::BoardZoneData;
+
+pub(crate) use board::{FootprintPadKey, PadUse};
+pub(crate) use pad_data::PadOnBoard;

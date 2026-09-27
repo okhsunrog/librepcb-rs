@@ -438,6 +438,7 @@ pub(super) fn set_component_signal_net(
         p.refs
             .insert(signal_reference(signal.component, signal.signal, net));
     }
+    super::board::component_signal_net_changed(p, signal.component, old, net);
     p.record(Change::ComponentSignalNetChanged {
         signal,
         from: old,

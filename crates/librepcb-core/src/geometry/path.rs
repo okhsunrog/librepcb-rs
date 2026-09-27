@@ -729,7 +729,21 @@ impl DeserializeObject for Path {
 macro_rules! constrained_path {
     ($(#[$meta:meta])* $name:ident, $check:expr, $err:expr) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        ///
+        /// Serde: serialized like [`Path`], the constraint is checked when
+        /// deserializing.
+        #[derive(
+            Debug,
+            Clone,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            serde::Serialize,
+            serde::Deserialize,
+        )]
+        #[serde(try_from = "Path", into = "Path")]
         pub struct $name(Path);
 
         impl $name {

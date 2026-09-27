@@ -70,6 +70,9 @@ impl FromStr for AllowedSlots {
     }
 }
 
+// Serde: the file format token.
+crate::utils::serde_string::serde_string!(AllowedSlots);
+
 impl ToSExpression for AllowedSlots {
     fn to_sexpression(&self) -> SExpression {
         SExpression::token(self.to_str())
@@ -83,7 +86,7 @@ impl FromSExpression for AllowedSlots {
 }
 
 /// The organization's design rules the settings were imported from.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DrcSettingsSource {
     /// UUID of the organization.
     pub organization_uuid: Uuid,
@@ -128,7 +131,9 @@ impl DeserializeObject for DrcSettingsSource {
 pub type LengthPair = (UnsignedLength, UnsignedLength);
 
 /// Settings of the board design rule check (DRC).
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Serde: an object with one field per setting (lengths in nanometers).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BoardDesignRuleCheckSettings {
     sources: Vec<DrcSettingsSource>,
     min_board_size: LengthPair,

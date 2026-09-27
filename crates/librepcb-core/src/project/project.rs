@@ -350,6 +350,10 @@ impl Project {
                 .schematics
                 .iter()
                 .all(|s| s.is_anchor_index_consistent(self.view()))
+            && self
+                .boards
+                .iter()
+                .all(|b| b.is_pad_index_consistent(&self.library))
     }
 
     /// Returns the read-only context for item computations.

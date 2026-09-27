@@ -169,6 +169,9 @@ impl ToSExpression for PcbColor {
     }
 }
 
+// Serde: the identifier (e.g. `"green"`).
+crate::utils::serde_string::serde_string!(PcbColor);
+
 impl FromSExpression for PcbColor {
     fn from_sexpression(node: &SExpression) -> serialization::Result<Self> {
         Ok(node.value()?.parse()?)

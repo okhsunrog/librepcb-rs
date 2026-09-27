@@ -5,7 +5,9 @@ use crate::serialization::{self, FromSExpression, SExpression, ToSExpression};
 
 /// How a stop mask or solder paste opening is added automatically (e.g. to a
 /// pad), serialized as `off`, `auto` or an offset length.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde: `"Off"`, `"Automatic"` or `{"Manual": <nm>}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum MaskConfig {
     /// No automatic opening.
     Off,

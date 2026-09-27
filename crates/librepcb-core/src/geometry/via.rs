@@ -14,7 +14,11 @@ use crate::types::{
 /// Invariants: the start layer is a copper layer above the (copper) end
 /// layer; if the drill is automatic (`None`), the size is automatic too; a
 /// manual size is not smaller than a manual drill.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Serde: an object with the fields below (`None` = automatic); the
+/// invariants are checked when deserializing.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "ViaFields")]
 pub struct Via {
     uuid: Uuid,
     start_layer: Layer,
@@ -23,6 +27,33 @@ pub struct Via {
     drill_diameter: Option<PositiveLength>,
     size: Option<PositiveLength>,
     exposure_config: MaskConfig,
+}
+
+/// Unvalidated serde representation of [`Via`].
+#[derive(serde::Deserialize)]
+struct ViaFields {
+    uuid: Uuid,
+    start_layer: Layer,
+    end_layer: Layer,
+    position: Point,
+    drill_diameter: Option<PositiveLength>,
+    size: Option<PositiveLength>,
+    exposure_config: MaskConfig,
+}
+
+impl TryFrom<ViaFields> for Via {
+    type Error = Error;
+    fn try_from(f: ViaFields) -> Result<Self, Error> {
+        Self::new(
+            f.uuid,
+            f.start_layer,
+            f.end_layer,
+            f.position,
+            f.drill_diameter,
+            f.size,
+            f.exposure_config,
+        )
+    }
 }
 
 impl Via {

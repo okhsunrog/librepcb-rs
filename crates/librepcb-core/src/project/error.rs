@@ -50,7 +50,8 @@ pub enum EntityKind {
     Plane,
     /// A library element of the project library.
     LibraryElement,
-    /// A junction of a schematic net segment (upstream `SI_NetPoint`).
+    /// A junction of a schematic or board net segment (upstream
+    /// `SI_NetPoint`, `BI_NetPoint`).
     NetPoint,
     /// A net line of a schematic net segment.
     NetLine,
@@ -68,6 +69,20 @@ pub enum EntityKind {
     SchematicText,
     /// An image of a schematic.
     SchematicImage,
+    /// A standalone pad of a board net segment.
+    Pad,
+    /// A via of a board net segment.
+    Via,
+    /// A trace of a board net segment (upstream `BI_NetLine`).
+    Trace,
+    /// A keepout zone of a board.
+    Zone,
+    /// A polygon of a board.
+    BoardPolygon,
+    /// A stroke text of a board or device.
+    StrokeText,
+    /// A non-plated hole of a board.
+    Hole,
 }
 
 impl fmt::Display for EntityKind {
@@ -96,6 +111,13 @@ impl fmt::Display for EntityKind {
             Self::SchematicPolygon => "polygon",
             Self::SchematicText => "text",
             Self::SchematicImage => "image",
+            Self::Pad => "pad",
+            Self::Via => "via",
+            Self::Trace => "netline",
+            Self::Zone => "zone",
+            Self::BoardPolygon => "polygon",
+            Self::StrokeText => "stroke text",
+            Self::Hole => "hole",
         })
     }
 }
@@ -367,6 +389,176 @@ pub enum Error {
         signal: String,
     },
 
+    // --- Board items (see `board/`; the generic item errors `NotFound`,
+    // `DuplicateUuid`, `ItemInUse`, `DegenerateLine`,
+    // `NetSegmentNotCohesive` and `InexistentNetPoint` are shared with the
+    // schematic items) ---
+    /// The board already has a device of the component instance.
+    #[error("There is already a device with the component instance \"{0}\"!")]
+    DuplicateDevice(Uuid),
+    /// A device references a component instance which is not in the
+    /// circuit.
+    #[error("The component instance '{0}' does not exist in the circuit.")]
+    InexistentDeviceComponent(Uuid),
+    /// A device of a schematic-only component (upstream `LogicError` in
+    /// `ComponentInstance::registerDevice()`).
+    #[error("The component \"{0}\" is schematic-only and cannot be added to a board.")]
+    SchematicOnlyComponent(String),
+    /// A device references a library device which is not in the project
+    /// library.
+    #[error(
+        "{}",
+        tr!(
+            "librepcb::BI_Device",
+            "No device with the UUID \"{0}\" found in the project's library.",
+            .0
+        )
+    )]
+    MissingLibraryDevice(Uuid),
+    /// A library device references a package which is not in the project
+    /// library.
+    #[error(
+        "{}",
+        tr!(
+            "librepcb::BI_Device",
+            "No package with the UUID \"{0}\" found in the project's library.",
+            .0
+        )
+    )]
+    MissingLibraryPackage(Uuid),
+    /// The library device of a board device is not a device of the
+    /// component instance's library component.
+    #[error("The device \"{device}\" does not match with the componentinstance \"{component}\".")]
+    DeviceComponentMismatch {
+        /// The library device.
+        device: Uuid,
+        /// The component instance.
+        component: Uuid,
+    },
+    /// The pad-signal map of a library device references a signal the
+    /// component instance does not have.
+    #[error("Unknown signal \"{signal}\" found in device \"{device}\"")]
+    UnknownDeviceSignal {
+        /// The component signal.
+        signal: Uuid,
+        /// The library device.
+        device: Uuid,
+    },
+    /// A footprint contains a pad UUID twice.
+    #[error("The footprint pad UUID \"{0}\" is defined multiple times.")]
+    DuplicateFootprintPad(Uuid),
+    /// A footprint pad references a package pad which is not in the
+    /// package.
+    #[error("Pad \"{pad}\" not found in package \"{package}\".")]
+    MissingPackagePad {
+        /// The package pad.
+        pad: Uuid,
+        /// The package.
+        package: Uuid,
+    },
+    /// A footprint pad references a package pad which is not in the
+    /// pad-signal map of the device.
+    #[error("Package pad \"{pad}\" not found in pad-signal-map of device \"{device}\".")]
+    PadNotInPadSignalMap {
+        /// The package pad.
+        pad: Uuid,
+        /// The library device.
+        device: Uuid,
+    },
+    /// A trace is not on a copper layer.
+    #[error("The layer of netpoint \"{trace}\" is invalid ({layer}).")]
+    InvalidTraceLayer {
+        /// The trace.
+        trace: Uuid,
+        /// Translated name of the layer.
+        layer: String,
+    },
+    /// A trace anchor (via, standalone pad, device, footprint pad) does not
+    /// exist in the board (upstream `ProjectLoader::loadBoardNetSegment()`
+    /// messages; junctions: [`Error::InexistentNetPoint`]).
+    #[error("{}", inexistent_trace_anchor(.anchor, *.device_missing))]
+    InexistentTraceAnchor {
+        /// The anchor.
+        anchor: crate::geometry::TraceAnchor,
+        /// For footprint pads: whether the device is missing (not only the
+        /// pad).
+        device_missing: bool,
+    },
+    /// A trace is connected to a pad of another net.
+    #[error(
+        "Trace of net \"{trace_net}\" is not allowed to be connected to pad \"{pad}\" of \
+         device \"{device}\" ({lib_device}) since it is connected to the net \"{pad_net}\"."
+    )]
+    TracePadNetMismatch {
+        /// Net name of the trace's segment (empty if none).
+        trace_net: String,
+        /// Pad name or UUID.
+        pad: String,
+        /// Component instance name (empty for standalone pads).
+        device: String,
+        /// Library device name (empty for standalone pads).
+        lib_device: String,
+        /// Net name of the pad (empty if none).
+        pad_net: String,
+    },
+    /// A trace is connected to a pad which has no copper on the trace's
+    /// layer.
+    #[error(
+        "Trace on layer \"{layer}\" cannot be connected to the pad \"{pad}\" of device \
+         \"{device}\" ({lib_device}) since it is on layer \"{pad_layer}\"."
+    )]
+    TraceLayerMismatch {
+        /// Translated name of the trace layer.
+        layer: String,
+        /// Pad name or UUID.
+        pad: String,
+        /// Component instance name (empty for standalone pads).
+        device: String,
+        /// Library device name (empty for standalone pads).
+        lib_device: String,
+        /// Translated name of the pad's solder layer.
+        pad_layer: String,
+    },
+    /// Traces of several net segments are connected to one footprint pad.
+    #[error(
+        "There are traces from multiple net segments connected to the pad \"{pad}\" of \
+         device \"{device}\" ({lib_device})."
+    )]
+    PadInMultipleSegments {
+        /// Pad name or UUID.
+        pad: String,
+        /// Component instance name.
+        device: String,
+        /// Library device name.
+        lib_device: String,
+    },
+    /// A trace is connected to a blind or buried via on a layer the via
+    /// does not span.
+    #[error(
+        "{}",
+        tr!(
+            "librepcb::BI_Via",
+            "Failed to connect trace to via because it's a blind- or buried via which \
+             doesn't include the corresponding layer."
+        )
+    )]
+    TraceViaLayerMismatch(Uuid),
+    /// The layers of a via cannot be changed because traces are connected
+    /// on other layers.
+    #[error(
+        "{}",
+        tr!(
+            "librepcb::BI_Via",
+            "Could not change the vias start/end layers because there are still traces \
+             connected on other layers."
+        )
+    )]
+    ViaLayersInUse(Uuid),
+    /// The traces of a junction are on different layers (upstream
+    /// `LogicError` in `BI_NetPoint::registerNetLine()`).
+    #[error("NetPoint already has NetLines on different layer.")]
+    JunctionLayerMismatch(Uuid),
+
     // --- Schematic items ---
     /// A symbol references a component instance which is not in the
     /// circuit.
@@ -471,6 +663,7 @@ pub enum Error {
         "{}",
         match .kind {
             EntityKind::BusLine => "SI_BusLine: both endpoints are the same.",
+            EntityKind::Trace => "BI_NetLine: both endpoints are the same.",
             _ => "SI_NetLine: both endpoints are the same.",
         }
     )]
@@ -512,4 +705,21 @@ pub enum Error {
         /// The item.
         uuid: Uuid,
     },
+}
+
+/// Message of [`Error::InexistentTraceAnchor`] (upstream loader messages,
+/// including "schematic" for junctions).
+fn inexistent_trace_anchor(anchor: &crate::geometry::TraceAnchor, device_missing: bool) -> String {
+    use crate::geometry::TraceAnchor;
+    match anchor {
+        TraceAnchor::Junction(uuid) => format!("Net point '{uuid}' does not exist in schematic."),
+        TraceAnchor::Via(uuid) => format!("Via '{uuid}' does not exist in board."),
+        TraceAnchor::Pad(uuid) => format!("Pad '{uuid}' does not exist in board."),
+        TraceAnchor::FootprintPad { device, .. } if device_missing => {
+            format!("Device instance '{device}' does not exist in board.")
+        }
+        TraceAnchor::FootprintPad { device, pad } => {
+            format!("Footprint pad '{device}:{pad}' does not exist in board.")
+        }
+    }
 }

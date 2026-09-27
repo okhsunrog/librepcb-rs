@@ -11,7 +11,10 @@ use crate::types::{Layer, PositiveLength, Uuid};
 /// The ordering is part of the file format (it defines which anchor is
 /// serialized as `from`): footprint pads < pads < vias < junctions, then by
 /// UUIDs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde: externally tagged, e.g. `{"Via": "<uuid>"}` or
+/// `{"FootprintPad": {"device": "<uuid>", "pad": "<uuid>"}}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum TraceAnchor {
     /// A junction of the board.
     Junction(Uuid),
@@ -107,13 +110,33 @@ impl DeserializeObject for TraceAnchor {
 ///
 /// The anchors are normalized: [`p1()`](Self::p1) is never greater than
 /// [`p2()`](Self::p2).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Serde: `{"uuid", "layer", "width", "p1", "p2"}`; the anchors are
+/// normalized when deserializing.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(from = "TraceFields")]
 pub struct Trace {
     uuid: Uuid,
     layer: Layer,
     width: PositiveLength,
     p1: TraceAnchor,
     p2: TraceAnchor,
+}
+
+/// Unnormalized serde representation of [`Trace`].
+#[derive(serde::Deserialize)]
+struct TraceFields {
+    uuid: Uuid,
+    layer: Layer,
+    width: PositiveLength,
+    p1: TraceAnchor,
+    p2: TraceAnchor,
+}
+
+impl From<TraceFields> for Trace {
+    fn from(f: TraceFields) -> Self {
+        Self::new(f.uuid, f.layer, f.width, f.p1, f.p2)
+    }
 }
 
 impl Trace {

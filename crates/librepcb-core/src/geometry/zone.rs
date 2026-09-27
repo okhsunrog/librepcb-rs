@@ -36,6 +36,32 @@ bitflags! {
     }
 }
 
+/// Serde for the flag types: an array of flag names (e.g.
+/// `["NO_COPPER", "NO_PLANES"]`), unknown names are rejected.
+macro_rules! serde_flag_names {
+    ($ty:ty) => {
+        impl serde::Serialize for $ty {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.collect_seq(self.iter_names().map(|(name, _)| name))
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $ty {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let names = <Vec<std::borrow::Cow<'de, str>>>::deserialize(deserializer)?;
+                names.iter().try_fold(Self::empty(), |flags, name| {
+                    Self::from_name(name)
+                        .map(|flag| flags | flag)
+                        .ok_or_else(|| serde::de::Error::custom(format!("unknown flag: {name}")))
+                })
+            }
+        }
+    };
+}
+
+serde_flag_names!(ZoneLayers);
+serde_flag_names!(ZoneRules);
+
 /// A keepout zone of a footprint or board.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Zone {

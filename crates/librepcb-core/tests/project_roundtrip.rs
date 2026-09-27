@@ -6,11 +6,8 @@
 //! which may differ are the `settings.user.lp` files, which the test data
 //! does not contain (upstream creates them on save too). Projects in an
 //! older file format must be upgraded by `open()`; the upgraded files are
-//! compared with upstream's in `file_format_migration.rs`.
-//!
-//! TODO(wave3b): schematic and board files are currently written back
-//! verbatim by the placeholder item types; once the items are ported, they
-//! are covered by real serialization here.
+//! compared with upstream's in `file_format_migration.rs`. Schematics and
+//! boards are re-serialized from the ported item types.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

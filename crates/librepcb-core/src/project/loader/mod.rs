@@ -10,8 +10,6 @@
 //! Differences to upstream:
 //! - The ERC approval cleanup after a file format migration is not ported
 //!   yet (needs the ERC), so obsolete approvals are kept.
-//! - `mAutoAssignDeviceModels` belongs to the board loading
-//!   (TODO(wave3b/board)).
 
 mod board;
 mod circuit;
@@ -40,12 +38,20 @@ use crate::types::Version;
 pub struct ProjectLoader {
     application_version: String,
     migration_log: Option<MigrationLog>,
+    auto_assign_device_models: bool,
 }
 
 impl ProjectLoader {
     /// Creates a loader with default options.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Whether board devices without a valid 3D model get the default model
+    /// of their footprint (upstream `setAutoAssignDeviceModels()`, used
+    /// after upgrading the project library). Off by default.
+    pub fn set_auto_assign_device_models(&mut self, auto_assign: bool) {
+        self.auto_assign_device_models = auto_assign;
     }
 
     /// Sets the application version shown in the migration log (upstream
@@ -101,7 +107,7 @@ impl ProjectLoader {
         circuit::load_circuit(&mut p)?;
         load_erc(&mut p)?;
         schematic::load_schematics(&mut p)?;
-        board::load_boards(&mut p)?;
+        board::load_boards(&mut p, self.auto_assign_device_models)?;
         load_project_user_settings(&p);
         p.refs = RefIndex::build(&p);
 

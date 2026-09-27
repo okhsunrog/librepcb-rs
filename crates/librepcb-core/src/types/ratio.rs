@@ -15,7 +15,22 @@ use crate::utils::toolbox::{decimal_fixed_point_from_string, decimal_fixed_point
 ///
 /// [`Display`](fmt::Display) and [`FromStr`] use the normalized file format
 /// representation (e.g. `"0.5"` for 50%).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Serde: integer ppm (`500000` for 50%).
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Ratio(i32);
 
 impl Ratio {
@@ -178,7 +193,22 @@ impl FromSExpression for Ratio {
 macro_rules! constrained_ratio {
     ($(#[$meta:meta])* $name:ident, $check:expr, $err:expr) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        ///
+        /// Serde: serialized like [`Ratio`] (integer ppm), the constraint is
+        /// checked when deserializing.
+        #[derive(
+            Debug,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            serde::Serialize,
+            serde::Deserialize,
+        )]
+        #[serde(try_from = "Ratio", into = "Ratio")]
         pub struct $name(Ratio);
 
         impl $name {

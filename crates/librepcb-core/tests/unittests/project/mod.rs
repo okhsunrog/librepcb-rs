@@ -6,6 +6,7 @@
 //! then its inverse restores the previous state, and the reverse index
 //! stays consistent with a rebuild from scratch.
 
+mod board;
 mod circuit_test;
 mod project_test;
 mod schematic_test;

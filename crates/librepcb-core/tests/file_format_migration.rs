@@ -17,13 +17,10 @@
 //! Only the footer of the migration log (application version and time of
 //! the upgrade) is excluded from the comparison.
 //!
-//! TODO(wave3b): board files are still written back verbatim (after the
-//! migration) by the placeholder item types, while upstream re-serializes
-//! them, so differences in these files are only reported, not treated as
-//! failure. Once the board items are ported, remove them from
-//! [`PENDING_FILE_NAMES`] to compare everything. The same applies to
-//! `project/jobs.lp` until `core/job` is ported (the output jobs are kept as
-//! raw S-expression).
+//! TODO: `project/jobs.lp` is still written back verbatim (after the
+//! migration) until `core/job` is ported (the output jobs are kept as raw
+//! S-expression), while upstream re-serializes it, so differences in this
+//! file are only reported, not treated as failure ([`PENDING_FILE_NAMES`]).
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -45,7 +42,7 @@ use librepcb_core::project::ProjectLoader;
 
 /// Files which are not re-serialized yet (see the module documentation):
 /// boards (`board.lp`, `settings.user.lp`) and output jobs (`jobs.lp`).
-const PENDING_FILE_NAMES: &[&str] = &["board.lp", "settings.user.lp", "jobs.lp"];
+const PENDING_FILE_NAMES: &[&str] = &["jobs.lp"];
 
 fn data_dir() -> PathBuf {
     Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data")

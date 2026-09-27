@@ -4,7 +4,11 @@ use super::Ratio;
 use crate::serialization::{self, FromSExpression, SExpression, ToSExpression};
 
 /// Letter or line spacing of a stroke text, serialized as `auto` or a ratio.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+///
+/// Serde: `"Auto"` or `{"Manual": <ppm>}`.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum StrokeTextSpacing {
     /// Spacing defined by the font (default).
     #[default]

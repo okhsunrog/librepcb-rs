@@ -9,6 +9,8 @@ use crate::types::{Angle, Point};
 ///
 /// The ordering compares the position first, then the angle (e.g. for
 /// canonical order in files).
+///
+/// Serde: `{"pos": {"x", "y"}, "angle": <µdeg>}`.
 #[derive(
     Debug,
     Clone,
