@@ -81,7 +81,7 @@ export struct FormListItem {
 export struct FormField {
     id: string,  // Backend identifier of the field
     kind: FormFieldKind,
-    label: string,  // Text of the label column (empty: spans both columns)
+    label: string,  // Text of the label column (empty: no label; lists and attributes span both columns)
     text: string,
     placeholder: string,
     suggestions: [string],
@@ -422,6 +422,11 @@ export component FormRow inherits VerticalLayout {
             text: field.label;
         }
 
+        // Editors without label stay aligned with the labeled ones.
+        if field.label.is-empty && (field.kind != FormFieldKind.list) && (field.kind != FormFieldKind.attributes) && (label-width > 0): Rectangle {
+            width: label-width;
+        }
+
         VerticalLayout {
             spacing: 2px;
             horizontal-stretch: 1;
@@ -436,6 +441,7 @@ export component FormRow inherits VerticalLayout {
             }
 
             if field.kind == FormFieldKind.text: LineEdit {
+                min-height: 25px;
                 text: field.text;
                 placeholder-text: field.placeholder;
                 suggestions: field.suggestions;
@@ -667,11 +673,13 @@ export component FormView inherits ScrollView {
     l := VerticalLayout {
         alignment: start;
         padding-right: 10px;
-        spacing: 6px;
+        spacing: 0px;
 
         for field[i] in Dialogs.form-fields: FormRow {
-            // Fields of other pages/columns take no space.
+            // Fields of other pages/columns take no space (not even the
+            // spacing between rows).
             visible: (field.page == page) && (field.column == column);
+            padding-bottom: self.visible ? 6px : 0px;
             height: self.visible ? self.preferred-height : 0;
             field: field;
             label-width: label-width;
@@ -827,7 +835,7 @@ export component FormDialog inherits Rectangle {
                         width: Dialogs.form-side-width;
                         page: 0;
                         column: 1;
-                        label-width: Dialogs.form-label-width;
+                        label-width: 0px;
                         window-height: window-height;
                     }
 

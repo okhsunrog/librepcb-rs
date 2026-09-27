@@ -159,4 +159,35 @@ fn dialogs_in_the_application() {
     forms.invoke_form_button(-2);
     headless.settle(5);
     assert!(!forms.get_form_shown());
+
+    // Board setup (from the board action, DRC settings page), project
+    // setup, output jobs and graphics export.
+    backend.invoke_trigger_board(0, 0, ui::BoardAction::OpenDrcSetupDialog);
+    headless.settle(10);
+    assert!(forms.get_form_shown());
+    assert_eq!(forms.get_form_page(), 2);
+    save(&headless, "dialog_board_setup_drc.png");
+    forms.set_form_page(1);
+    save(&headless, "dialog_board_setup_rules.png");
+    forms.invoke_form_button(-2);
+    headless.settle(5);
+    backend.invoke_trigger_project(0, ui::ProjectAction::OpenSetupDialog);
+    headless.settle(10);
+    assert!(forms.get_form_shown());
+    save(&headless, "dialog_project_setup.png");
+    forms.invoke_form_button(-2);
+    headless.settle(5);
+    backend.invoke_trigger_project(0, ui::ProjectAction::OpenOutputJobs);
+    headless.settle(10);
+    assert!(forms.get_form_shown());
+    save(&headless, "dialog_output_jobs.png");
+    forms.invoke_form_button(-2);
+    headless.settle(5);
+    backend.invoke_trigger_tab(0, tab, ui::TabAction::ExportPdf);
+    headless.settle(10);
+    assert!(forms.get_form_shown());
+    save(&headless, "dialog_graphics_export.png");
+    forms.invoke_form_button(-2);
+    headless.settle(5);
+    assert!(!forms.get_form_shown());
 }

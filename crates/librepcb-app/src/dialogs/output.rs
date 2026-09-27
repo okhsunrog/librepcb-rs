@@ -580,10 +580,14 @@ impl GraphicsExportDialog {
         let mut form = Form::new(unit);
         let mut editor = GraphicsJobEditor::new(g);
         editor.build(&mut form, &objects, true);
-        form.set_hint(
-            "g_output",
-            tr!(GED, "The page number will be appended to the filename."),
-        );
+        if image {
+            form.set_hint(
+                "g_output",
+                tr!(GED, "The page number will be appended to the filename."),
+            );
+        } else {
+            form.set_hint("g_dpi", "");
+        }
         Self {
             form,
             title,
