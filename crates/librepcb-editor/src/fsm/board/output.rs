@@ -5,14 +5,12 @@
 
 use std::collections::BTreeSet;
 
-use bitflags::bitflags;
 use librepcb_core::geometry::ZoneRules;
 use librepcb_core::project::{ComponentInstanceId, NetSignalId};
 use librepcb_core::types::{Angle, Layer, Point, PositiveLength, UnsignedLength, Uuid};
 
-use super::clipboard::ClipboardContent;
-use super::input::{CursorShape, SceneCursor, StatusMessage};
 use super::view::BoardItemRef;
+use crate::fsm::ViewState;
 
 /// The tools (states) of the board editor (upstream
 /// `BoardEditorFsm::State`, UI `EditorTool`).
@@ -35,7 +33,8 @@ pub enum BoardTool {
     AddHole,
     /// Add stroke texts.
     AddStrokeText,
-    /// Place a device (started with [`BoardFsmInput::AddDevice`](super::BoardFsmInput::AddDevice)).
+    /// Place a device (started with
+    /// [`BoardEditorFsm::add_device()`](super::BoardEditorFsm::add_device)).
     AddDevice,
     /// Measure distances.
     Measure,
@@ -170,42 +169,6 @@ pub enum ToolSetting {
     SaveViaDrillInNetClass,
 }
 
-bitflags! {
-    /// Actions available in the current state (upstream
-    /// `BoardEditorFsmAdapter::Feature`).
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-    pub struct BoardFeatures: u32 {
-        /// Select (all).
-        const SELECT = 1 << 0;
-        /// Cut.
-        const CUT = 1 << 1;
-        /// Copy.
-        const COPY = 1 << 2;
-        /// Paste.
-        const PASTE = 1 << 3;
-        /// Remove.
-        const REMOVE = 1 << 4;
-        /// Rotate.
-        const ROTATE = 1 << 5;
-        /// Flip.
-        const FLIP = 1 << 6;
-        /// Snap to grid.
-        const SNAP_TO_GRID = 1 << 8;
-        /// Reset texts.
-        const RESET_TEXTS = 1 << 9;
-        /// Lock.
-        const LOCK = 1 << 10;
-        /// Unlock.
-        const UNLOCK = 1 << 11;
-        /// Properties.
-        const PROPERTIES = 1 << 12;
-        /// Modify line width.
-        const MODIFY_LINE_WIDTH = 1 << 13;
-        /// Import graphics.
-        const IMPORT_GRAPHICS = 1 << 14;
-    }
-}
-
 /// An action of a context menu entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ContextAction {
@@ -266,14 +229,12 @@ pub struct ContextMenuItem {
     pub default: bool,
 }
 
-/// An event for the application (upstream: dialogs, message boxes,
-/// clipboard access and status bar messages).
+/// A request of the FSM to the application (upstream: dialogs, message
+/// boxes and context menus the states open themselves).
 #[derive(Debug, Clone, PartialEq)]
-pub enum BoardFsmEvent {
-    /// Set the status bar message.
-    StatusMessage(StatusMessage),
+pub enum BoardRequest {
     /// Show an error (upstream `QMessageBox::critical()`).
-    Error(String),
+    ShowError(String),
     /// Show a message (e.g. a measurement result).
     Message {
         /// Title.
@@ -284,54 +245,36 @@ pub enum BoardFsmEvent {
         warning: bool,
     },
     /// Open the properties dialog of an item.
-    OpenProperties(BoardItemRef),
-    /// Put data on the clipboard.
-    SetClipboard(ClipboardContent),
-    /// Put text on the clipboard.
-    SetClipboardText(String),
+    Properties(BoardItemRef),
     /// Show a context menu at a scene position; the chosen entry is
-    /// passed back as [`BoardFsmInput::ContextMenu`](super::BoardFsmInput::ContextMenu).
+    /// passed back with
+    /// [`BoardEditorFsm::context_menu_action()`](super::BoardEditorFsm::context_menu_action).
     ContextMenu {
         /// Position in the scene.
         pos: Point,
+        /// The item the menu is for.
+        item: BoardItemRef,
         /// The entries.
         items: Vec<ContextMenuItem>,
     },
     /// Ask for a line width (upstream "Set Width" dialog); pass the value
-    /// back as [`BoardFsmInput::SetLineWidth`](super::BoardFsmInput::SetLineWidth).
-    RequestLineWidth {
+    /// back with
+    /// [`BoardEditorFsm::set_line_width()`](super::BoardEditorFsm::set_line_width).
+    LineWidthDialog {
         /// The current (median) width.
         current: UnsignedLength,
     },
-    /// Components placed on the board changed (refresh the unplaced
-    /// components list).
+    /// Devices were placed on the board (refresh the unplaced components
+    /// list).
     DevicesChanged(BTreeSet<ComponentInstanceId>),
 }
 
-/// The state of the view the FSM controls (polled by the application).
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct BoardFsmOutput {
-    /// The mouse cursor.
-    pub cursor: CursorShape,
-    /// Text of the info box overlay (upstream `fsmSetViewInfoBoxText()`,
-    /// plain text with line breaks).
-    pub info_box: String,
-    /// The ruler of the measure tool.
-    pub ruler: Option<(Point, Point)>,
-    /// The scene cursor (measure tool).
-    pub scene_cursor: Option<SceneCursor>,
-    /// The selection rectangle while selecting with the rubber band.
-    pub selection_rect: Option<(Point, Point)>,
-    /// Whether the scene is grayed out (measure tool).
-    pub gray_out: bool,
-    /// Nets to highlight (upstream cross probing).
+/// The outputs of the FSM, shared by all states.
+#[derive(Debug, Default)]
+pub(crate) struct Output {
+    pub view: ViewState,
     pub highlighted_nets: BTreeSet<NetSignalId>,
-    /// The item under the cursor (select tool, idle).
-    pub hover: Option<BoardItemRef>,
-    /// Available actions.
-    pub features: BoardFeatures,
-    /// Tool bar data.
-    pub tool: BoardToolData,
-    /// Events since the last [`take_events()`](super::BoardEditorFsm::take_events).
-    pub events: Vec<BoardFsmEvent>,
+    pub hovered: Option<BoardItemRef>,
+    pub tool_data: BoardToolData,
+    pub requests: Vec<BoardRequest>,
 }

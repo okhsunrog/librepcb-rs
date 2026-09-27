@@ -11,9 +11,9 @@ use librepcb_core::types::{Length, MaskConfig, Point, PositiveLength, Uuid};
 use librepcb_i18n::tr;
 
 use super::context::Cx;
-use super::input::CursorShape;
 use super::output::{BoardToolData, ToolSetting};
 use super::{BoardFsmInput, State};
+use crate::fsm::CursorShape;
 
 /// The hole tool (upstream `BoardEditorState_AddHole`).
 #[derive(Debug)]
@@ -84,13 +84,13 @@ impl State for AddHoleState {
         if !self.add_hole(cx, pos) {
             return false;
         }
-        cx.out.cursor = CursorShape::Cross;
+        cx.set_cursor(Some(CursorShape::Cross));
         true
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         self.abort(cx);
-        cx.out.cursor = CursorShape::Arrow;
+        cx.set_cursor(None);
         true
     }
 

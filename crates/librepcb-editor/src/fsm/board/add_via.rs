@@ -13,7 +13,6 @@ use librepcb_core::types::{Layer, MaskConfig, Point, PositiveLength, Uuid};
 use librepcb_i18n::tr;
 
 use super::context::Cx;
-use super::input::CursorShape;
 use super::output::{BoardToolData, ToolNet, ToolSetting};
 use super::view::{BoardItemRef, FindFilter, FindFlags};
 use super::{BoardFsmInput, State};
@@ -21,6 +20,7 @@ use crate::commands::board::{ViaResult, add_via_connected};
 use crate::commands::{EditBoardSettings, EditNetClass};
 use crate::editor::{Command, Transaction};
 use crate::error::Result;
+use crate::fsm::CursorShape;
 
 /// Drill and size of new vias (upstream `mCurrentViaProperties`), shared
 /// by the via and trace tools.
@@ -326,13 +326,13 @@ impl State for AddViaState {
         if !self.add_via(cx, pos) {
             return false;
         }
-        cx.out.cursor = CursorShape::Cross;
+        cx.set_cursor(Some(CursorShape::Cross));
         true
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         self.abort(cx);
-        cx.out.cursor = CursorShape::Arrow;
+        cx.set_cursor(None);
         true
     }
 

@@ -20,12 +20,12 @@ use librepcb_i18n::tr;
 
 use super::add_via::ViaSettings;
 use super::context::Cx;
-use super::input::{CursorShape, Key};
 use super::output::{BoardToolData, ToolNet, ToolSetting, WireMode};
 use super::view::{BoardItemRef, FindFilter, FindFlags, anchor_position};
 use super::{BoardFsmInput, State};
 use crate::commands::{EditBoardSettings, EditNetClass};
 use crate::error::{Error, Result};
+use crate::fsm::{CursorShape, Key, KeyEvent};
 
 /// The elements of the trace being positioned.
 #[derive(Debug, Clone, Copy)]
@@ -1133,13 +1133,13 @@ impl DrawTraceState {
 
 impl State for DrawTraceState {
     fn entry(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        cx.out.cursor = CursorShape::Cross;
+        cx.set_cursor(Some(CursorShape::Cross));
         true
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         self.abort_positioning(cx);
-        cx.out.cursor = CursorShape::Arrow;
+        cx.set_cursor(None);
         true
     }
 
@@ -1154,12 +1154,16 @@ impl State for DrawTraceState {
                     false
                 }
             }
-            BoardFsmInput::KeyPressed(Key::Shift, _) if self.pos.is_some() => {
+            BoardFsmInput::KeyPressed(KeyEvent {
+                key: Key::Shift, ..
+            }) if self.pos.is_some() => {
                 self.snap = false;
                 self.update(cx);
                 true
             }
-            BoardFsmInput::KeyReleased(Key::Shift, _) if self.pos.is_some() => {
+            BoardFsmInput::KeyReleased(KeyEvent {
+                key: Key::Shift, ..
+            }) if self.pos.is_some() => {
                 self.snap = true;
                 self.update(cx);
                 true

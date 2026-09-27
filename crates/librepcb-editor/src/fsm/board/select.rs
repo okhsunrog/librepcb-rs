@@ -14,15 +14,15 @@ use librepcb_core::types::{Angle, Length, Orientation, Point, UnsignedLength, Uu
 use librepcb_core::utils::toolbox;
 use librepcb_i18n::{tr, trn};
 
-use super::clipboard::{BoardClipboardData, ClipboardContent, PasteBoardItems};
+use super::clipboard::{BoardClipboardData, PasteBoardItems, board_clipboard_mime_type};
 use super::context::Cx;
-use super::input::CursorShape;
-use super::output::{BoardFeatures, BoardFsmEvent, BoardToolData, ContextAction, ContextMenuItem};
+use super::output::{BoardRequest, BoardToolData, ContextAction, ContextMenuItem};
 use super::selection::{SelectionQuery, all_items, segment_items};
 use super::transform::{DragItems, flip_mutations};
 use super::view::{BoardItemRef, FindFilter, FindFlags};
 use super::{BoardFsmInput, State};
 use crate::commands::{BoardSelection as RemoveSelection, RemoveBoardItems};
+use crate::fsm::Features;
 
 /// A running drag operation (upstream `mSelectedItemsDragCommand`).
 #[derive(Debug)]
@@ -159,13 +159,13 @@ impl SelectState {
             self.update_drag(cx);
             true
         } else {
-            let ignore = cx.ignore_locks;
+            let ignore = cx.ignore_locks();
             self.modify_selection(cx, ignore, false, |i| i.rotate(angle, false))
         }
     }
 
     fn flip(&mut self, cx: &mut Cx<'_, '_>, orientation: Orientation) -> bool {
-        let ignore = cx.ignore_locks;
+        let ignore = cx.ignore_locks();
         let Some(mut query) = Self::query(cx, ignore) else {
             return false;
         };
@@ -181,7 +181,7 @@ impl SelectState {
     }
 
     fn remove(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        let ignore = cx.ignore_locks;
+        let ignore = cx.ignore_locks();
         let Some(mut query) = Self::query(cx, ignore) else {
             return false;
         };
@@ -229,11 +229,11 @@ impl SelectState {
         let Some(mut query) = Self::query(cx, true) else {
             return false;
         };
-        match BoardClipboardData::from_selection(&mut query, cursor)
-            .and_then(|data| data.to_clipboard())
+        match BoardClipboardData::from_selection(&mut query, cursor).and_then(|data| data.to_zip())
         {
-            Ok(content) => {
-                cx.out.events.push(BoardFsmEvent::SetClipboard(content));
+            Ok(zip) => {
+                let mime = board_clipboard_mime_type(&cx.settings.app_version);
+                cx.ctx.clipboard.set(&mime, zip);
                 cx.status(
                     tr!("BoardEditorState_Select", "Copied to clipboard!"),
                     Some(2000),
@@ -244,10 +244,13 @@ impl SelectState {
         true
     }
 
-    fn paste(&mut self, cx: &mut Cx<'_, '_>, content: &ClipboardContent) -> bool {
-        let data = match BoardClipboardData::from_clipboard(content) {
-            Ok(Some(data)) => data,
-            Ok(None) => return false,
+    fn paste(&mut self, cx: &mut Cx<'_, '_>) -> bool {
+        let mime = board_clipboard_mime_type(&cx.settings.app_version);
+        let Some(zip) = cx.ctx.clipboard.get(&mime) else {
+            return false;
+        };
+        let data = match BoardClipboardData::from_zip(&zip) {
+            Ok(data) => data,
             Err(e) => {
                 cx.error(e);
                 return false;
@@ -314,8 +317,8 @@ impl SelectState {
         pos: Point,
     ) -> Option<(OutlineItem, Path, Vec<usize>)> {
         let board = cx.board().ok()?;
-        let tolerance = cx.ctx.view.pick_tolerance();
-        let unlocked = |locked: bool| !locked || cx.ignore_locks;
+        let tolerance = cx.ctx.view.tolerance();
+        let unlocked = |locked: bool| !locked || cx.ignore_locks();
         let at = |path: &Path| -> Vec<usize> {
             path.vertices()
                 .iter()
@@ -433,7 +436,7 @@ impl SelectState {
         let Some((outline, path)) = self.outline_of(cx, item) else {
             return;
         };
-        let Some(index) = line_index_at(&path, pos, cx.ctx.view.pick_tolerance()) else {
+        let Some(index) = line_index_at(&path, pos, cx.ctx.view.tolerance()) else {
             return;
         };
         let mut vertices = path.vertices().to_vec();
@@ -477,7 +480,7 @@ impl SelectState {
         let Some((outline, path)) = self.outline_of(cx, item) else {
             return;
         };
-        let tolerance = cx.ctx.view.pick_tolerance();
+        let tolerance = cx.ctx.view.tolerance();
         let remove: Vec<usize> = path
             .vertices()
             .iter()
@@ -568,8 +571,8 @@ impl SelectState {
                 // Ask for a custom value.
                 self.width_requested = true;
                 cx.out
-                    .events
-                    .push(BoardFsmEvent::RequestLineWidth { current });
+                    .requests
+                    .push(BoardRequest::LineWidthDialog { current });
                 true
             }
         }
@@ -657,8 +660,8 @@ impl SelectState {
             "Total length of {n} trace segment(s): {0} mm / {1} in",
             "Total length of {n} trace segment(s): {0} mm / {1} in",
             visited.len(),
-            super::measure::float_to_string(total.to_mm(), 6),
-            super::measure::float_to_string(total.to_inch(), 6)
+            float_to_string(total.to_mm(), 6),
+            float_to_string(total.to_inch(), 6)
         );
         let warning = selected != visited.len();
         if warning {
@@ -669,7 +672,7 @@ impl SelectState {
                 selected
             );
         }
-        cx.out.events.push(BoardFsmEvent::Message {
+        cx.out.requests.push(BoardRequest::Message {
             title,
             text,
             warning,
@@ -682,7 +685,7 @@ impl SelectState {
             BoardItemRef::Junction(..) | BoardItemRef::Trace(..) => return false,
             other => other,
         };
-        cx.out.events.push(BoardFsmEvent::OpenProperties(item));
+        cx.out.requests.push(BoardRequest::Properties(item));
         true
     }
 
@@ -744,7 +747,7 @@ impl SelectState {
             cx.selection.set(items[0], true);
         }
         // Start moving the selected items.
-        let ignore = cx.ignore_locks;
+        let ignore = cx.ignore_locks();
         if let Some(mut query) = Self::query(cx, ignore) {
             let items = DragItems::new(&mut query, false, pos);
             self.drag = Some(Drag {
@@ -777,14 +780,14 @@ impl SelectState {
         }
         if left && let Some(down) = self.down_pos {
             // Rubber band selection.
-            cx.out.selection_rect = Some((down, pos));
+            cx.out.view.rubber_band = Some((down, pos));
             let items = rect_items(cx, down, pos);
             cx.selection.replace(items);
             return true;
         }
         // Hover (not upstream: the item under the cursor).
         let hover = cx.find_item(pos, FindFlags::ALL, &FindFilter::default());
-        cx.out.hover = hover;
+        cx.out.hovered = hover;
         false
     }
 
@@ -803,7 +806,7 @@ impl SelectState {
             let _ = edit;
             return false;
         }
-        cx.out.selection_rect = None;
+        cx.out.view.rubber_band = None;
         self.down_pos = None;
         true
     }
@@ -864,9 +867,11 @@ impl SelectState {
             return true;
         }
         self.context = Some((item, pos));
-        cx.out
-            .events
-            .push(BoardFsmEvent::ContextMenu { pos, items: menu });
+        cx.out.requests.push(BoardRequest::ContextMenu {
+            pos,
+            item,
+            items: menu,
+        });
         true
     }
 
@@ -887,7 +892,7 @@ impl SelectState {
             }
             ContextAction::Copy => self.copy(cx),
             ContextAction::SnapToGrid => {
-                let ignore = cx.ignore_locks;
+                let ignore = cx.ignore_locks();
                 self.modify_selection(cx, ignore, false, |i| i.snap_to_grid())
             }
             ContextAction::Lock(locked) => {
@@ -999,12 +1004,13 @@ impl SelectState {
         if self.vertex_edit.is_some() {
             return;
         }
-        let mut features = BoardFeatures::empty();
+        let mut features = Features::default();
         if self.drag.is_none() {
-            features |= BoardFeatures::SELECT | BoardFeatures::IMPORT_GRAPHICS;
+            features.select = true;
+            features.import_graphics = true;
         }
-        // Paste availability depends on the system clipboard (application).
-        features |= BoardFeatures::PASTE;
+        let mime = board_clipboard_mime_type(&cx.settings.app_version);
+        features.paste = cx.ctx.clipboard.get(&mime).is_some();
         let grid = cx.grid();
         let Some(mut query) = Self::query(cx, true) else {
             return;
@@ -1012,28 +1018,28 @@ impl SelectState {
         query.add_all();
         let mut info = String::new();
         if !query.is_empty() {
-            features |= BoardFeatures::CUT
-                | BoardFeatures::COPY
-                | BoardFeatures::REMOVE
-                | BoardFeatures::ROTATE
-                | BoardFeatures::FLIP;
+            features.cut = true;
+            features.copy = true;
+            features.remove = true;
+            features.rotate = true;
+            features.flip = true;
         }
         if !query.devices.is_empty() {
-            features |= BoardFeatures::RESET_TEXTS;
+            features.reset_texts = true;
         }
         if !query.traces.is_empty() {
-            features |= BoardFeatures::MODIFY_LINE_WIDTH;
+            features.modify_line_width = true;
         }
         let board = query.board();
         let mut lockable = |on_grid: bool, locked: bool| {
             if !on_grid {
-                features |= BoardFeatures::SNAP_TO_GRID;
+                features.snap_to_grid = true;
             }
-            features |= if locked {
-                BoardFeatures::UNLOCK
+            if locked {
+                features.unlock = true;
             } else {
-                BoardFeatures::LOCK
-            };
+                features.lock = true;
+            }
         };
         for c in &query.devices {
             if let Some(d) = board.device(*c) {
@@ -1074,14 +1080,14 @@ impl SelectState {
             if let Some(v) = board.net_segment(*s).and_then(|seg| seg.vias().get(u))
                 && !v.position().is_on_grid(grid)
             {
-                features |= BoardFeatures::SNAP_TO_GRID;
+                features.snap_to_grid = true;
             }
         }
         for (s, u) in &query.junctions {
             if let Some(j) = board.net_segment(*s).and_then(|seg| seg.junctions().get(u))
                 && !j.position().is_on_grid(grid)
             {
-                features |= BoardFeatures::SNAP_TO_GRID;
+                features.snap_to_grid = true;
             }
         }
         query.add_footprint_pads();
@@ -1095,11 +1101,11 @@ impl SelectState {
             || !query.stroke_texts.is_empty()
             || !query.holes.is_empty()
         {
-            features |= BoardFeatures::PROPERTIES;
+            features.properties = true;
         }
         let nets = info_box(&query, &mut info);
-        cx.out.features = features;
-        cx.out.info_box = info;
+        cx.out.view.features = features;
+        cx.out.view.info_box = info;
         if cross_probe {
             cx.highlight_nets(nets);
         }
@@ -1108,7 +1114,7 @@ impl SelectState {
 
 impl State for SelectState {
     fn entry(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        cx.out.cursor = CursorShape::Arrow;
+        cx.set_cursor(None);
         self.update_features(cx, true);
         true
     }
@@ -1117,10 +1123,10 @@ impl State for SelectState {
         self.abort_command(cx);
         // Avoid propagating the selection to other tools.
         cx.selection.clear();
-        cx.out.info_box.clear();
-        cx.out.features = BoardFeatures::empty();
-        cx.out.selection_rect = None;
-        cx.out.hover = None;
+        cx.out.view.info_box.clear();
+        cx.out.view.features = Features::default();
+        cx.out.view.rubber_band = None;
+        cx.out.hovered = None;
         cx.highlight_nets([]);
         true
     }
@@ -1138,12 +1144,12 @@ impl State for SelectState {
             }
             BoardFsmInput::Cut => !self.busy() && self.copy(cx) && self.remove(cx),
             BoardFsmInput::Copy => !self.busy() && self.copy(cx),
-            BoardFsmInput::Paste(content) => !self.busy() && self.paste(cx, content),
+            BoardFsmInput::Paste => !self.busy() && self.paste(cx),
             BoardFsmInput::Move(delta) => {
                 if self.busy() {
                     false
                 } else {
-                    let ignore = cx.ignore_locks;
+                    let ignore = cx.ignore_locks();
                     let delta = *delta;
                     self.modify_selection(cx, ignore, false, |i| {
                         i.set_current_position(delta, false)
@@ -1156,7 +1162,7 @@ impl State for SelectState {
                 if self.busy() {
                     false
                 } else {
-                    let ignore = cx.ignore_locks;
+                    let ignore = cx.ignore_locks();
                     self.modify_selection(cx, ignore, false, |i| i.snap_to_grid())
                 }
             }
@@ -1228,11 +1234,14 @@ impl State for SelectState {
             BoardFsmInput::Abort => {
                 self.abort_command(cx);
                 cx.selection.clear();
-                cx.out.selection_rect = None;
+                cx.out.view.rubber_band = None;
                 self.down_pos = None;
                 true
             }
-            BoardFsmInput::PointerMoved(e) => self.pointer_moved(cx, e.pos, e.left_button),
+            BoardFsmInput::PointerMoved(e) => {
+                let left = cx.left_button;
+                self.pointer_moved(cx, e.pos, left)
+            }
             BoardFsmInput::LeftPressed(e) => {
                 self.left_pressed(cx, e.pos, e.modifiers.control, e.modifiers.shift)
             }
@@ -1316,7 +1325,7 @@ fn rect_items(cx: &Cx<'_, '_>, p1: Point, p2: Point) -> Vec<BoardItemRef> {
 fn format_length(unit: librepcb_core::types::LengthUnit, l: Length) -> String {
     format!(
         "{} {}",
-        super::measure::float_to_string(
+        float_to_string(
             unit.convert_to_unit(l),
             unit.reasonable_number_of_decimals() + 1
         ),
@@ -1390,7 +1399,7 @@ fn context_menu(cx: &Cx<'_, '_>, item: BoardItemRef, pos: Point) -> Vec<ContextM
             tr!("EditorCommandSet", "Lock Placement"),
         )
     };
-    let tolerance = cx.ctx.view.pick_tolerance();
+    let tolerance = cx.ctx.view.tolerance();
     let vertex_entries = |path: &Path| {
         let mut out = Vec::new();
         let vertices = path
@@ -1687,7 +1696,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
     }
     let unit = board.settings().grid_unit;
     let fmt = |l: Length| {
-        super::measure::float_to_string(
+        float_to_string(
             unit.convert_to_unit(l),
             unit.reasonable_number_of_decimals() + 1,
         )
@@ -1905,4 +1914,16 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         .collect();
     *text = lines.join("\n");
     nets_to_highlight
+}
+
+/// Formats a number with at most `decimals` decimals, without trailing
+/// zeros (upstream `Toolbox::floatToString()` in the C locale).
+fn float_to_string(value: f64, decimals: usize) -> String {
+    let s = format!("{value:.decimals$}");
+    let s = if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_owned()
+    } else {
+        s
+    };
+    if s == "-0" { "0".to_owned() } else { s }
 }

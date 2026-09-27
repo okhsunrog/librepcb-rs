@@ -6,10 +6,8 @@
 //! The clipboard content is upstream's format: a ZIP archive with the
 //! S-expression file `board.lp` (root `librepcb_clipboard_board`) and the
 //! library devices and packages of the copied devices (`dev/<uuid>/`,
-//! `pkg/<uuid>/`), under the MIME type
-//! [`BoardClipboardData::mime_type()`]. The application puts
-//! [`ClipboardContent`] on the system clipboard and passes it back for
-//! pasting.
+//! `pkg/<uuid>/`), under the MIME type [`board_clipboard_mime_type()`]
+//! on the [`Clipboard`](crate::fsm::Clipboard).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,19 +35,14 @@ use crate::editor::{Command, Transaction};
 use crate::error::{Error, Result};
 use crate::undo_stack::LibraryElement;
 
-/// The MIME type of board clipboard data without the version.
-pub const MIME_TYPE_PREFIX: &str = "application/x-librepcb-clipboard.board";
+/// The MIME type prefix of board clipboard data (followed by
+/// `; version=<application version>`).
+pub const BOARD_CLIPBOARD_MIME_PREFIX: &str = "application/x-librepcb-clipboard.board";
 
-/// Content of the system clipboard as the FSM produces and consumes it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClipboardContent {
-    /// The MIME type of `data` (upstream also sets `application/zip`).
-    pub mime_type: String,
-    /// The data (a ZIP archive for board data).
-    pub data: Vec<u8>,
-    /// Plain text representation (upstream sets the S-expression as text
-    /// as a workaround for clipboards requiring text).
-    pub text: String,
+/// Returns the MIME type of board clipboard data (upstream
+/// `BoardClipboardData::getMimeType()`).
+pub fn board_clipboard_mime_type(app_version: &str) -> String {
+    format!("{BOARD_CLIPBOARD_MIME_PREFIX}; version={app_version}")
 }
 
 /// A device in the clipboard.
@@ -268,19 +261,6 @@ impl BoardClipboardData {
         })
     }
 
-    /// The MIME type of board clipboard data (upstream `getMimeType()`;
-    /// the version is the version of this crate instead of the upstream
-    /// application version).
-    pub fn mime_type() -> String {
-        format!("{MIME_TYPE_PREFIX}; version={}", env!("CARGO_PKG_VERSION"))
-    }
-
-    /// Whether the clipboard content is board data (of any application
-    /// version, upstream requires the same version).
-    pub fn is_valid(content: &ClipboardContent) -> bool {
-        content.mime_type.starts_with(MIME_TYPE_PREFIX)
-    }
-
     /// Whether nothing is contained.
     pub fn is_empty(&self) -> bool {
         self.devices.is_empty()
@@ -351,32 +331,23 @@ impl BoardClipboardData {
         SExpression::List(root)
     }
 
-    /// Serializes the data for the clipboard (upstream `toMimeData()`).
-    pub fn to_clipboard(&self) -> Result<ClipboardContent> {
+    /// Serializes the data for the clipboard (upstream `toMimeData()`):
+    /// a ZIP archive with `board.lp` and the library elements.
+    pub fn to_zip(&self) -> Result<Vec<u8>> {
         let sexpr = self.to_sexpression().to_byte_array(Mode::LibrePcb)?;
         let fs = self.directory.file_system();
         fs.write(
             &format!("{}board.lp", prefix(self.directory.path())),
             &sexpr,
         )?;
-        let data = fs.export_to_zip(None)?;
-        Ok(ClipboardContent {
-            mime_type: Self::mime_type(),
-            data,
-            text: String::from_utf8_lossy(&sexpr).into_owned(),
-        })
+        Ok(fs.export_to_zip(None)?)
     }
 
-    /// Loads the data from the clipboard (upstream `fromMimeData()`);
-    /// `None` if the content is not board data.
-    pub fn from_clipboard(content: &ClipboardContent) -> Result<Option<Self>> {
-        if !Self::is_valid(content) {
-            return Ok(None);
-        }
+    /// Loads the data from clipboard content (upstream constructor from
+    /// MIME data).
+    pub fn from_zip(zip: &[u8]) -> Result<Self> {
         let directory = TransactionalDirectory::new_temporary()?;
-        directory
-            .file_system()
-            .load_from_zip_bytes(content.data.clone())?;
+        directory.file_system().load_from_zip_bytes(zip.to_vec())?;
         let root = SExpression::parse(&directory.read("board.lp")?, None, Mode::LibrePcb)?;
         let mut data = Self::new(root.child_value("board/@0")?, Point::ORIGIN)?;
         data.directory = directory;
@@ -413,7 +384,7 @@ impl BoardClipboardData {
                 Point::deserialize(child.required_child("position")?)?,
             );
         }
-        Ok(Some(data))
+        Ok(data)
     }
 
     /// Builds the clipboard data of the selected items (port of upstream

@@ -23,7 +23,7 @@ use librepcb_core::project::{
     PlaneId, Project,
 };
 use librepcb_core::types::{
-    Angle, Layer, Length, Orientation, Point, PositiveLength, UnsignedLength, Uuid,
+    Angle, Layer, Orientation, Point, PositiveLength, UnsignedLength, Uuid,
 };
 
 use super::selection::SelectionQuery;

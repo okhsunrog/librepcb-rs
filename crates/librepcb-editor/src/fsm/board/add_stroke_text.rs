@@ -15,10 +15,11 @@ use librepcb_i18n::tr;
 
 use super::context::Cx;
 use super::draw_polygon::geometry_layers;
-use super::input::CursorShape;
-use super::output::{BoardFeatures, BoardToolData, ToolSetting};
+use super::output::{BoardToolData, ToolSetting};
 use super::transform::mirror_text;
 use super::{BoardFsmInput, State};
+use crate::fsm::CursorShape;
+use crate::fsm::Features;
 
 /// The text tool (upstream `BoardEditorState_AddStrokeText`).
 #[derive(Debug)]
@@ -119,15 +120,19 @@ impl State for AddStrokeTextState {
         if !self.add_text(cx, pos) {
             return false;
         }
-        cx.out.features = BoardFeatures::ROTATE | BoardFeatures::FLIP;
-        cx.out.cursor = CursorShape::Cross;
+        cx.out.view.features = Features {
+            rotate: true,
+            flip: true,
+            ..Default::default()
+        };
+        cx.set_cursor(Some(CursorShape::Cross));
         true
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         self.abort(cx);
-        cx.out.features = BoardFeatures::empty();
-        cx.out.cursor = CursorShape::Arrow;
+        cx.out.view.features = Features::default();
+        cx.set_cursor(None);
         true
     }
 

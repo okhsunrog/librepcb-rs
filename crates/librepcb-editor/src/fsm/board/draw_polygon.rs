@@ -20,10 +20,10 @@ use librepcb_i18n::tr;
 
 use super::add_via::sorted_nets;
 use super::context::Cx;
-use super::input::CursorShape;
 use super::output::{BoardToolData, ToolNet, ToolSetting};
 use super::{BoardFsmInput, State};
 use crate::error::Result;
+use crate::fsm::CursorShape;
 
 /// The item being drawn.
 #[derive(Debug, Clone)]
@@ -198,13 +198,13 @@ impl DrawPolygonState {
 
 impl State for DrawPolygonState {
     fn entry(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        cx.out.cursor = CursorShape::Cross;
+        cx.set_cursor(Some(CursorShape::Cross));
         true
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         self.abort(cx);
-        cx.out.cursor = CursorShape::Arrow;
+        cx.set_cursor(None);
         true
     }
 
@@ -510,13 +510,13 @@ impl State for DrawPlaneState {
             self.net = cx.project().net_signal_with_most_elements();
             self.auto_net = true;
         }
-        cx.out.cursor = CursorShape::Cross;
+        cx.set_cursor(Some(CursorShape::Cross));
         true
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         self.abort(cx);
-        cx.out.cursor = CursorShape::Arrow;
+        cx.set_cursor(None);
         true
     }
 
@@ -727,13 +727,13 @@ impl DrawZoneState {
 
 impl State for DrawZoneState {
     fn entry(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        cx.out.cursor = CursorShape::Cross;
+        cx.set_cursor(Some(CursorShape::Cross));
         true
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         self.abort(cx);
-        cx.out.cursor = CursorShape::Arrow;
+        cx.set_cursor(None);
         true
     }
 

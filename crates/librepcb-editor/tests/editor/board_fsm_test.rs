@@ -4,16 +4,19 @@
 use librepcb_core::geometry::TraceAnchor;
 use librepcb_core::project::board::Board;
 use librepcb_core::project::{BoardId, ComponentInstanceId, NetSignalId, Project};
-use librepcb_core::types::{Angle, CircuitIdentifier, ElementName, Layer, Length, Orientation, Point};
+use librepcb_core::types::{
+    Angle, CircuitIdentifier, ElementName, Layer, Length, Orientation, Point,
+};
 use librepcb_editor::ProjectEditor;
 use librepcb_editor::commands::{
     AddBoard, AddComponent, AddDevice, AddHole, AddSchematic, AddTrace, ConnectPinToNet,
     ConnectPins, PadRef, PinRef, SetBoardOutline, SymbolPlacement, TraceEndpoint,
 };
 use librepcb_editor::fsm::board::{
-    BoardEditorFsm, BoardFsmContext, BoardFsmEvent, BoardFsmInput, BoardItemRef, BoardTool,
-    BoardViewContext, ClipboardContent, Key, Modifiers, PointerEvent, ToolSetting,
+    BoardContext, BoardEditorFsm, BoardEditorSettings, BoardFsmInput, BoardItemRef, BoardRequest,
+    BoardTool, BoardView, ToolSetting, board_clipboard_mime_type,
 };
+use librepcb_editor::fsm::{Clipboard, Key, KeyEvent, MemoryClipboard, Modifiers, PointerEvent};
 use librepcb_scene::librepcb_canvas::convert;
 use librepcb_scene::librepcb_canvas::kurbo::Rect;
 use librepcb_scene::{BoardObject, BoardScene, BoardSceneLayer, BoardSide, ColorScheme, SceneSync};
@@ -54,11 +57,13 @@ fn to_ref(o: BoardObject) -> Option<BoardItemRef> {
     })
 }
 
-impl BoardViewContext for SceneView {
+impl SceneView {
     fn sync(&mut self, project: &Project) {
         self.sync.sync(project, &mut self.scene).unwrap();
     }
+}
 
+impl BoardView for SceneView {
     fn items_at(&self, pos: Point, tolerance: Length) -> Vec<BoardItemRef> {
         self.scene
             .scene()
@@ -72,13 +77,16 @@ impl BoardViewContext for SceneView {
         let rect = Rect::from_points(convert::point(p1), convert::point(p2));
         self.scene
             .scene()
-            .items_in_rect(rect, librepcb_scene::librepcb_canvas::SelectionMode::Intersects)
+            .items_in_rect(
+                rect,
+                librepcb_scene::librepcb_canvas::SelectionMode::Intersects,
+            )
             .into_iter()
             .filter_map(|id| self.scene.object(id).and_then(to_ref))
             .collect()
     }
 
-    fn pick_tolerance(&self) -> Length {
+    fn tolerance(&self) -> Length {
         Length::from_mm(0.1).unwrap()
     }
 
@@ -96,7 +104,8 @@ struct Harness {
     view: SceneView,
     fsm: BoardEditorFsm,
     board: BoardId,
-    events: Vec<BoardFsmEvent>,
+    clipboard: MemoryClipboard,
+    requests: Vec<BoardRequest>,
 }
 
 impl Harness {
@@ -105,46 +114,41 @@ impl Harness {
             .update_derived_data(|p| p.rebuild_air_wires(board))
             .unwrap()
             .unwrap();
-        let scene =
-            BoardScene::build(editor.project(), board, BoardSide::Top, &ColorScheme::BOARD_DARK)
-                .unwrap();
-        let mut view = SceneView {
+        let scene = BoardScene::build(
+            editor.project(),
+            board,
+            BoardSide::Top,
+            &ColorScheme::BOARD_DARK,
+        )
+        .unwrap();
+        let view = SceneView {
             scene,
             sync: SceneSync::new(editor.project()),
         };
-        let fsm = {
-            let mut ctx = BoardFsmContext {
-                editor: &mut editor,
-                view: &mut view,
-                board,
-            };
-            BoardEditorFsm::new(&mut ctx)
-        };
+        let fsm = BoardEditorFsm::new(board, BoardEditorSettings::default());
         Self {
             _dir: dir,
             editor,
             view,
             fsm,
             board,
-            events: Vec::new(),
+            clipboard: MemoryClipboard::new(),
+            requests: Vec::new(),
         }
     }
 
     fn input(&mut self, input: BoardFsmInput) -> bool {
-        let mut ctx = BoardFsmContext {
-            editor: &mut self.editor,
-            view: &mut self.view,
-            board: self.board,
-        };
+        let mut ctx = BoardContext::new(&mut self.editor, &self.view, &mut self.clipboard);
         let handled = self.fsm.process(&mut ctx, input);
+        // The application syncs its scene after each call.
         self.view.sync(self.editor.project());
-        let events = self.fsm.take_events();
-        for e in &events {
-            if let BoardFsmEvent::Error(msg) = e {
+        let requests = self.fsm.take_requests();
+        for r in &requests {
+            if let BoardRequest::ShowError(msg) = r {
                 panic!("FSM error: {msg}");
             }
         }
-        self.events.extend(events);
+        self.requests.extend(requests);
         handled
     }
 
@@ -153,21 +157,20 @@ impl Harness {
     }
 
     fn move_to(&mut self, pos: Point) {
-        self.input(BoardFsmInput::PointerMoved(PointerEvent::at(pos)));
+        self.input(BoardFsmInput::PointerMoved(PointerEvent::new(pos)));
     }
 
+    /// Moves with the left button held (the FSM tracks the button).
     fn drag_to(&mut self, pos: Point) {
-        self.input(BoardFsmInput::PointerMoved(
-            PointerEvent::at(pos).with_left_button(),
-        ));
+        self.move_to(pos);
     }
 
     fn press(&mut self, pos: Point) {
-        self.input(BoardFsmInput::LeftPressed(PointerEvent::at(pos)));
+        self.input(BoardFsmInput::LeftPressed(PointerEvent::new(pos)));
     }
 
     fn release(&mut self, pos: Point) {
-        self.input(BoardFsmInput::LeftReleased(PointerEvent::at(pos)));
+        self.input(BoardFsmInput::LeftReleased(PointerEvent::new(pos)));
     }
 
     fn click(&mut self, pos: Point) {
@@ -250,7 +253,10 @@ fn build(with_trace: bool) -> Harness {
             index: None,
         })
         .unwrap();
-    let board = editor.execute(AddBoard::new(name("default"))).unwrap().board;
+    let board = editor
+        .execute(AddBoard::new(name("default")))
+        .unwrap()
+        .board;
     let place = |x, y, rotation| SymbolPlacement {
         schematic: Some(schematic),
         position: mm(x, y),
@@ -308,7 +314,11 @@ fn build(with_trace: bool) -> Harness {
             .unwrap();
     }
     editor
-        .execute(SetBoardOutline::rect(Some(board), mm(0.0, 0.0), mm(40.0, 20.0)))
+        .execute(SetBoardOutline::rect(
+            Some(board),
+            mm(0.0, 0.0),
+            mm(40.0, 20.0),
+        ))
         .unwrap();
     if with_trace {
         editor
@@ -332,19 +342,30 @@ fn move_device_traces_follow() {
     let r1 = h.component("R1");
     let before = h.board().device(r1).unwrap().position();
     let pad_before = h.pad_pos("R1", "2");
+    let grab = h.pad_pos("R1", "1");
     let undo_len = h.editor.undo_stack().index();
 
-    // Press on the pad of R1 (selects the device or the pad), drag, release.
-    h.move_to(pad_before);
-    h.press(pad_before);
-    assert!(h.fsm.selection().contains(BoardItemRef::Device(r1))
-        || h.fsm.selection().items().iter().any(|i| matches!(i, BoardItemRef::FootprintPad(c, _) if *c == r1)));
-    h.drag_to(pad_before + mm(0.0, 2.54));
+    // Press on the free pad of R1 (selects the device or the pad; on pad 2
+    // the trace would be selected, like upstream), drag, release.
+    h.move_to(grab);
+    h.press(grab);
+    assert!(
+        h.fsm.selection().contains(BoardItemRef::Device(r1))
+            || h.fsm
+                .selection()
+                .items()
+                .iter()
+                .any(|i| matches!(i, BoardItemRef::FootprintPad(c, _) if *c == r1))
+    );
+    h.drag_to(grab + mm(0.0, 2.54));
     // Live preview: the device moved already, inside an active group.
     assert!(h.editor.undo_stack().is_group_active());
-    assert_eq!(h.board().device(r1).unwrap().position(), before + mm(0.0, 2.54));
-    h.drag_to(pad_before + mm(1.27, 5.08));
-    h.release(pad_before + mm(1.27, 5.08));
+    assert_eq!(
+        h.board().device(r1).unwrap().position(),
+        before + mm(0.0, 2.54)
+    );
+    h.drag_to(grab + mm(1.27, 5.08));
+    h.release(grab + mm(1.27, 5.08));
     assert!(!h.editor.undo_stack().is_group_active());
     assert_eq!(h.editor.undo_stack().index(), undo_len + 1);
     assert_eq!(h.undo_text().as_deref(), Some("Drag Board Elements"));
@@ -361,7 +382,11 @@ fn move_device_traces_follow() {
     let p = h.project();
     let positions: Vec<Point> = [traces[0].p1(), traces[0].p2()]
         .into_iter()
-        .map(|a| h.board().anchor_position(seg, a, p.library(), p.circuit()).unwrap())
+        .map(|a| {
+            h.board()
+                .anchor_position(seg, a, p.library(), p.circuit())
+                .unwrap()
+        })
         .collect();
     assert!(positions.contains(&pad_after));
 
@@ -382,7 +407,10 @@ fn rotate_flip_and_keyboard_move() {
     h.input(BoardFsmInput::Rotate(Angle::DEG90));
     assert_eq!(h.board().device(c1).unwrap().rotation(), Angle::DEG90);
     h.input(BoardFsmInput::Move(mm(2.54, 0.0)));
-    assert_eq!(h.board().device(c1).unwrap().position(), pos + mm(2.54, 0.0));
+    assert_eq!(
+        h.board().device(c1).unwrap().position(),
+        pos + mm(2.54, 0.0)
+    );
     h.input(BoardFsmInput::Flip(Orientation::Horizontal));
     let dev = h.board().device(c1).unwrap();
     assert!(dev.mirrored());
@@ -394,7 +422,10 @@ fn rotate_flip_and_keyboard_move() {
         assert!(h.editor.undo().unwrap());
     }
     let dev = h.board().device(c1).unwrap();
-    assert_eq!((dev.position(), dev.rotation(), dev.mirrored()), (pos, Angle::DEG0, false));
+    assert_eq!(
+        (dev.position(), dev.rotation(), dev.mirrored()),
+        (pos, Angle::DEG0, false)
+    );
 }
 
 #[test]
@@ -410,7 +441,7 @@ fn draw_trace_pad_to_pad() {
     h.click(a);
     // Positioning: a live preview is in the model, the net is highlighted.
     assert!(h.editor.undo_stack().is_group_active());
-    assert!(h.fsm.output().highlighted_nets.contains(&mid));
+    assert!(h.fsm.highlighted_nets().contains(&mid));
     h.move_to(b);
     h.press(b);
     assert!(!h.editor.undo_stack().is_group_active());
@@ -428,7 +459,12 @@ fn draw_trace_pad_to_pad() {
         .filter(|a| matches!(a, TraceAnchor::FootprintPad { .. }))
         .collect();
     assert_eq!(pads.len(), 2, "{:?}", segs[0]);
-    assert!(segs[0].traces().values().all(|t| t.layer() == Layer::TOP_COPPER));
+    assert!(
+        segs[0]
+            .traces()
+            .values()
+            .all(|t| t.layer() == Layer::TOP_COPPER)
+    );
     // The air wire disappeared.
     assert_eq!(h.air_wire_count(mid), 0);
 
@@ -480,8 +516,10 @@ fn draw_trace_layer_change_inserts_via() {
     h.press(corner);
     h.move_to(corner + mm(2.54, 0.0));
     // Change the layer while positioning: a via is added at the end.
-    h.input(BoardFsmInput::ToolSetting(ToolSetting::Layer(Layer::BOT_COPPER)));
-    assert_eq!(h.fsm.output().tool.layer, Some(Layer::BOT_COPPER));
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::Layer(
+        Layer::BOT_COPPER,
+    )));
+    assert_eq!(h.fsm.tool_data().layer, Some(Layer::BOT_COPPER));
     assert_eq!(h.vias().len(), 1, "via preview");
     let via_pos = corner + mm(2.54, 0.0);
     h.press(via_pos);
@@ -501,7 +539,11 @@ fn draw_trace_layer_change_inserts_via() {
     let layers: Vec<Layer> = seg.traces_at(via).map(|t| t.layer()).collect();
     assert!(layers.contains(&Layer::TOP_COPPER), "{layers:?}");
     assert!(layers.contains(&Layer::BOT_COPPER), "{layers:?}");
-    assert!(seg.traces().values().any(|t| t.layer() == Layer::BOT_COPPER));
+    assert!(
+        seg.traces()
+            .values()
+            .any(|t| t.layer() == Layer::BOT_COPPER)
+    );
 }
 
 #[test]
@@ -511,12 +553,15 @@ fn draw_trace_shift_and_wire_mode() {
     h.tool(BoardTool::DrawTrace);
     h.click(a);
     // Right click cycles the wire mode.
-    let before = h.fsm.output().tool.wire_mode;
-    h.input(BoardFsmInput::RightReleased(PointerEvent::at(a)));
-    assert_ne!(h.fsm.output().tool.wire_mode, before);
+    let before = h.fsm.tool_data().wire_mode;
+    h.input(BoardFsmInput::RightReleased(PointerEvent::new(a)));
+    assert_ne!(h.fsm.tool_data().wire_mode, before);
     assert_eq!(h.fsm.tool(), BoardTool::DrawTrace);
-    h.input(BoardFsmInput::KeyPressed(Key::Shift, Modifiers::SHIFT));
-    h.input(BoardFsmInput::KeyReleased(Key::Shift, Modifiers::NONE));
+    h.input(BoardFsmInput::KeyPressed(KeyEvent {
+        key: Key::Shift,
+        modifiers: Modifiers::SHIFT,
+    }));
+    h.input(BoardFsmInput::KeyReleased(KeyEvent::new(Key::Shift)));
     h.input(BoardFsmInput::Abort);
     assert!(h.traces().is_empty());
     assert!(!h.editor.undo_stack().is_group_active());
@@ -528,15 +573,16 @@ fn rubber_band_and_delete() {
     let r1 = h.component("R1");
     let r2 = h.component("R2");
     // Rubber band around R1 only.
-    h.press(mm(7.0, 7.0));
+    // (Above the trace at y = 10 mm, touching the pads of R1.)
+    h.press(mm(7.0, 10.4));
     assert!(h.fsm.selection().is_empty());
     h.drag_to(mm(12.0, 12.0));
-    assert!(h.fsm.output().selection_rect.is_some());
+    assert!(h.fsm.view_state().rubber_band.is_some());
     h.release(mm(12.0, 12.0));
-    assert!(h.fsm.output().selection_rect.is_none());
+    assert!(h.fsm.view_state().rubber_band.is_none());
     assert!(h.fsm.selection().contains(BoardItemRef::Device(r1)));
     assert!(!h.fsm.selection().contains(BoardItemRef::Device(r2)));
-    assert!(!h.fsm.output().info_box.is_empty());
+    assert!(!h.fsm.view_state().info_box.is_empty());
     h.input(BoardFsmInput::Remove);
     assert!(h.board().device(r1).is_none());
     assert!(h.board().device(r2).is_some());
@@ -634,21 +680,26 @@ fn copy_paste() {
     h.drag_to(mm(15.5, 10.5));
     h.release(mm(15.5, 10.5));
     let sel = h.fsm.selection().items().clone();
-    assert!(sel.iter().any(|i| matches!(i, BoardItemRef::Hole(_))), "{sel:?}");
-    assert!(sel.iter().any(|i| matches!(i, BoardItemRef::Trace(..))), "{sel:?}");
+    assert!(
+        sel.iter().any(|i| matches!(i, BoardItemRef::Hole(_))),
+        "{sel:?}"
+    );
+    assert!(
+        sel.iter().any(|i| matches!(i, BoardItemRef::Trace(..))),
+        "{sel:?}"
+    );
     h.move_to(mm(5.08, 5.08));
     h.input(BoardFsmInput::Copy);
-    let content: ClipboardContent = h
-        .events
-        .iter()
-        .find_map(|e| match e {
-            BoardFsmEvent::SetClipboard(c) => Some(c.clone()),
-            _ => None,
-        })
+    let mime = board_clipboard_mime_type(&BoardEditorSettings::default().app_version);
+    let zip = h.clipboard.get(&mime).expect("board data in the clipboard");
+    let data = librepcb_editor::fsm::board::BoardClipboardData::from_zip(&zip).unwrap();
+    assert_eq!(data.holes.len(), 1);
+    assert_eq!(data.net_segments.len(), 1);
+    let text = data
+        .to_sexpression()
+        .to_string_with_mode(librepcb_core::serialization::Mode::LibrePcb)
         .unwrap();
-    assert!(content.text.starts_with("(librepcb_clipboard_board"));
-    assert!(content.text.contains("(hole "), "{}", content.text);
-    assert!(content.text.contains("(netsegment"), "{}", content.text);
+    assert!(text.starts_with("(librepcb_clipboard_board"), "{text}");
     let _ = middle;
 
     // Paste 10 mm to the right: the items follow the cursor until the
@@ -656,7 +707,7 @@ fn copy_paste() {
     let traces_before = h.traces().len();
     let target = mm(15.24, 5.08);
     h.move_to(target);
-    assert!(h.input(BoardFsmInput::Paste(content)));
+    assert!(h.input(BoardFsmInput::Paste));
     assert!(h.editor.undo_stack().is_group_active());
     h.move_to(target + mm(0.0, 2.54));
     h.press(target + mm(0.0, 2.54));
@@ -691,7 +742,9 @@ fn add_hole_text_polygon_zone_plane() {
     assert_eq!(h.board().holes().len(), 1);
     // Text.
     h.tool(BoardTool::AddStrokeText);
-    h.input(BoardFsmInput::ToolSetting(ToolSetting::Text("Hello".into())));
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::Text(
+        "Hello".into(),
+    )));
     h.input(BoardFsmInput::Rotate(Angle::DEG90));
     h.click(mm(7.62, 2.54));
     h.input(BoardFsmInput::Abort);
@@ -701,8 +754,15 @@ fn add_hole_text_polygon_zone_plane() {
     assert_eq!(texts[0].rotation(), Angle::DEG90);
     // Polygon: three segments, finished by clicking the last point again.
     h.tool(BoardTool::DrawPolygon);
-    h.input(BoardFsmInput::ToolSetting(ToolSetting::Layer(Layer::TOP_LEGEND)));
-    for p in [mm(1.27, 1.27), mm(3.81, 1.27), mm(3.81, 3.81), mm(3.81, 3.81)] {
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::Layer(
+        Layer::TOP_LEGEND,
+    )));
+    for p in [
+        mm(1.27, 1.27),
+        mm(3.81, 1.27),
+        mm(3.81, 3.81),
+        mm(3.81, 3.81),
+    ] {
         h.click(p);
     }
     assert!(!h.editor.undo_stack().is_group_active());
@@ -717,7 +777,12 @@ fn add_hole_text_polygon_zone_plane() {
     h.input(BoardFsmInput::Abort);
     // Zone: a triangle.
     h.tool(BoardTool::DrawZone);
-    for p in [mm(20.32, 2.54), mm(25.4, 2.54), mm(25.4, 7.62), mm(25.4, 7.62)] {
+    for p in [
+        mm(20.32, 2.54),
+        mm(25.4, 2.54),
+        mm(25.4, 7.62),
+        mm(25.4, 7.62),
+    ] {
         h.click(p);
     }
     h.input(BoardFsmInput::Abort);
@@ -741,7 +806,10 @@ fn add_device_from_unplaced_components() {
             index: None,
         })
         .unwrap();
-    let board = editor.execute(AddBoard::new(name("default"))).unwrap().board;
+    let board = editor
+        .execute(AddBoard::new(name("default")))
+        .unwrap()
+        .board;
     let added = editor
         .execute(AddComponent {
             device: Some(lib::r0805()),
@@ -775,22 +843,18 @@ fn add_device_from_unplaced_components() {
 fn measure_tool() {
     let mut h = build(false);
     h.tool(BoardTool::Measure);
-    assert!(h.fsm.output().gray_out);
+    assert!(h.fsm.view_state().gray_out);
     h.click(mm(0.0, 0.0));
     h.move_to(mm(3.0, 4.0));
     h.press(mm(3.0, 4.0));
-    let (start, end) = h.fsm.output().ruler.unwrap();
+    let (start, end) = h.fsm.view_state().ruler.unwrap();
     assert_eq!(start, mm(0.0, 0.0));
-    assert!(h.fsm.output().info_box.contains("Δ"));
+    assert!(h.fsm.view_state().info_box.contains("Δ"));
     let _ = end;
     assert!(h.input(BoardFsmInput::Copy));
-    assert!(
-        h.events
-            .iter()
-            .any(|e| matches!(e, BoardFsmEvent::SetClipboardText(_)))
-    );
+    assert!(h.clipboard.get("text/plain").is_some());
     h.tool(BoardTool::Select);
-    assert!(!h.fsm.output().gray_out);
+    assert!(!h.fsm.view_state().gray_out);
 }
 
 #[test]
@@ -798,12 +862,12 @@ fn right_click_opens_context_menu_and_properties() {
     let mut h = build(true);
     let c1 = h.component("C1");
     let pos = h.board().device(c1).unwrap().position();
-    h.input(BoardFsmInput::RightReleased(PointerEvent::at(pos)));
+    h.input(BoardFsmInput::RightReleased(PointerEvent::new(pos)));
     let menu = h
-        .events
+        .requests
         .iter()
         .find_map(|e| match e {
-            BoardFsmEvent::ContextMenu { items, .. } => Some(items.clone()),
+            BoardRequest::ContextMenu { items, .. } => Some(items.clone()),
             _ => None,
         })
         .unwrap();
@@ -819,11 +883,11 @@ fn right_click_opens_context_menu_and_properties() {
     h.release(pos + mm(2.54, 0.0));
     assert_eq!(h.board().device(c1).unwrap().position(), before);
     // Double click requests the properties dialog.
-    h.input(BoardFsmInput::LeftDoubleClicked(PointerEvent::at(pos)));
+    h.input(BoardFsmInput::LeftDoubleClicked(PointerEvent::new(pos)));
     assert!(
-        h.events
+        h.requests
             .iter()
-            .any(|e| matches!(e, BoardFsmEvent::OpenProperties(BoardItemRef::Device(c)) if *c == c1))
+            .any(|e| matches!(e, BoardRequest::Properties(BoardItemRef::Device(c)) if *c == c1))
     );
 }
 
@@ -848,7 +912,10 @@ fn upstream_projects_move_all_and_undo() {
             let original = editor.project().board(board).unwrap().clone();
             let tmp = tempfile::tempdir().unwrap();
             let mut h = Harness::new(tmp, editor, board);
-            h.fsm.set_ignore_locks(true);
+            h.fsm.set_settings(BoardEditorSettings {
+                ignore_locks: true,
+                ..Default::default()
+            });
             let start = h.editor.undo_stack().index();
             h.input(BoardFsmInput::SelectAll);
             h.input(BoardFsmInput::Move(mm(2.54, 0.0)));
@@ -857,11 +924,7 @@ fn upstream_projects_move_all_and_undo() {
                 h.editor.undo().unwrap();
             }
             let after = h.board().clone();
-            assert!(
-                after == original,
-                "{}: board not restored",
-                dir.display()
-            );
+            assert!(after == original, "{}: board not restored", dir.display());
             h.input(BoardFsmInput::Abort);
             editor = h.editor;
         }

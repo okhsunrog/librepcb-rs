@@ -3,7 +3,7 @@
 //! editor states (port of `BoardEditorState::findItemsAtPos()` in
 //! libs/librepcb/editor/project/board/fsm/boardeditorstate.{h,cpp}).
 //!
-//! The application implements [`BoardViewContext`] on its board scene
+//! The application implements [`BoardView`] on its board scene
 //! (`librepcb_scene::BoardScene`: grab areas are the scene items, hidden
 //! layers are not hit); the priorities of upstream (vias, THT pads, holes,
 //! then per side junctions, traces, planes/zones, footprints, pads,
@@ -114,36 +114,45 @@ impl BoardItemRef {
     }
 }
 
-/// The view of a board the FSM works on, implemented by the application on
-/// its board scene (and by tests on a headless `BoardScene`).
+/// What the FSM needs from the view: hit testing on the displayed board
+/// scene (upstream `BoardGraphicsScene` and `fsmCalcPosWithTolerance()`),
+/// implemented by the application on its `librepcb_scene::BoardScene`
+/// (mapping `BoardObject`s to [`BoardItemRef`]s; air wires are not
+/// selectable) and by tests on a headless scene.
 ///
 /// Grab areas are the shapes of the scene items (upstream
-/// `QGraphicsItem::shape()`); items on hidden layers are not hit.
-pub trait BoardViewContext {
-    /// Updates the view to the current project state (applies the change
-    /// journal to the scene). Called by the FSM after it modified the
-    /// project and before it tests hits again.
-    fn sync(&mut self, project: &Project);
-
-    /// All visible items whose grab area is within `tolerance` of `pos`
-    /// (`tolerance` zero: the grab area contains `pos`), in any order.
-    /// Junctions and air wires need not be reported.
+/// `QGraphicsItem::shape()`); items on hidden layers are not hit. The
+/// order of the returned items does not matter. The application updates
+/// its scene from the change journal after each FSM call.
+pub trait BoardView {
+    /// All items whose grab area is at most `tolerance` away from `pos`
+    /// (`tolerance == 0`: exactly under `pos`). Junctions need not be
+    /// reported.
     fn items_at(&self, pos: Point, tolerance: Length) -> Vec<BoardItemRef>;
 
-    /// All visible items whose grab area intersects the rectangle spanned
-    /// by `p1` and `p2`.
+    /// All items touching the rectangle spanned by `p1` and `p2`.
     fn items_in_rect(&self, p1: Point, p2: Point) -> Vec<BoardItemRef>;
 
-    /// The pick tolerance at the current zoom level (upstream: 5 screen
-    /// pixels, `GraphicsView::calcPosWithTolerance()`).
-    fn pick_tolerance(&self) -> Length;
+    /// The hit tolerance: upstream uses 5 screen pixels, so this is the
+    /// world length of 5 pixels at the current zoom level (see
+    /// [`tolerance_for_pixel_size()`](crate::fsm::tolerance_for_pixel_size)).
+    fn tolerance(&self) -> Length;
 
-    /// Whether a board layer is visible.
+    /// Whether a board layer is visible (junctions on hidden layers are not
+    /// hit).
     fn is_layer_visible(&self, layer: Layer) -> bool;
 
-    /// Whether the board is viewed from the bottom.
+    /// Whether the board is viewed from the bottom (swaps the hit priority
+    /// of the board sides).
     fn is_flipped(&self) -> bool {
         false
+    }
+
+    /// The current cursor position in world coordinates, if known (used
+    /// when a tool starts without pointer event, e.g. paste or add via;
+    /// upstream `QCursor::pos()`).
+    fn cursor_pos(&self) -> Option<Point> {
+        None
     }
 }
 
@@ -244,7 +253,7 @@ fn junction_radius(board: &Board, seg: NetSegmentId, junction: Uuid) -> Option<L
 pub fn find_items_at_pos(
     project: &Project,
     board: BoardId,
-    view: &dyn BoardViewContext,
+    view: &dyn BoardView,
     pos: Point,
     flags: FindFlags,
     filter: &FindFilter<'_>,
@@ -254,7 +263,7 @@ pub fn find_items_at_pos(
     };
     let grid = b.settings().grid_interval;
     let pos_on_grid = pos.mapped_to_grid(grid);
-    let tolerance = view.pick_tolerance();
+    let tolerance = view.tolerance();
     let large_tolerance = Length::new((tolerance.to_nm() as f64 * 1.5).round() as i64);
     let mut hits = Hits {
         exact: normalize(b, view.items_at(pos, Length::ZERO)),

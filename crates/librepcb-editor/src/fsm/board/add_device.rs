@@ -14,11 +14,11 @@ use librepcb_core::types::{Angle, Orientation, Point, Uuid};
 use librepcb_i18n::tr;
 
 use super::context::Cx;
-use super::input::CursorShape;
-use super::output::{BoardFeatures, BoardFsmEvent, BoardToolData};
+use super::output::{BoardRequest, BoardToolData};
 use super::transform::mirror_text;
 use super::{BoardFsmInput, State};
 use crate::commands::AddDevice;
+use crate::fsm::Features;
 
 /// The device being placed.
 #[derive(Debug, Clone)]
@@ -165,14 +165,18 @@ impl AddDeviceState {
 
 impl State for AddDeviceState {
     fn entry(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        cx.out.features = BoardFeatures::ROTATE | BoardFeatures::FLIP;
+        cx.out.view.features = Features {
+            rotate: true,
+            flip: true,
+            ..Default::default()
+        };
         true
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         self.abort(cx);
-        cx.out.features = BoardFeatures::empty();
-        cx.out.cursor = CursorShape::Arrow;
+        cx.out.view.features = Features::default();
+        cx.set_cursor(None);
         true
     }
 
@@ -207,8 +211,8 @@ impl State for AddDeviceState {
                     Ok(_) => {
                         if let Some(c) = component {
                             cx.out
-                                .events
-                                .push(BoardFsmEvent::DevicesChanged([c].into_iter().collect()));
+                                .requests
+                                .push(BoardRequest::DevicesChanged([c].into_iter().collect()));
                         }
                         // Placing finished, leave the tool.
                         cx.leave_requested = true;
