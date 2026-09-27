@@ -39,6 +39,9 @@ Done, in `crates/librepcb-core` unless noted:
   with hit testing and a Slint adapter.
 - **`crates/librepcb-i18n`, `tools/ts2po`, `lang/`:** translations from the
   upstream catalogs, with Slint bundled translations.
+- **`crates/librepcb-mcp` (phase 1):** MCP server with session, library,
+  read, check, export, render and raw mutation tools; phase 2 adds the
+  intent-level write tools on `librepcb-editor`, DRC and autorouting.
 
 ## Next steps
 
