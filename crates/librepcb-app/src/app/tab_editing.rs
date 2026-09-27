@@ -152,6 +152,7 @@ impl State {
         };
         let id = t.id();
         let project = t.project().cloned();
+        let t_unit = t.length_unit();
         for request in requests {
             match request {
                 TabRequest::Notify(n) => self.notifications.borrow_mut().push(n),
@@ -187,6 +188,24 @@ impl State {
                     }
                     self.update_chooser(&search_term);
                 }
+                TabRequest::Properties(target) => {
+                    let Some(project) = project.clone() else {
+                        continue;
+                    };
+                    let unit = t_unit.unwrap_or(librepcb_core::types::LengthUnit::Millimeters);
+                    if let Some(dialog) = crate::dialogs::open_properties(&project, &target, unit)
+                    {
+                        self.open_form_dialog(project, Some(id), dialog);
+                    }
+                }
+                TabRequest::LineWidth { current } => {
+                    let Some(project) = project.clone() else {
+                        continue;
+                    };
+                    let unit = t_unit.unwrap_or(librepcb_core::types::LengthUnit::Millimeters);
+                    let dialog = crate::dialogs::board::LineWidthDialog::new(current, unit);
+                    self.open_form_dialog(project, Some(id), Box::new(dialog));
+                }
             }
         }
         if project_modified && let Some(project) = project {
@@ -196,7 +215,7 @@ impl State {
 
     /// Updates the other tabs and the project data after a tab modified
     /// its project (instead of waiting for the polling timer).
-    fn project_changed_by_tab(&mut self, project: &Rc<AppProject>) {
+    pub(super) fn project_changed_by_tab(&mut self, project: &Rc<AppProject>) {
         if let Some(i) = self.projects.iter().position(|p| Rc::ptr_eq(p, project)) {
             self.projects_model.set(i, project.ui_data());
         }

@@ -26,8 +26,9 @@ use librepcb_canvas::kurbo::Point;
 use librepcb_canvas::{Modifiers, PointerButton, PointerKind};
 use std::collections::BTreeSet;
 
-use librepcb_core::project::{ComponentInstanceId, NetSignalId};
-use librepcb_core::types::{GridStyle, Length, LengthUnit};
+use librepcb_core::project::{BoardId, ComponentInstanceId, NetSignalId, SchematicId, SymbolId};
+use librepcb_core::types::{GridStyle, Length, LengthUnit, UnsignedLength, Uuid};
+use librepcb_editor::fsm::board::BoardItemRef;
 use librepcb_editor::fsm::schematic::ComponentChoice;
 use slint::language::{PointerEvent, PointerEventButton, PointerEventKind};
 
@@ -146,6 +147,29 @@ pub enum TabRequest {
         /// Preselected search term.
         search_term: String,
     },
+    /// Open the properties dialog of an item.
+    Properties(PropertiesTarget),
+    /// Ask for a line width (board "Set Width" dialog); the answer is
+    /// passed back with [`Tab::set_line_width()`].
+    LineWidth {
+        /// The current width.
+        current: UnsignedLength,
+    },
+}
+
+/// The item of a properties dialog request.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PropertiesTarget {
+    /// A symbol (and its component).
+    Symbol(SymbolId),
+    /// A schematic net segment (net label rename dialog).
+    NetSegment(SchematicId, Uuid),
+    /// A schematic polygon.
+    SchematicPolygon(SchematicId, Uuid),
+    /// A schematic text.
+    SchematicText(SchematicId, Uuid),
+    /// A board item.
+    Board(BoardId, BoardItemRef),
 }
 
 /// Cross-probing: what the current tab has selected, highlighted in the
@@ -296,6 +320,23 @@ impl Tab {
         match self {
             Self::Schematic(t) => t.add_component(choice),
             _ => TabUpdate::default(),
+        }
+    }
+
+    /// The answer of [`TabRequest::LineWidth`].
+    pub fn set_line_width(&mut self, width: UnsignedLength) -> TabUpdate {
+        match self {
+            Self::Board2d(t) => t.set_line_width(width),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// The length unit for dialogs opened by the tab (the grid unit).
+    pub fn length_unit(&self) -> Option<LengthUnit> {
+        match self {
+            Self::Home(_) => None,
+            Self::Schematic(t) => Some(t.length_unit()),
+            Self::Board2d(t) => Some(t.length_unit()),
         }
     }
 

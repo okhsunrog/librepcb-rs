@@ -39,11 +39,14 @@ use librepcb_scene::{BoardObject, BoardScene, BoardSceneLayer, BoardSide, ColorS
 
 use super::board_view::{BoardSceneView, board_item};
 use super::editing::{
-    DoubleClick, OverlayColors, Overlays, dialog_not_available, error_notification, fsm_key_event,
+    DoubleClick, OverlayColors, Overlays, error_notification, fsm_key_event,
     fsm_modifiers, info_box_text, mouse_cursor, point_from_world, point_to_world, to_multi_line,
     to_single_line,
 };
-use super::{ContextMenuEntry, CrossProbe, TabId, TabRequest, TabUpdate, feature, project_index};
+use super::{
+    ContextMenuEntry, CrossProbe, PropertiesTarget, TabId, TabRequest, TabUpdate, feature,
+    project_index,
+};
 use crate::canvas_view::{CanvasView, DEFAULT_BOARD_RECT};
 use crate::clipboard::{ensure_opened, with_clipboard};
 use crate::helpers::{
@@ -651,8 +654,15 @@ impl Board2dTab {
                     ..Notification::new(kind, title, text)
                 }));
             }
-            BoardRequest::Properties(_) | BoardRequest::LineWidthDialog { .. } => {
-                update.requests.push(dialog_not_available());
+            BoardRequest::Properties(item) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::Board(
+                        self.board, item,
+                    )));
+            }
+            BoardRequest::LineWidthDialog { current } => {
+                update.requests.push(TabRequest::LineWidth { current });
             }
             BoardRequest::ContextMenu { pos, items, .. } => {
                 let entries: Vec<ContextMenuEntry> = items
@@ -677,6 +687,18 @@ impl Board2dTab {
             }
             BoardRequest::DevicesChanged(_) => {}
         }
+    }
+
+    /// The answer of the "Set Width" dialog.
+    pub fn set_line_width(&mut self, width: UnsignedLength) -> TabUpdate {
+        let before = self.snapshot();
+        self.run(|f, c| f.set_line_width(c, width));
+        self.after_fsm(&before)
+    }
+
+    /// The length unit of the grid (for dialogs).
+    pub fn length_unit(&self) -> LengthUnit {
+        self.unit
     }
 
     /// An entry of the last context menu was chosen.

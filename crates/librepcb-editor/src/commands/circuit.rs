@@ -538,3 +538,52 @@ impl Command for RemoveUnusedNets {
         remove_unused_nets(tx)
     }
 }
+
+/// Moves a schematic net segment to another net, adding the net if no net
+/// with that name exists (upstream `RenameNetSegmentDialog` with "rename
+/// only this net segment": `CmdNetSignalAdd` with the net class of the
+/// current net, then `CmdChangeNetSignalOfSchematicNetSegment`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ChangeNetOfSchematicSegment {
+    /// The net segment.
+    pub segment: NetSegmentRef,
+    /// The name of the (new or existing) net.
+    pub net: CircuitIdentifier,
+}
+
+impl Command for ChangeNetOfSchematicSegment {
+    /// The net of the segment.
+    type Output = NetSignalId;
+
+    fn text(&self) -> String {
+        tr!("RenameNetSegmentDialog", "Change net of net segment")
+    }
+
+    fn execute(self, tx: &mut Transaction<'_>) -> Result<NetSignalId> {
+        let old = tx
+            .project()
+            .schematic(self.segment.schematic)
+            .and_then(|s| s.net_segments().get(&self.segment.segment))
+            .ok_or_else(|| Error::not_found("Net segment", self.segment.segment))?
+            .net();
+        let existing = tx
+            .project()
+            .circuit()
+            .net_signal_by_name(self.net.as_str())
+            .map(|(id, _)| id);
+        let net = match existing {
+            Some(id) => id,
+            None => {
+                let class = tx
+                    .project()
+                    .circuit()
+                    .net_signal(old)
+                    .ok_or_else(|| Error::not_found("Net", old))?
+                    .net_class();
+                add_net(tx, Some(self.net), class)?
+            }
+        };
+        change_net_of_schematic_segment(tx, self.segment, net)?;
+        Ok(net)
+    }
+}
