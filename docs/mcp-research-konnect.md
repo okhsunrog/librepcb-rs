@@ -1,8 +1,9 @@
 # Lessons from Konnect (KiCad MCP server) for our MCP
 
-Research notes for roadmap milestone M1.5. Konnect lives at
-`/home/okhsunrog/kicad/Konnect` (Rust, ~226 tools in 21 toolsets). Paths
-below are relative to that repository.
+Research notes for roadmap milestone M1.5, from studying
+[Konnect](https://github.com/mixelpixx/Konnect), an MCP server for KiCad
+(Rust, ~226 tools in 21 toolsets, v0.12.1 at the time). Paths below are
+relative to that repository.
 
 ## Konnect in short
 
