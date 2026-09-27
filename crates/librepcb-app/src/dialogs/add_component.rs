@@ -207,7 +207,7 @@ impl AddComponentDialog {
         rows.push(None);
         items.push(tree_item(
             0,
-            tr!("CategoryTreeModel", "(Without Category)"),
+            tr!("librepcb::editor::CategoryTreeModel", "(Without Category)"),
             false,
             false,
         ));
@@ -418,7 +418,7 @@ impl AddComponentDialog {
                 c.expanded,
             );
             item.hint = if c.deprecated {
-                tr!("AddComponentDialog", "Deprecated").into()
+                tr!("librepcb::editor::AddComponentDialog", "Deprecated").into()
             } else {
                 SharedString::new()
             };
@@ -435,7 +435,7 @@ impl AddComponentDialog {
                 };
                 let mut item = tree_item(1, text, !d.parts.is_empty(), d.expanded);
                 if d.deprecated {
-                    item.hint = tr!("AddComponentDialog", "Deprecated").into();
+                    item.hint = tr!("librepcb::editor::AddComponentDialog", "Deprecated").into();
                 }
                 items.push(item);
                 if !d.expanded {
@@ -492,7 +492,7 @@ impl AddComponentDialog {
                 .and_then(|dir| open_dir(&dir))
                 .and_then(|dir| Component::open(dir).ok());
             if component.is_none() {
-                self.view.error = tr!("AddComponentDialog", "Failed to open the component.");
+                self.view.error = tr!("librepcb::editor::AddComponentDialog", "Failed to open the component.");
             }
             self.set_selected_component(component);
         }
@@ -503,7 +503,7 @@ impl AddComponentDialog {
     }
 
     fn set_selected_component(&mut self, component: Option<Component>) {
-        self.view.component_name = tr!("AddComponentDialog", "No component selected");
+        self.view.component_name = tr!("librepcb::editor::AddComponentDialog", "No component selected");
         self.view.component_description.clear();
         self.view.symbol_variants.clear();
         self.variants.clear();
@@ -591,7 +591,7 @@ impl AddComponentDialog {
 
     fn set_selected_device(&mut self, device: Option<Uuid>) {
         self.device = device;
-        self.view.device_name = tr!("AddComponentDialog", "No device selected");
+        self.view.device_name = tr!("librepcb::editor::AddComponentDialog", "No device selected");
         self.view.footprint_preview = None;
         let Some(device) = device else { return };
         let dev = self
@@ -660,7 +660,7 @@ impl AddComponentDialog {
 
 impl std::fmt::Debug for AddComponentDialog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AddComponentDialog")
+        f.debug_struct("librepcb::editor::AddComponentDialog")
             .field("components", &self.nodes.len())
             .finish_non_exhaustive()
     }

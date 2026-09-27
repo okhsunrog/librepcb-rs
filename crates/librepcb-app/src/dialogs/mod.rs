@@ -212,7 +212,7 @@ pub fn transaction<R>(
     let mut p = project.shared().lock();
     if p.editor.undo_stack().is_group_active() {
         return Err(tr!(
-            "UndoStack",
+            "librepcb::editor::UndoStack",
             "Another command is active at the moment. Please finish that command to continue."
         ));
     }

@@ -97,7 +97,7 @@ pub fn chosen_position(form: &Form) -> Point {
 
 /// Adds the vertices of a path (upstream `PathEditorWidget`).
 pub fn path_fields(form: &mut Form, path: &Path) {
-    form.header(tr!("PathEditorWidget", "Vertices"));
+    form.header(tr!("librepcb::editor::PathEditorWidget", "Vertices"));
     for (i, v) in path.vertices().iter().enumerate() {
         let n = i + 1;
         form.length(
@@ -109,7 +109,7 @@ pub fn path_fields(form: &mut Form, path: &Path) {
         form.length(&format!("vertex_{i}_y"), "Y:", v.pos.y, Length::MIN);
         form.angle(
             &format!("vertex_{i}_angle"),
-            tr!("PathEditorWidget", "Angle"),
+            tr!("librepcb::editor::PathEditorWidget", "Angle"),
             v.angle,
         );
     }

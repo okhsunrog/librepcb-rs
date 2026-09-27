@@ -197,20 +197,20 @@ impl DeviceDialog {
                 .unwrap_or_else(|| uuid.to_string())
         };
         let mut form = Form::new(unit);
-        form.header(tr!("DeviceInstancePropertiesDialog", "Component"));
+        form.header(tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Component"));
         form.text(
             "name",
-            tr!("DeviceInstancePropertiesDialog", "Name:"),
+            tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Name:"),
             cmp.name().as_str(),
         );
         form.multiline(
             "value",
-            tr!("DeviceInstancePropertiesDialog", "Value:"),
+            tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Value:"),
             cmp.value(),
             2,
         );
 
-        form.header(tr!("DeviceInstancePropertiesDialog", "Library Elements"));
+        form.header(tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Library Elements"));
         let mut devices: Vec<Uuid> = lib
             .devices_of_component(&cmp.lib_component())
             .iter()
@@ -223,7 +223,7 @@ impl DeviceDialog {
         let device_index = devices.iter().position(|d| *d == dev.lib_device());
         form.choice(
             "device",
-            tr!("DeviceInstancePropertiesDialog", "Device:"),
+            tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Device:"),
             &device_names,
             device_index,
         );
@@ -240,7 +240,7 @@ impl DeviceDialog {
             .unwrap_or_default();
         form.label(
             "package",
-            tr!("DeviceInstancePropertiesDialog", "Package:"),
+            tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Package:"),
             package
                 .map(|pkg| pkg.metadata().names().value(locales).to_string())
                 .unwrap_or_default(),
@@ -248,34 +248,34 @@ impl DeviceDialog {
         let footprint_index = footprints.iter().position(|f| *f == dev.lib_footprint());
         form.choice(
             "footprint",
-            tr!("DeviceInstancePropertiesDialog", "Footprint"),
+            tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Footprint"),
             &footprint_names,
             footprint_index,
         );
 
-        form.header(tr!("DeviceInstancePropertiesDialog", "Placement"));
+        form.header(tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Placement"));
         position_fields(
             &mut form,
-            &tr!("DeviceInstancePropertiesDialog", "Pos. X:"),
-            &tr!("DeviceInstancePropertiesDialog", "Pos. Y:"),
+            &tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Pos. X:"),
+            &tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Pos. Y:"),
             dev.position(),
         );
         form.angle(
             "rotation",
-            tr!("DeviceInstancePropertiesDialog", "Rotation:"),
+            tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Rotation:"),
             dev.rotation(),
         );
         form.checkbox(
             "mirror",
-            tr!("DeviceInstancePropertiesDialog", "Options:"),
-            tr!("BoardEditor", "Mirror"),
+            tr!("librepcb::editor::DeviceInstancePropertiesDialog", "Options:"),
+            tr!("librepcb::editor::BoardEditor", "Mirror"),
             dev.mirrored(),
         );
-        form.checkbox("lock", "", tr!("BoardEditor", "Lock"), dev.locked());
+        form.checkbox("lock", "", tr!("librepcb::editor::BoardEditor", "Lock"), dev.locked());
 
         let attributes = AttributeEditor::new(cmp.attributes());
         form.header(tr!(
-            "DeviceInstancePropertiesDialog",
+            "librepcb::editor::DeviceInstancePropertiesDialog",
             "Attributes of Component"
         ));
         form.attributes("attributes", "", attributes.borrow().model_rc());
@@ -303,7 +303,7 @@ impl DeviceDialog {
 impl FormDialog for DeviceDialog {
     fn title(&self) -> String {
         tr!(
-            "DeviceInstancePropertiesDialog",
+            "librepcb::editor::DeviceInstancePropertiesDialog",
             "Properties of {0}",
             self.name.as_str()
         )
@@ -335,7 +335,7 @@ impl FormDialog for DeviceDialog {
         };
         let lock_changed = locked != self.locked;
         let text = tr!(
-            "DeviceInstancePropertiesDialog",
+            "librepcb::editor::DeviceInstancePropertiesDialog",
             "Change properties of {0}",
             self.name.as_str()
         );
@@ -416,22 +416,22 @@ impl ViaDialog {
         let net = net_name(prj, seg.net());
         form.label(
             "net",
-            tr!("BoardViaPropertiesDialog", "Net Signal:"),
+            tr!("librepcb::editor::BoardViaPropertiesDialog", "Net Signal:"),
             if net.is_empty() {
-                format!("[{}]", tr!("BoardViaPropertiesDialog", "None"))
+                format!("[{}]", tr!("librepcb::editor::BoardViaPropertiesDialog", "None"))
             } else {
                 net
             },
         );
         position_fields(
             &mut form,
-            &tr!("BoardViaPropertiesDialog", "Position:"),
+            &tr!("librepcb::editor::BoardViaPropertiesDialog", "Position:"),
             "",
             via.position(),
         );
         form.length_with_steps(
             "drill",
-            tr!("BoardViaPropertiesDialog", "Drill Diameter:"),
+            tr!("librepcb::editor::BoardViaPropertiesDialog", "Drill Diameter:"),
             *via.drill_diameter().unwrap_or(auto_drill),
             Length::new(1),
             steps::DRILL_DIAMETER,
@@ -448,32 +448,32 @@ impl ViaDialog {
         });
         form.length_auto(
             "size",
-            tr!("BoardViaPropertiesDialog", "Outer Diameter:"),
+            tr!("librepcb::editor::BoardViaPropertiesDialog", "Outer Diameter:"),
             *size,
             Length::new(1),
             via.size().is_none(),
         );
-        form.set_hint("drill", tr!("BoardViaPropertiesDialog", "From Design Rules"));
-        form.set_hint("size", tr!("BoardViaPropertiesDialog", "From Design Rules"));
+        form.set_hint("drill", tr!("librepcb::editor::BoardViaPropertiesDialog", "From Design Rules"));
+        form.set_hint("size", tr!("librepcb::editor::BoardViaPropertiesDialog", "From Design Rules"));
         layer_field(
             &mut form,
             "start_layer",
-            &tr!("BoardViaPropertiesDialog", "Start Layer:"),
+            &tr!("librepcb::editor::BoardViaPropertiesDialog", "Start Layer:"),
             &layers,
             via.start_layer(),
         );
         layer_field(
             &mut form,
             "end_layer",
-            &tr!("BoardViaPropertiesDialog", "End Layer:"),
+            &tr!("librepcb::editor::BoardViaPropertiesDialog", "End Layer:"),
             &layers,
             via.end_layer(),
         );
         mask_config_fields(
             &mut form,
             "exposure",
-            &tr!("BoardViaPropertiesDialog", "Exposure:"),
-            "BoardViaPropertiesDialog",
+            &tr!("librepcb::editor::BoardViaPropertiesDialog", "Exposure:"),
+            "librepcb::editor::BoardViaPropertiesDialog",
             via.exposure_config(),
         );
         drop(p);
@@ -506,7 +506,7 @@ impl ViaDialog {
 
 impl FormDialog for ViaDialog {
     fn title(&self) -> String {
-        tr!("BoardViaPropertiesDialog", "Via Properties")
+        tr!("librepcb::editor::BoardViaPropertiesDialog", "Via Properties")
     }
 
     form_accessors!();
@@ -538,7 +538,7 @@ impl FormDialog for ViaDialog {
         let form = &self.form;
         if form.get_length("drill") > form.get_length("size") {
             return Err(tr!(
-                "BoardViaPropertiesDialog",
+                "librepcb::editor::BoardViaPropertiesDialog",
                 "The drill diameter is exceeding the outer via size. Reduce the drill diameter or increase the via size."
             ));
         }
@@ -557,7 +557,7 @@ impl FormDialog for ViaDialog {
         via.set_layers(start, end).map_err(|e| e.to_string())?;
         via.set_exposure_config(chosen_mask_config(form, "exposure"));
         let segment = self.segment;
-        let text = tr!("CmdBoardViaEdit", "Edit via");
+        let text = tr!("librepcb::editor::CmdBoardViaEdit", "Edit via");
         transaction(ctx.project, text.clone(), |e| {
             e.apply_mutations(
                 text,
@@ -603,18 +603,18 @@ impl PadDialog {
         let data = seg.pads().get(&uuid)?.clone();
         let pad = data.pad();
         let mut form = Form::new(unit);
-        form.page(tr!("BoardPadPropertiesDialog", "General"));
+        form.page(tr!("librepcb::editor::BoardPadPropertiesDialog", "General"));
         form.label(
             "net",
-            tr!("BoardPadPropertiesDialog", "Net:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Net:"),
             net_name(prj, seg.net()),
         );
         form.choice(
             "side",
-            tr!("BoardPadPropertiesDialog", "Component Side:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Component Side:"),
             &[
-                tr!("BoardPadPropertiesDialog", "Top"),
-                tr!("BoardPadPropertiesDialog", "Bottom"),
+                tr!("librepcb::editor::BoardPadPropertiesDialog", "Top"),
+                tr!("librepcb::editor::BoardPadPropertiesDialog", "Bottom"),
             ],
             Some(usize::from(pad.component_side() == ComponentSide::Bottom)),
         );
@@ -624,85 +624,85 @@ impl PadDialog {
             .collect();
         form.choice(
             "function",
-            tr!("BoardPadPropertiesDialog", "Function:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Function:"),
             &functions,
             PadFunction::ALL.iter().position(|f| *f == pad.function()),
         );
         form.choice(
             "shape",
-            tr!("BoardPadPropertiesDialog", "Shape:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Shape:"),
             &[
-                tr!("BoardPadPropertiesDialog", "Rounded rectangle"),
-                tr!("BoardPadPropertiesDialog", "Octagon"),
-                tr!("BoardPadPropertiesDialog", "Custom"),
+                tr!("librepcb::editor::BoardPadPropertiesDialog", "Rounded rectangle"),
+                tr!("librepcb::editor::BoardPadPropertiesDialog", "Octagon"),
+                tr!("librepcb::editor::BoardPadPropertiesDialog", "Custom"),
             ],
             PAD_SHAPES.iter().position(|s| *s == pad.shape()),
         );
         form.length(
             "width",
-            tr!("BoardPadPropertiesDialog", "Size:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Size:"),
             *pad.width(),
             Length::new(1),
         );
         form.length("height", "", *pad.height(), Length::new(1));
         form.ratio(
             "radius",
-            tr!("BoardPadPropertiesDialog", "Corner Radius:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Corner Radius:"),
             *pad.radius(),
             0,
             1_000_000,
         );
         position_fields(
             &mut form,
-            &tr!("BoardPadPropertiesDialog", "Position:"),
+            &tr!("librepcb::editor::BoardPadPropertiesDialog", "Position:"),
             "",
             pad.position(),
         );
         form.angle(
             "rotation",
-            tr!("BoardPadPropertiesDialog", "Rotation:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Rotation:"),
             pad.rotation(),
         );
         form.label(
             "holes",
-            tr!("BoardPadPropertiesDialog", "Plated Holes"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Plated Holes"),
             if pad.holes().is_empty() {
-                tr!("BoardPadPropertiesDialog", "Pad has no holes")
+                tr!("librepcb::editor::BoardPadPropertiesDialog", "Pad has no holes")
             } else {
                 pad.holes().len().to_string()
             },
         );
         form.checkbox(
             "lock",
-            tr!("BoardPadPropertiesDialog", "Options:"),
-            tr!("BoardPadPropertiesDialog", "Lock"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Options:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Lock"),
             data.locked(),
         );
-        form.page(tr!("BoardPadPropertiesDialog", "Clearances"));
+        form.page(tr!("librepcb::editor::BoardPadPropertiesDialog", "Clearances"));
         mask_config_fields(
             &mut form,
             "stop_mask",
-            &tr!("BoardPadPropertiesDialog", "Stop Mask:"),
-            "BoardPadPropertiesDialog",
+            &tr!("librepcb::editor::BoardPadPropertiesDialog", "Stop Mask:"),
+            "librepcb::editor::BoardPadPropertiesDialog",
             pad.stop_mask_config(),
         );
         mask_config_fields(
             &mut form,
             "solder_paste",
-            &tr!("BoardPadPropertiesDialog", "Solder Paste:"),
-            "BoardPadPropertiesDialog",
+            &tr!("librepcb::editor::BoardPadPropertiesDialog", "Solder Paste:"),
+            "librepcb::editor::BoardPadPropertiesDialog",
             pad.solder_paste_config(),
         );
         form.length(
             "copper_clearance",
-            tr!("BoardPadPropertiesDialog", "Copper Keepout:"),
+            tr!("librepcb::editor::BoardPadPropertiesDialog", "Copper Keepout:"),
             *pad.copper_clearance(),
             Length::new(0),
         );
         form.set_hint(
             "copper_clearance",
             tr!(
-                "BoardPadPropertiesDialog",
+                "librepcb::editor::BoardPadPropertiesDialog",
                 "Note: Intended to keep copper away from fiducials."
             ),
         );
@@ -717,7 +717,7 @@ impl PadDialog {
 
 impl FormDialog for PadDialog {
     fn title(&self) -> String {
-        tr!("BoardPadPropertiesDialog", "Pad Properties")
+        tr!("librepcb::editor::BoardPadPropertiesDialog", "Pad Properties")
     }
 
     form_accessors!();
@@ -756,7 +756,7 @@ impl FormDialog for PadDialog {
             pad.set_copper_clearance(unsigned(form, "copper_clearance")?);
         }
         let segment = self.segment;
-        let text = tr!("CmdBoardPadEdit", "Edit pad");
+        let text = tr!("librepcb::editor::CmdBoardPadEdit", "Edit pad");
         transaction(ctx.project, text.clone(), |e| {
             e.apply_mutations(
                 text,
@@ -810,99 +810,99 @@ impl PlaneDialog {
         nets.sort_by_key(|(n, _)| names.iter().position(|x| x == n));
         let mut net_ids: Vec<Option<NetSignalId>> = vec![None];
         net_ids.extend(nets.iter().map(|(_, id)| Some(*id)));
-        let mut net_names = vec![format!("[{}]", tr!("BoardPlanePropertiesDialog", "None"))];
+        let mut net_names = vec![format!("[{}]", tr!("librepcb::editor::BoardPlanePropertiesDialog", "None"))];
         net_names.extend(nets.iter().map(|(n, _)| n.clone()));
         let layers: Vec<Layer> = brd.copper_layers().into_iter().collect();
         let mut form = Form::new(unit);
         form.choice(
             "net",
-            tr!("BoardPlanePropertiesDialog", "Net Signal:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Net Signal:"),
             &net_names,
             net_ids.iter().position(|n| *n == plane.net()),
         );
         layer_field(
             &mut form,
             "layer",
-            &tr!("BoardPlanePropertiesDialog", "Layer:"),
+            &tr!("librepcb::editor::BoardPlanePropertiesDialog", "Layer:"),
             &layers,
             plane.layer(),
         );
         form.length(
             "min_width",
-            tr!("BoardPlanePropertiesDialog", "Min. Width:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Min. Width:"),
             *plane.min_width(),
             Length::new(0),
         );
         form.length(
             "min_clearance_copper",
-            tr!("BoardPlanePropertiesDialog", "Min. Copper Clearance:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Min. Copper Clearance:"),
             *plane.min_clearance_to_copper(),
             Length::new(0),
         );
         form.length(
             "min_clearance_board",
-            tr!("BoardPlanePropertiesDialog", "Min. Board Clearance:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Min. Board Clearance:"),
             *plane.min_clearance_to_board(),
             Length::new(0),
         );
         form.length(
             "min_clearance_npth",
-            tr!("BoardPlanePropertiesDialog", "Min. Hole Clearance:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Min. Hole Clearance:"),
             *plane.min_clearance_to_npth(),
             Length::new(0),
         );
         form.text(
             "priority",
-            tr!("BoardPlanePropertiesDialog", "Priority:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Priority:"),
             plane.priority().to_string(),
         );
         form.choice(
             "connect_style",
-            tr!("BoardPlanePropertiesDialog", "Connect Style:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Connect Style:"),
             &[
-                tr!("BoardPlanePropertiesDialog", "None"),
-                tr!("BoardPlanePropertiesDialog", "Thermal Relief"),
-                tr!("BoardPlanePropertiesDialog", "Solid"),
+                tr!("librepcb::editor::BoardPlanePropertiesDialog", "None"),
+                tr!("librepcb::editor::BoardPlanePropertiesDialog", "Thermal Relief"),
+                tr!("librepcb::editor::BoardPlanePropertiesDialog", "Solid"),
             ],
             CONNECT_STYLES.iter().position(|s| *s == plane.connect_style()),
         );
         form.length(
             "thermal_gap",
-            tr!("BoardPlanePropertiesDialog", "Themal Gap:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Themal Gap:"),
             *plane.thermal_gap(),
             Length::new(1),
         );
         form.set_hint(
             "thermal_gap",
-            tr!("BoardPlanePropertiesDialog", "Clearance around thermal pads"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Clearance around thermal pads"),
         );
         form.length(
             "thermal_spoke_width",
-            tr!("BoardPlanePropertiesDialog", "Thermal Spokes:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Thermal Spokes:"),
             *plane.thermal_spoke_width(),
             Length::new(1),
         );
         form.set_hint(
             "thermal_spoke_width",
-            tr!("BoardPlanePropertiesDialog", "Width of the thermal pad spokes"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Width of the thermal pad spokes"),
         );
         form.checkbox(
             "keep_islands",
-            tr!("BoardPlanePropertiesDialog", "Options:"),
-            tr!("BoardPlanePropertiesDialog", "Keep Islands"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Options:"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Keep Islands"),
             plane.keep_islands(),
         );
         form.set_hint(
             "keep_islands",
             tr!(
-                "BoardPlanePropertiesDialog",
+                "librepcb::editor::BoardPlanePropertiesDialog",
                 "Do not delete unconnected copper areas (islands)"
             ),
         );
         form.checkbox(
             "lock",
             "",
-            tr!("BoardPlanePropertiesDialog", "Lock"),
+            tr!("librepcb::editor::BoardPlanePropertiesDialog", "Lock"),
             plane.locked(),
         );
         path_fields(&mut form, plane.outline());
@@ -929,7 +929,7 @@ impl PlaneDialog {
 
 impl FormDialog for PlaneDialog {
     fn title(&self) -> String {
-        tr!("BoardPlanePropertiesDialog", "Plane Properties")
+        tr!("librepcb::editor::BoardPlanePropertiesDialog", "Plane Properties")
     }
 
     form_accessors!();
@@ -977,7 +977,7 @@ impl FormDialog for PlaneDialog {
         };
         let outline = chosen_path(form, &self.outline);
         let (board, plane) = (self.board, self.plane);
-        transaction(ctx.project, tr!("CmdBoardPlaneEdit", "Edit plane"), |e| {
+        transaction(ctx.project, tr!("librepcb::editor::CmdBoardPlaneEdit", "Edit plane"), |e| {
             e.execute(EditPlane {
                 board: Some(board),
                 plane,
@@ -1013,32 +1013,32 @@ impl PolygonDialog {
         layer_field(
             &mut form,
             "layer",
-            &tr!("PolygonPropertiesDialog", "Layer:"),
+            &tr!("librepcb::editor::PolygonPropertiesDialog", "Layer:"),
             &layers,
             polygon.layer(),
         );
         form.length(
             "line_width",
-            tr!("PolygonPropertiesDialog", "Line Width:"),
+            tr!("librepcb::editor::PolygonPropertiesDialog", "Line Width:"),
             *polygon.line_width(),
             Length::new(0),
         );
         form.checkbox(
             "fill",
-            tr!("PolygonPropertiesDialog", "Options:"),
-            tr!("PolygonPropertiesDialog", "Fill"),
+            tr!("librepcb::editor::PolygonPropertiesDialog", "Options:"),
+            tr!("librepcb::editor::PolygonPropertiesDialog", "Fill"),
             polygon.is_filled(),
         );
         form.checkbox(
             "grab_area",
             "",
-            tr!("PolygonPropertiesDialog", "Grab Area"),
+            tr!("librepcb::editor::PolygonPropertiesDialog", "Grab Area"),
             polygon.is_grab_area(),
         );
         form.checkbox(
             "lock",
             "",
-            tr!("PolygonPropertiesDialog", "Lock"),
+            tr!("librepcb::editor::PolygonPropertiesDialog", "Lock"),
             polygon.locked(),
         );
         path_fields(&mut form, polygon.path());
@@ -1052,7 +1052,7 @@ impl PolygonDialog {
 
 impl FormDialog for PolygonDialog {
     fn title(&self) -> String {
-        tr!("PolygonPropertiesDialog", "Polygon Properties")
+        tr!("librepcb::editor::PolygonPropertiesDialog", "Polygon Properties")
     }
 
     form_accessors!();
@@ -1072,7 +1072,7 @@ impl FormDialog for PolygonDialog {
         let item = BoardItem::Polygon(polygon.clone());
         transaction(
             ctx.project,
-            tr!("CmdBoardPolygonEdit", "Edit polygon"),
+            tr!("librepcb::editor::CmdBoardPolygonEdit", "Edit polygon"),
             |e| {
                 e.execute(UpdateBoardItem {
                     board: Some(board),
@@ -1101,7 +1101,7 @@ fn spacing_fields(form: &mut Form, id: &str, label: &str, spacing: StrokeTextSpa
         StrokeTextSpacing::Auto => (true, Ratio::from_percent(100)),
         StrokeTextSpacing::Manual(r) => (false, r),
     };
-    form.checkbox(&format!("{id}_auto"), label, tr!("StrokeTextPropertiesDialog", "Auto"), auto);
+    form.checkbox(&format!("{id}_auto"), label, tr!("librepcb::editor::StrokeTextPropertiesDialog", "Auto"), auto);
     form.ratio(id, "", ratio, 0, i32::MAX);
     form.set_enabled(id, !auto);
 }
@@ -1134,74 +1134,74 @@ impl StrokeTextDialog {
         let mut form = Form::new(unit);
         form.multiline(
             "text",
-            tr!("StrokeTextPropertiesDialog", "Text:"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Text:"),
             text.text(),
             2,
         );
         layer_field(
             &mut form,
             "layer",
-            &tr!("StrokeTextPropertiesDialog", "Layer:"),
+            &tr!("librepcb::editor::StrokeTextPropertiesDialog", "Layer:"),
             &layers,
             text.layer(),
         );
         alignment_fields(
             &mut form,
-            &tr!("StrokeTextPropertiesDialog", "Alignment:"),
+            &tr!("librepcb::editor::StrokeTextPropertiesDialog", "Alignment:"),
             text.align(),
         );
         form.length_with_steps(
             "height",
-            tr!("StrokeTextPropertiesDialog", "Height:"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Height:"),
             *text.height(),
             Length::new(1),
             steps::TEXT_HEIGHT,
         );
         form.length(
             "stroke_width",
-            tr!("StrokeTextPropertiesDialog", "Stroke Width:"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Stroke Width:"),
             *text.stroke_width(),
             Length::new(0),
         );
         spacing_fields(
             &mut form,
             "letter_spacing",
-            &tr!("StrokeTextPropertiesDialog", "Letter Spacing:"),
+            &tr!("librepcb::editor::StrokeTextPropertiesDialog", "Letter Spacing:"),
             text.letter_spacing(),
         );
         spacing_fields(
             &mut form,
             "line_spacing",
-            &tr!("StrokeTextPropertiesDialog", "Line Spacing:"),
+            &tr!("librepcb::editor::StrokeTextPropertiesDialog", "Line Spacing:"),
             text.line_spacing(),
         );
         position_fields(
             &mut form,
-            &tr!("StrokeTextPropertiesDialog", "Position:"),
+            &tr!("librepcb::editor::StrokeTextPropertiesDialog", "Position:"),
             "",
             text.position(),
         );
         form.angle(
             "rotation",
-            tr!("StrokeTextPropertiesDialog", "Rotation:"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Rotation:"),
             text.rotation(),
         );
         form.checkbox(
             "auto_rotate",
             "",
-            tr!("StrokeTextPropertiesDialog", "Auto-Rotate"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Auto-Rotate"),
             text.auto_rotate(),
         );
         form.checkbox(
             "mirror",
-            tr!("StrokeTextPropertiesDialog", "Options:"),
-            tr!("StrokeTextPropertiesDialog", "Mirror"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Options:"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Mirror"),
             text.mirrored(),
         );
         form.checkbox(
             "lock",
             "",
-            tr!("StrokeTextPropertiesDialog", "Lock"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Lock"),
             text.locked(),
         );
         Some(Self {
@@ -1215,7 +1215,7 @@ impl StrokeTextDialog {
 
 impl FormDialog for StrokeTextDialog {
     fn title(&self) -> String {
-        tr!("StrokeTextPropertiesDialog", "Stroke Text Properties")
+        tr!("librepcb::editor::StrokeTextPropertiesDialog", "Stroke Text Properties")
     }
 
     form_accessors!();
@@ -1245,7 +1245,7 @@ impl FormDialog for StrokeTextDialog {
         text.set_mirrored(form.get_checked("mirror"));
         text.set_locked(form.get_checked("lock"));
         let board = self.board;
-        let label = tr!("CmdBoardStrokeTextEdit", "Edit stroke text");
+        let label = tr!("librepcb::editor::CmdBoardStrokeTextEdit", "Edit stroke text");
         match self.device {
             None => {
                 let item = BoardItem::StrokeText(text.clone());
@@ -1302,27 +1302,27 @@ impl HoleDialog {
             .get(&uuid)?
             .clone();
         let mut form = Form::new(unit);
-        form.page(tr!("HolePropertiesDialog", "General"));
+        form.page(tr!("librepcb::editor::HolePropertiesDialog", "General"));
         form.length_with_steps(
             "diameter",
-            tr!("HolePropertiesDialog", "Diameter:"),
+            tr!("librepcb::editor::HolePropertiesDialog", "Diameter:"),
             *hole.diameter(),
             Length::new(1),
             steps::DRILL_DIAMETER,
         );
         form.checkbox(
             "lock",
-            tr!("HolePropertiesDialog", "Options:"),
-            tr!("HolePropertiesDialog", "Lock"),
+            tr!("librepcb::editor::HolePropertiesDialog", "Options:"),
+            tr!("librepcb::editor::HolePropertiesDialog", "Lock"),
             hole.locked(),
         );
         path_fields(&mut form, hole.path());
-        form.page(tr!("HolePropertiesDialog", "Advanced"));
+        form.page(tr!("librepcb::editor::HolePropertiesDialog", "Advanced"));
         mask_config_fields(
             &mut form,
             "stop_mask",
-            &tr!("HolePropertiesDialog", "Stop Mask:"),
-            "HolePropertiesDialog",
+            &tr!("librepcb::editor::HolePropertiesDialog", "Stop Mask:"),
+            "librepcb::editor::HolePropertiesDialog",
             hole.stop_mask_config(),
         );
         Some(Self { form, board, hole })
@@ -1331,7 +1331,7 @@ impl HoleDialog {
 
 impl FormDialog for HoleDialog {
     fn title(&self) -> String {
-        tr!("HolePropertiesDialog", "Hole Properties")
+        tr!("librepcb::editor::HolePropertiesDialog", "Hole Properties")
     }
 
     form_accessors!();
@@ -1352,7 +1352,7 @@ impl FormDialog for HoleDialog {
         hole.set_stop_mask_config(chosen_mask_config(form, "stop_mask"));
         let board = self.board;
         let item = BoardItem::Hole(hole.clone());
-        transaction(ctx.project, tr!("CmdBoardHoleEdit", "Edit hole"), |e| {
+        transaction(ctx.project, tr!("librepcb::editor::CmdBoardHoleEdit", "Edit hole"), |e| {
             e.execute(UpdateBoardItem {
                 board: Some(board),
                 item,
@@ -1392,39 +1392,39 @@ impl ZoneDialog {
         let layers: Vec<Layer> = layers.into_iter().collect();
         drop(p);
         let mut form = Form::new(unit);
-        form.header(tr!("ZonePropertiesDialog", "Layers"));
+        form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Layers"));
         let items: Vec<ListItem> = layers
             .iter()
             .map(|l| ListItem::check(l.name_tr(), zone.layers().contains(l)))
             .collect();
         form.list("layers", "", &[], &items, 4, ListButtons::default());
-        form.header(tr!("ZonePropertiesDialog", "Rules"));
+        form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Rules"));
         let texts = [
             (
-                tr!("ZonePropertiesDialog", "No copper (except planes)"),
+                tr!("librepcb::editor::ZonePropertiesDialog", "No copper (except planes)"),
                 tr!(
-                    "ZonePropertiesDialog",
+                    "librepcb::editor::ZonePropertiesDialog",
                     "Raise a DRC error if there are any copper objects (e.g. traces or vias) in this zone. Only planes are allowed to flood this zone without raising an error."
                 ),
             ),
             (
-                tr!("ZonePropertiesDialog", "No planes"),
+                tr!("librepcb::editor::ZonePropertiesDialog", "No planes"),
                 tr!(
-                    "ZonePropertiesDialog",
+                    "librepcb::editor::ZonePropertiesDialog",
                     "Prevent copper planes from flooding this zone."
                 ),
             ),
             (
-                tr!("ZonePropertiesDialog", "No exposure"),
+                tr!("librepcb::editor::ZonePropertiesDialog", "No exposure"),
                 tr!(
-                    "ZonePropertiesDialog",
+                    "librepcb::editor::ZonePropertiesDialog",
                     "Raise a DRC error if there is any solder resist opening (possibly exposing copper) in this zone."
                 ),
             ),
             (
-                tr!("ZonePropertiesDialog", "No devices"),
+                tr!("librepcb::editor::ZonePropertiesDialog", "No devices"),
                 tr!(
-                    "ZonePropertiesDialog",
+                    "librepcb::editor::ZonePropertiesDialog",
                     "Raise a DRC error if there are any devices placed in this zone."
                 ),
             ),
@@ -1434,11 +1434,11 @@ impl ZoneDialog {
             form.checkbox(&id, "", text, zone.rules().contains(*rule));
             form.set_hint(&id, hint);
         }
-        form.header(tr!("ZonePropertiesDialog", "Options"));
+        form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Options"));
         form.checkbox(
             "lock",
             "",
-            tr!("ZonePropertiesDialog", "Lock"),
+            tr!("librepcb::editor::ZonePropertiesDialog", "Lock"),
             zone.locked(),
         );
         path_fields(&mut form, zone.outline());
@@ -1453,7 +1453,7 @@ impl ZoneDialog {
 
 impl FormDialog for ZoneDialog {
     fn title(&self) -> String {
-        tr!("ZonePropertiesDialog", "Zone Properties")
+        tr!("librepcb::editor::ZonePropertiesDialog", "Zone Properties")
     }
 
     form_accessors!();
@@ -1494,7 +1494,7 @@ impl FormDialog for ZoneDialog {
         zone.set_outline(chosen_path(form, self.zone.outline()));
         let board = self.board;
         let item = BoardItem::Zone(zone.clone());
-        transaction(ctx.project, tr!("CmdBoardZoneEdit", "Edit zone"), |e| {
+        transaction(ctx.project, tr!("librepcb::editor::CmdBoardZoneEdit", "Edit zone"), |e| {
             e.execute(UpdateBoardItem {
                 board: Some(board),
                 item,
@@ -1520,7 +1520,7 @@ impl LineWidthDialog {
         let mut form = Form::new(unit);
         form.length(
             "width",
-            tr!("BoardEditorState_Select", "Width:"),
+            tr!("librepcb::editor::BoardEditorState_Select", "Width:"),
             *current,
             Length::new(0),
         );
@@ -1530,7 +1530,7 @@ impl LineWidthDialog {
 
 impl FormDialog for LineWidthDialog {
     fn title(&self) -> String {
-        tr!("BoardEditorState_Select", "Set Width")
+        tr!("librepcb::editor::BoardEditorState_Select", "Set Width")
     }
 
     form_accessors!();

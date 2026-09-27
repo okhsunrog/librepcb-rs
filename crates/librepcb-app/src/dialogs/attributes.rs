@@ -204,14 +204,14 @@ impl AttributeEditor {
             }
             let key = AttributeKey::new(AttributeKey::clean(&r.key)).map_err(|_| {
                 tr!(
-                    "AttributeListModel",
+                    "librepcb::editor::AttributeListModel",
                     "Invalid attribute key: \"{0}\"",
                     r.key.as_str()
                 )
             })?;
             if list.contains_name(key.as_str()) {
                 return Err(tr!(
-                    "AttributeListModel",
+                    "librepcb::editor::AttributeListModel",
                     "There is already an attribute with the name \"{0}\".",
                     key.as_str()
                 ));

@@ -37,10 +37,10 @@ use crate::length_edit::steps;
 use crate::project::AppProject;
 
 /// Context of the board setup dialog's strings.
-const BSD: &str = "BoardSetupDialog";
+const BSD: &str = "librepcb::editor::BoardSetupDialog";
 
 /// Context of the project setup dialog's strings.
-const PSD: &str = "ProjectSetupDialog";
+const PSD: &str = "librepcb::editor::ProjectSetupDialog";
 
 fn positive(form: &Form, id: &str) -> Result<PositiveLength, String> {
     PositiveLength::new(form.get_length(id)).map_err(|e| e.to_string())
@@ -599,7 +599,7 @@ impl FormDialog for BoardSetupDialog {
         settings.design_rules = self.design_rules(settings.design_rules.clone())?;
         settings.drc_settings = self.drc_settings()?;
         let board = self.board;
-        transaction(ctx.project, tr!("CmdBoardEdit", "Modify Board Setup"), |e| {
+        transaction(ctx.project, tr!("librepcb::editor::CmdBoardEdit", "Modify Board Setup"), |e| {
             let renamed = e
                 .project()
                 .board(board)
@@ -780,7 +780,7 @@ impl ProjectSetupDialog {
             },
         );
         form.text("variant_name", tr!(PSD, "Name:"), "");
-        form.text("variant_description", tr!("AssemblyVariantListEditorWidget", "Description"), "");
+        form.text("variant_description", tr!("librepcb::editor::AssemblyVariantListEditorWidget", "Description"), "");
         form.set_enabled("variant_name", false);
         form.set_enabled("variant_description", false);
 
