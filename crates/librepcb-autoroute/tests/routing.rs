@@ -707,7 +707,7 @@ fn benchmark_thirty_connections() {
         let (x, y) = pads[i];
         ids[i] = smd(&mut p, net(k as u32 / 2 + 1), x, y, 1.5, 0.6);
     }
-    for pair in order.chunks_exact(2) {
+    for pair in order.as_chunks::<2>().0 {
         p.connect(ids[pair[0]], ids[pair[1]]);
     }
     assert_eq!(p.connections.len(), 30);

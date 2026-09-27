@@ -112,7 +112,9 @@ fn design_rc_circuit_with_populated_library() {
         true,
     )
     .unwrap();
-    crate::common::install_populated_library(Path::new(ws.result["libraries_path"].as_str().unwrap()));
+    crate::common::install_populated_library(Path::new(
+        ws.result["libraries_path"].as_str().unwrap(),
+    ));
     library::library_rescan(&session).unwrap();
     project::project_create(
         &mut session,

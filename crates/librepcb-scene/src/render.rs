@@ -151,7 +151,7 @@ pub fn render_scene(
     });
     let premultiplied = renderer.render(scene, &view)?;
     let mut data = premultiplied.to_vec();
-    for px in data.chunks_exact_mut(4) {
+    for px in data.as_chunks_mut::<4>().0 {
         let a = u32::from(px[3]);
         if a != 0 && a != 255 {
             for c in &mut px[..3] {

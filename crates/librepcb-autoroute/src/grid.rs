@@ -130,7 +130,7 @@ impl Grid {
                 }
                 Core::Polygon(v) => {
                     let xs = polygon_row_crossings([v.as_slice()], y);
-                    for pair in xs.chunks_exact(2) {
+                    for pair in xs.as_chunks::<2>().0 {
                         self.mark_row(layer_map, j, pair[0], pair[1], owner);
                     }
                     for (a, b) in polygon_edges(v) {
@@ -149,7 +149,7 @@ impl Grid {
             let y = (self.y0 + j as i64 * self.pitch) as f64;
             let xs = polygon_row_crossings(outline.iter().map(Vec::as_slice), y);
             let mut inside = vec![false; self.nx];
-            for pair in xs.chunks_exact(2) {
+            for pair in xs.as_chunks::<2>().0 {
                 // Shrunk by 1 nm: nodes on the edge count as outside (the
                 // board clearance blocks them anyway).
                 if let Some((i0, i1)) =

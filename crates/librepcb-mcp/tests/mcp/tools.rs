@@ -221,7 +221,8 @@ fn workspace_library_tools() {
 
     // The created project opens in upstream LibrePCB.
     if let Some(cli) = crate::common::upstream_cli() {
-        let (ok, output) = crate::common::run_cli(&cli, &["open-project", "--erc", lpp.to_str().unwrap()]);
+        let (ok, output) =
+            crate::common::run_cli(&cli, &["open-project", "--erc", lpp.to_str().unwrap()]);
         assert!(ok, "{output}");
     }
 }

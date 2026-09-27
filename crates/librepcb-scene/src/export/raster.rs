@@ -86,7 +86,7 @@ pub(crate) fn save(image: &Pixels, format: ImageFormat, path: &FilePath) -> imag
         ImageFormat::Png => {
             // Straight alpha.
             let mut data = image.data.clone();
-            for px in data.chunks_exact_mut(4) {
+            for px in data.as_chunks_mut::<4>().0 {
                 let a = u32::from(px[3]);
                 if a != 0 && a != 255 {
                     for c in &mut px[..3] {
@@ -100,7 +100,9 @@ pub(crate) fn save(image: &Pixels, format: ImageFormat, path: &FilePath) -> imag
             // Drop the alpha channel of the premultiplied pixels.
             let data = image
                 .data
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .flat_map(|px| [px[0], px[1], px[2]])
                 .collect();
             (data, ExtendedColorType::Rgb8)
