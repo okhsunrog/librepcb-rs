@@ -17,8 +17,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use librepcb_core::fileio::FileSystem;
 use librepcb_core::geometry::{
-    Circle, CircleList, Hole, HoleList, Path, Polygon, PolygonList, StrokeText, StrokeTextList, Zone,
-    ZoneList,
+    Circle, CircleList, Hole, HoleList, Path, Polygon, PolygonList, StrokeText, StrokeTextList,
+    Zone, ZoneList,
 };
 use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::library::pkg::{
@@ -88,7 +88,12 @@ impl FootprintItem {
 /// All items of a footprint.
 pub fn all_footprint_items(footprint: &Footprint) -> BTreeSet<FootprintItem> {
     let mut items = BTreeSet::new();
-    items.extend(footprint.pads().iter().map(|o| FootprintItem::Pad(o.uuid())));
+    items.extend(
+        footprint
+            .pads()
+            .iter()
+            .map(|o| FootprintItem::Pad(o.uuid())),
+    );
     items.extend(
         footprint
             .polygons()
@@ -107,8 +112,18 @@ pub fn all_footprint_items(footprint: &Footprint) -> BTreeSet<FootprintItem> {
             .iter()
             .map(|o| FootprintItem::StrokeText(o.uuid())),
     );
-    items.extend(footprint.zones().iter().map(|o| FootprintItem::Zone(o.uuid())));
-    items.extend(footprint.holes().iter().map(|o| FootprintItem::Hole(o.uuid())));
+    items.extend(
+        footprint
+            .zones()
+            .iter()
+            .map(|o| FootprintItem::Zone(o.uuid())),
+    );
+    items.extend(
+        footprint
+            .holes()
+            .iter()
+            .map(|o| FootprintItem::Hole(o.uuid())),
+    );
     items
 }
 
@@ -753,7 +768,11 @@ impl ElementCommand<Package> for AddFootprintObject {
     type Output = FootprintItem;
 
     fn text(&self) -> String {
-        tr!("CmdListElementInsert", "Add {0}", tag_name(self.object.item()))
+        tr!(
+            "CmdListElementInsert",
+            "Add {0}",
+            tag_name(self.object.item())
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<FootprintItem> {
@@ -869,7 +888,10 @@ impl ElementCommand<Package> for RemoveFootprintItems {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdRemoveSelectedFootprintItems", "Remove Footprint Elements")
+        tr!(
+            "CmdRemoveSelectedFootprintItems",
+            "Remove Footprint Elements"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -1156,8 +1178,10 @@ impl ElementCommand<Package> for GenerateCourtyard {
         let mut polygons: Vec<(Layer, Path)> = Vec::new();
         for polygon in fpt.polygons().iter() {
             if polygon.layer().is_package_outline() {
-                let mut paths =
-                    vec![clipper_helpers::path_to_clipper(polygon.path(), max_arc_tolerance)];
+                let mut paths = vec![clipper_helpers::path_to_clipper(
+                    polygon.path(),
+                    max_arc_tolerance,
+                )];
                 clipper_helpers::offset(
                     &mut paths,
                     *self.offset,
@@ -1449,7 +1473,10 @@ impl ElementCommand<Package> for PasteFootprintItems {
             pasted.insert(FootprintItem::Circle(uuid));
         }
         for polygon in data.polygons.sorted_by_uuid().iter() {
-            let uuid = new_uuid(fpt.polygons().contains_uuid(&polygon.uuid()), polygon.uuid());
+            let uuid = new_uuid(
+                fpt.polygons().contains_uuid(&polygon.uuid()),
+                polygon.uuid(),
+            );
             let mut copy = polygon.with_uuid(uuid);
             copy.translate(offset);
             fpt.polygons_mut().push(copy);

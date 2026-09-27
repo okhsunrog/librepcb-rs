@@ -81,7 +81,12 @@ pub fn all_symbol_items(symbol: &Symbol) -> BTreeSet<SymbolItem> {
             .iter()
             .map(|o| SymbolItem::Polygon(o.uuid())),
     );
-    items.extend(symbol.circles().iter().map(|o| SymbolItem::Circle(o.uuid())));
+    items.extend(
+        symbol
+            .circles()
+            .iter()
+            .map(|o| SymbolItem::Circle(o.uuid())),
+    );
     items.extend(symbol.texts().iter().map(|o| SymbolItem::Text(o.uuid())));
     items.extend(symbol.images().iter().map(|o| SymbolItem::Image(o.uuid())));
     items
@@ -768,7 +773,10 @@ impl ElementCommand<Symbol> for PasteSymbolItems {
             pasted.insert(SymbolItem::Pin(uuid));
         }
         for circle in data.circles.sorted_by_uuid().iter() {
-            let uuid = new_uuid(symbol.circles().contains_uuid(&circle.uuid()), circle.uuid());
+            let uuid = new_uuid(
+                symbol.circles().contains_uuid(&circle.uuid()),
+                circle.uuid(),
+            );
             let mut copy = circle.with_uuid(uuid);
             copy.set_center(circle.center() + offset);
             symbol.circles_mut().push(copy);
@@ -855,7 +863,11 @@ const FILE_PROOF_NAME_MAX_LEN: usize = 20;
 /// Creates the clipboard data of the pins to add for `names` (upstream
 /// `SymbolEditorState_AddPins::processImportPins()`): one pin per name,
 /// placed below each other with the given pin properties.
-pub fn import_pins_data(symbol: Uuid, names: &[CircuitIdentifier], template: &SymbolPin) -> SymbolClipboardData {
+pub fn import_pins_data(
+    symbol: Uuid,
+    names: &[CircuitIdentifier],
+    template: &SymbolPin,
+) -> SymbolClipboardData {
     let mut data = SymbolClipboardData::new(symbol, Point::ORIGIN);
     let mut pos = Point::ORIGIN;
     for name in names {

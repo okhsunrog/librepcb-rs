@@ -446,7 +446,12 @@ impl InteractivePinout {
         self.current_pad = None;
     }
 
-    fn load_next_pad(&mut self, dev: &Device, signals: &ComponentSignalList, just_connected: Option<Uuid>) {
+    fn load_next_pad(
+        &mut self,
+        dev: &Device,
+        signals: &ComponentSignalList,
+        just_connected: Option<Uuid>,
+    ) {
         let mut next = self.current_pad.map_or(0, |i| i + 1);
         while next < self.pads.len() {
             let pad = self.pads[next].0;

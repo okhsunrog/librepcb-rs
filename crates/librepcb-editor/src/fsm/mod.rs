@@ -27,6 +27,7 @@
 //! it reports requests instead (see the per-editor request types).
 
 pub mod board;
+pub mod library;
 pub mod measure;
 pub mod schematic;
 

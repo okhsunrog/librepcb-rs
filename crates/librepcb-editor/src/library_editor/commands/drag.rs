@@ -56,7 +56,11 @@ impl<I: Ord + Copy> DragSelectedItems<I> {
     /// Starts transforming `items` of `container` (upstream constructor:
     /// computes the center; for more than one point it is the average
     /// snapped to the grid).
-    pub fn new<C: ItemContainer<I>>(container: &C, items: BTreeSet<I>, grid: PositiveLength) -> Self {
+    pub fn new<C: ItemContainer<I> + ?Sized>(
+        container: &C,
+        items: BTreeSet<I>,
+        grid: PositiveLength,
+    ) -> Self {
         let points = container.center_points(&items);
         let has_off_grid_elements = points.iter().any(|p| !p.is_on_grid(grid));
         let count = points.len();
@@ -111,12 +115,16 @@ impl<I: Ord + Copy> DragSelectedItems<I> {
     }
 
     /// Moves the items so that their total offset is `delta`.
-    pub fn set_delta_to_start_pos<C: ItemContainer<I>>(&mut self, container: &mut C, delta: Point) {
+    pub fn set_delta_to_start_pos<C: ItemContainer<I> + ?Sized>(
+        &mut self,
+        container: &mut C,
+        delta: Point,
+    ) {
         self.translate(container, delta - self.delta);
     }
 
     /// Moves the items by `delta`.
-    pub fn translate<C: ItemContainer<I>>(&mut self, container: &mut C, delta: Point) {
+    pub fn translate<C: ItemContainer<I> + ?Sized>(&mut self, container: &mut C, delta: Point) {
         if delta != Point::ORIGIN {
             container.for_each_selected(&self.items, &mut |o| o.translate(delta));
             self.delta += delta;
@@ -125,14 +133,14 @@ impl<I: Ord + Copy> DragSelectedItems<I> {
     }
 
     /// Rotates the items around the center.
-    pub fn rotate<C: ItemContainer<I>>(&mut self, container: &mut C, angle: Angle) {
+    pub fn rotate<C: ItemContainer<I> + ?Sized>(&mut self, container: &mut C, angle: Angle) {
         let center = self.center;
         container.for_each_selected(&self.items, &mut |o| o.rotate(angle, center));
         self.rotation += angle;
     }
 
     /// Mirrors the geometry of the items at the center.
-    pub fn mirror_geometry<C: ItemContainer<I>>(
+    pub fn mirror_geometry<C: ItemContainer<I> + ?Sized>(
         &mut self,
         container: &mut C,
         orientation: Orientation,
@@ -143,24 +151,28 @@ impl<I: Ord + Copy> DragSelectedItems<I> {
     }
 
     /// Moves the items to the other board side.
-    pub fn mirror_layer<C: ItemContainer<I>>(&mut self, container: &mut C) {
+    pub fn mirror_layer<C: ItemContainer<I> + ?Sized>(&mut self, container: &mut C) {
         container.for_each_selected(&self.items, &mut |o| o.mirror_layer());
         self.mirrored_layer = !self.mirrored_layer;
     }
 
     /// Snaps the items to the grid.
-    pub fn snap_to_grid<C: ItemContainer<I>>(&mut self, container: &mut C, grid: PositiveLength) {
+    pub fn snap_to_grid<C: ItemContainer<I> + ?Sized>(
+        &mut self,
+        container: &mut C,
+        grid: PositiveLength,
+    ) {
         container.for_each_selected(&self.items, &mut |o| o.snap_to_grid(grid));
         self.snapped = true;
     }
 
     /// The positions of the items for "move/align".
-    pub fn positions<C: ItemContainer<I>>(&self, container: &C) -> Vec<Point> {
+    pub fn positions<C: ItemContainer<I> + ?Sized>(&self, container: &C) -> Vec<Point> {
         container.positions(&self.items)
     }
 
     /// Moves the items to new positions (upstream `setNewPositions()`).
-    pub fn set_new_positions<C: ItemContainer<I>>(
+    pub fn set_new_positions<C: ItemContainer<I> + ?Sized>(
         &mut self,
         container: &mut C,
         positions: &[Point],
@@ -196,7 +208,7 @@ pub enum TransformOp {
 
 /// Applies `ops` to `items` of `container`; returns whether anything was
 /// transformed.
-pub(crate) fn apply_ops<I: Ord + Copy, C: ItemContainer<I>>(
+pub(crate) fn apply_ops<I: Ord + Copy, C: ItemContainer<I> + ?Sized>(
     container: &mut C,
     items: BTreeSet<I>,
     grid: PositiveLength,

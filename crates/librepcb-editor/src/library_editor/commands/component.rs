@@ -13,12 +13,12 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use librepcb_core::attribute::AttributeList;
+use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::library::cmp::{
     CmpSigPinDisplayType, Component, ComponentPinSignalMap, ComponentPinSignalMapItem,
     ComponentSignal, ComponentSymbolVariant, ComponentSymbolVariantItem,
     ComponentSymbolVariantItemSuffix, NormDependentPrefixMap,
 };
-use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::library::sym::Symbol;
 use librepcb_core::serialization::{LocalizedDescriptionMap, LocalizedNameMap};
 use librepcb_core::types::{Angle, CircuitIdentifier, ElementName, Point, SignalRole, Uuid};
@@ -431,11 +431,12 @@ fn new_gate(symbol: &Symbol, signals: Option<&BTreeMap<Uuid, Uuid>>) -> Componen
         ComponentSymbolVariantItemSuffix::default(),
     );
     for pin in symbol.pins().iter() {
-        gate.pin_signal_map_mut().push(ComponentPinSignalMapItem::new(
-            pin.uuid(),
-            signals.and_then(|s| s.get(&pin.uuid()).copied()),
-            CmpSigPinDisplayType::ComponentSignal,
-        ));
+        gate.pin_signal_map_mut()
+            .push(ComponentPinSignalMapItem::new(
+                pin.uuid(),
+                signals.and_then(|s| s.get(&pin.uuid()).copied()),
+                CmpSigPinDisplayType::ComponentSignal,
+            ));
     }
     gate
 }
@@ -459,12 +460,15 @@ fn update_suffixes(variant: &mut ComponentSymbolVariant) {
         let suffix = if count == 1 {
             String::new()
         } else {
-            SUFFIXES.chars().nth(i).map(String::from).unwrap_or_default()
+            SUFFIXES
+                .chars()
+                .nth(i)
+                .map(String::from)
+                .unwrap_or_default()
         };
-        let suffix = ComponentSymbolVariantItemSuffix::new(ComponentSymbolVariantItemSuffix::clean(
-            &suffix,
-        ))
-        .unwrap_or_default();
+        let suffix =
+            ComponentSymbolVariantItemSuffix::new(ComponentSymbolVariantItemSuffix::clean(&suffix))
+                .unwrap_or_default();
         gate.set_suffix(suffix);
     }
 }
@@ -706,10 +710,7 @@ impl ElementCommand<Component> for SetPinSignal {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!(
-            "CmdComponentPinSignalMapItemEdit",
-            "Edit Component Pinout"
-        )
+        tr!("CmdComponentPinSignalMapItemEdit", "Edit Component Pinout")
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {

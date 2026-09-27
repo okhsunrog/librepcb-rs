@@ -8,13 +8,13 @@
 //! Note that upstream is not consistent in which mirror orientation turns
 //! the rotation into `180° - rotation`; this is ported as is.
 
+use librepcb_core::geometry::ComponentSide;
 use librepcb_core::geometry::{
     Circle, Hole, Image, NonEmptyPath, Polygon, StrokeText, Text, Zone, ZoneLayers,
 };
 use librepcb_core::library::pkg::FootprintPad;
 use librepcb_core::library::sym::SymbolPin;
 use librepcb_core::types::{Angle, Length, Orientation, Point, PositiveLength};
-use librepcb_core::geometry::ComponentSide;
 
 /// Transformations of an object (upstream `Cmd*Edit` methods).
 pub trait Transformable {
@@ -290,3 +290,40 @@ impl Transformable for Image {
         self.set_position(self.position().mapped_to_grid(grid));
     }
 }
+
+/// Delegates [`Transformable`] to the object of an enum variant.
+macro_rules! delegate_transformable {
+    ($ty:ty, $($variant:ident),+) => {
+        impl Transformable for $ty {
+            fn positions(&self) -> Vec<Point> {
+                match self { $(Self::$variant(o) => o.positions()),+ }
+            }
+            fn translate(&mut self, delta: Point) {
+                match self { $(Self::$variant(o) => o.translate(delta)),+ }
+            }
+            fn rotate(&mut self, angle: Angle, center: Point) {
+                match self { $(Self::$variant(o) => o.rotate(angle, center)),+ }
+            }
+            fn mirror_geometry(&mut self, orientation: Orientation, center: Point) {
+                match self { $(Self::$variant(o) => o.mirror_geometry(orientation, center)),+ }
+            }
+            fn mirror_layer(&mut self) {
+                match self { $(Self::$variant(o) => o.mirror_layer()),+ }
+            }
+            fn snap_to_grid(&mut self, grid: PositiveLength) {
+                match self { $(Self::$variant(o) => o.snap_to_grid(grid)),+ }
+            }
+        }
+    };
+}
+
+delegate_transformable!(super::SymbolObject, Pin, Polygon, Circle, Text, Image);
+delegate_transformable!(
+    super::FootprintObject,
+    Pad,
+    Polygon,
+    Circle,
+    StrokeText,
+    Zone,
+    Hole
+);

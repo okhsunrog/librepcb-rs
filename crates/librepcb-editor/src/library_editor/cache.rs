@@ -39,7 +39,8 @@ static_assertions::assert_impl_all!(LibraryElementCache: Send, Sync);
 
 impl std::fmt::Debug for LibraryElementCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("LibraryElementCache").finish_non_exhaustive()
+        f.debug_struct("LibraryElementCache")
+            .finish_non_exhaustive()
     }
 }
 

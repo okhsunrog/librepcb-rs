@@ -6,7 +6,9 @@
 use std::collections::BTreeSet;
 
 use librepcb_core::library::ResourceList;
-use librepcb_core::serialization::{LocalizedDescriptionMap, LocalizedKeywordsMap, LocalizedNameMap};
+use librepcb_core::serialization::{
+    LocalizedDescriptionMap, LocalizedKeywordsMap, LocalizedNameMap,
+};
 use librepcb_core::types::{ElementName, Uuid, Version};
 use librepcb_i18n::tr;
 
