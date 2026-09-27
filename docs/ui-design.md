@@ -100,12 +100,27 @@ need new Slint dialogs (M3, batched per area) and a new 3D renderer (M5).
   schematic tab and board 2D tab rendering through `librepcb-scene`,
   navigation (pan/zoom/fit like upstream), grid, layers panel with
   visibility, selection highlight and hover info (read-only select tool).
-- M2c live updates: incremental scene updates from the change journal;
-  embedded MCP server toggle in the UI; undo/redo/save buttons working
-  (edits come from MCP until M3).
-- M2d checks and outputs: ERC and DRC panels (run, list, zoom to
-  location, approve), export graphics (PDF) and output jobs run from the
-  menu.
+- M2c live updates (**done**): incremental scene updates from the change
+  journal; embedded MCP server (`crates/librepcb-app/src/mcp.rs`) started
+  with `--mcp[=ADDR]` or the "AI" button in the status bar (popup: enable
+  the server, "show what the agent edits"; the status bar is where
+  upstream shows global non-modal state); change notices update the
+  scenes immediately (250 ms polling kept as fallback), the UI follows
+  the agent's focus to the touched schematic/board, agent
+  `project_open`/`project_close` open/close tabs (delegated),
+  `project_create` is adopted; the agent works on the project of the
+  active tab; undo/redo/save buttons work for agent and UI edits; status
+  bar indicator and a notification when an agent edits. Test:
+  `tests/live_mcp.rs` (rmcp HTTP client against the headless app).
+- M2d checks and outputs (**mostly done**): ERC (automatic after
+  changes) and DRC (full or quick, worker thread with progress
+  notification) in upstream's rule check panel: list, approve/unapprove
+  (undoable mutations), zoom to location (no location marker yet, no
+  autofix). Menu actions without dialogs (default settings, output into
+  `<project>/output/<version>/`): PDF export (schematics, board assembly),
+  Gerber/Excellon, pick&place, IPC-D-356A netlist, BOM, `*.lppz` export,
+  "Output Jobs" runs all jobs; worker threads with progress and result
+  notifications. Missing: print, image export, opening `*.lppz`.
 
 **M3 — schematic and board editors** (the FSMs are already ported in
 `librepcb-editor::fsm::{schematic, board}` and tested headless; M3 wires
@@ -209,7 +224,8 @@ SLINT_EMIT_DEBUG_INFO=1 SLINT_MCP_PORT=8765 SLINT_BACKEND=headless \
   Changing it rebuilds the `librepcb-app-ui` crate.
 - `SLINT_BACKEND=headless` is a windowless software-rendered backend.
 - Ports: 8765 for Slint's UI server, 8766 for LibrePCB's own MCP server
-  once it is embedded (M2c).
+  (`--mcp`). With both, an agent edits the design through 8766 and
+  watches (screenshots, clicks) through 8765.
 
 The server speaks JSON-RPC over HTTP at `http://127.0.0.1:8765/mcp`; its
 `initialize` result contains usage instructions. A session that zooms,

@@ -71,6 +71,10 @@ fn severity(t: ui::NotificationType) -> u8 {
     }
 }
 
+/// The identifier of a pushed notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NotificationId(u64);
+
 /// Summary for the `Data` globals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct NotificationsState {
@@ -86,6 +90,9 @@ type KeyFn = Rc<dyn Fn(&str)>;
 /// The notifications model (`Data.notifications`).
 pub struct Notifications {
     items: Vec<Notification>,
+    /// Identifiers of the items (same order).
+    ids: Vec<NotificationId>,
+    next_id: u64,
     model: Rc<UiModel<ui::NotificationData>>,
     dismissed_keys: Vec<String>,
     on_changed: Option<Rc<dyn Fn(NotificationsState, bool)>>,
@@ -99,6 +106,8 @@ impl Notifications {
     pub fn new(dismissed_keys: Vec<String>) -> Rc<RefCell<Self>> {
         let this = Rc::new(RefCell::new(Self {
             items: Vec::new(),
+            ids: Vec::new(),
+            next_id: 1,
             model: UiModel::shared(Vec::new()),
             dismissed_keys,
             on_changed: None,
@@ -145,24 +154,60 @@ impl Notifications {
 
     /// Adds a notification (unless suppressed by its dismiss key).
     pub fn push(&mut self, n: Notification) {
+        self.push_with_id(n);
+    }
+
+    /// Adds a notification and returns its identifier (for updating or
+    /// dismissing it later, e.g. progress notifications), `None` if it is
+    /// suppressed by its dismiss key.
+    pub fn push_with_id(&mut self, n: Notification) -> Option<NotificationId> {
         if !n.dismiss_key.is_empty() && self.dismissed_keys.contains(&n.dismiss_key) {
-            return;
+            return None;
         }
+        let id = NotificationId(self.next_id);
+        self.next_id += 1;
         let popup = n.auto_popup;
         // Existing rows keep their state (e.g. read).
-        let mut rows: Vec<(Notification, ui::NotificationData)> =
-            self.items.drain(..).zip(self.model.to_vec()).collect();
+        let mut rows: Vec<(NotificationId, Notification, ui::NotificationData)> = self
+            .ids
+            .drain(..)
+            .zip(self.items.drain(..))
+            .zip(self.model.to_vec())
+            .map(|((id, n), d)| (id, n, d))
+            .collect();
         let data = n.to_ui();
-        rows.insert(0, (n, data));
-        rows.sort_by(|(_, a), (_, b)| {
+        rows.insert(0, (id, n, data));
+        rows.sort_by(|(_, _, a), (_, _, b)| {
             b.unread
                 .cmp(&a.unread)
                 .then_with(|| severity(b.r#type).cmp(&severity(a.r#type)))
         });
-        self.items = rows.iter().map(|(n, _)| n.clone()).collect();
+        self.ids = rows.iter().map(|(id, _, _)| *id).collect();
+        self.items = rows.iter().map(|(_, n, _)| n.clone()).collect();
         self.model
-            .replace_all(rows.into_iter().map(|(_, d)| d).collect());
+            .replace_all(rows.into_iter().map(|(_, _, d)| d).collect());
         self.changed(popup);
+        Some(id)
+    }
+
+    /// Updates a notification (e.g. the progress in percent or the
+    /// description of a progress notification), if it still exists
+    /// (upstream `Notification::setProgress()`, `setDescription()`).
+    pub fn update(&mut self, id: NotificationId, f: impl FnOnce(&mut ui::NotificationData)) {
+        if let Some(row) = self.ids.iter().position(|i| *i == id) {
+            self.model.update(row, f);
+            self.changed(false);
+        }
+    }
+
+    /// Removes a notification (upstream `Notification::dismiss()`).
+    pub fn dismiss(&mut self, id: NotificationId) {
+        if let Some(row) = self.ids.iter().position(|i| *i == id) {
+            self.ids.remove(row);
+            self.items.remove(row);
+            self.model.remove(row);
+            self.changed(false);
+        }
     }
 
     fn row_written(&mut self, row: usize, data: ui::NotificationData) {
@@ -176,6 +221,7 @@ impl Notifications {
             }
         }
         if data.dismissed && row < self.items.len() {
+            self.ids.remove(row);
             self.items.remove(row);
             self.model.remove(row);
         }
