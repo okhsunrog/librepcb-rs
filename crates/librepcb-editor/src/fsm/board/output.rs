@@ -70,7 +70,7 @@ impl WireMode {
     }
 }
 
-/// The net selection of a tool (upstream: "[Auto]", "[None]" or a net).
+/// The net selection of a tool (upstream: "Auto", "None" or a net).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct ToolNet {
     /// Whether the net is determined automatically (vias only).
