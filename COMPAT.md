@@ -112,13 +112,13 @@ stated otherwise. Entries are grouped by module.
 
 ## algorithm
 
-- **Air wires**: the Delaunay triangulation comes from `spade` and the
-  minimum spanning forest from `petgraph`. The total air wire length is the
-  same, but among several equally long alternatives (e.g. points on a
-  regular grid) a different one may be chosen; upstream's choice depends on
-  the unstable `std::sort` anyway. Upstream's workarounds for its
-  triangulation library (fallback chain edges, manual triangles for 3
-  points) are not needed.
+- **Air wires**: ported literally, including upstream's Delaunay
+  triangulation library (with its single precision circumcircle test),
+  the fallback edges and libstdc++'s `std::sort()` (`clipper::std_sort`),
+  so the same air wires are chosen among equally long alternatives as by
+  upstream built with GCC/libstdc++ (the DRC "missing connection"
+  approvals depend on it). Upstream built with another standard library
+  (MSVC, libc++) may choose differently.
 - **Net segment simplification**: junctions are merged in ascending anchor
   ID order; upstream iterates a `QHash` (unspecified, per-process random
   order), so the surviving line IDs may differ when several merges are
@@ -449,11 +449,13 @@ differ between platforms/implementations:
   the loader for each board and by the editor after each command) from the
   nets marked dirty by the mutations, a superset of upstream's
   `scheduleAirWiresRebuild()` calls (e.g. also when only traces change).
-  The anchors are added in a deterministic order, and ties between equally
-  long air wires can be resolved differently (see algorithm). Display and
-  DRC "missing connection" approvals only.
-- The DRC approval cleanup (`Board::updateDrcMessageApprovals()`) is not
-  ported yet (part of the DRC).
+  The anchors are added in the order of upstream's registration lists after
+  loading a project (component, component signal and pad UUID; net
+  segments by UUID). After editing, upstream's lists are in modification
+  order, so ties between equally long air wires can be resolved
+  differently (display and DRC "missing connection" approvals only), and
+  the same holds for hand-written files whose elements are not sorted by
+  UUID.
 - `BoardNetSegmentSplitter`: new junction UUIDs come from a caller provided
   generator, and the elements of a resulting segment may be listed in
   another order. Files are unaffected (elements are saved sorted by UUID).
@@ -476,9 +478,6 @@ Rendering only; no file is affected.
   board pad geometries for them.
 - Planes are drawn with the fragments stored in the board's derived data
   (if computed) plus their outline as a hairline.
-- Attribute substitution uses a minimal local port of
-  `ProjectAttributeLookup` without assembly variants (`VARIANT`,
-  `VARIANT_INDEX`), until the core lookup is ported.
 - Board colors are the dark scheme's primary colors (the editor look); the
   graphics export's color adjustment for white backgrounds is not applied.
 
@@ -589,11 +588,6 @@ Rendering only; no file is affected.
   objects in the text of a copper clearance message (`'GND' pad ↔ 'VCC'
   pad`) and the order of the messages may differ. Merging of copper
   clearance violations per object pair is order independent.
-- **Missing connections**: the messages are the air wires, so among equally
-  long alternatives another connection may be reported than upstream (see
-  algorithm, air wires); the stored approval of such a message then does
-  not match. Seen in the upstream test project `DRC` (e.g. pads on a
-  regular grid).
 - **Keepout zones**: upstream tests the intersection with
   `QPainterPath::intersects()` against the union (`|=`, `QPathClipper`) of
   the object areas; here each area is tested with the ported Qt predicate
@@ -604,15 +598,10 @@ Rendering only; no file is affected.
 - **Device names** in "Device in courtyard"/"Device overlap" messages are
   ordered by `str` ordering instead of `QString` (UTF-16) ordering; only
   names with characters outside the BMP can be affected.
-- **Stroke texts**: attributes are substituted with a simplified lookup
-  (device, component, first part, board, project attributes and the
-  built-in keys) until `ProjectAttributeLookup` is ported. Project dates
-  are formatted in UTC.
-- **Plane fragments**: `Project::run_drc()` does not rebuild the planes yet
-  (upstream `BoardDesignRuleCheck::start()` does); the fragments stored in
-  the board are used. Until the plane fragments builder is wired in, plane
-  related results differ (copper, board and hole clearances of planes,
-  annular rings, cutouts, missing connections through planes).
+- **Plane fragments**: like upstream, a full check rebuilds all planes;
+  if the plane job cannot be created (e.g. missing stroke font, see
+  "Plane fragments and board exports"), `Project::run_drc()` fails with
+  that error.
 - **Errors**: checks that fail (e.g. a non-positive calculated diameter)
   report the error in `DrcResult::errors` like upstream, with the Rust error
   message. A panic of a check thread is reported as error as well.

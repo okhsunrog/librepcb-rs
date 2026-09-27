@@ -14,30 +14,24 @@
 //! - Air wire anchors are an enum instead of a struct of optional UUIDs.
 //! - The plane fragments are taken from the board's derived data
 //!   ([`BoardDerived::fragments_of()`](super::super::BoardDerived::fragments_of));
-//!   the caller is responsible for rebuilding them before (upstream
-//!   `BoardDesignRuleCheck::start()` does it, see
-//!   [`Project::run_drc()`](crate::project::Project::run_drc)).
-//! - Stroke texts are rendered with the board's default font after
-//!   substituting attributes. TODO(merge): the attribute lookup is a
-//!   private, simplified version of upstream `ProjectAttributeLookup`
-//!   (device, component, part, board and project attributes); replace it
-//!   by the ported `ProjectAttributeLookup` once it is available.
+//!   the caller is responsible for rebuilding them before (like upstream
+//!   `BoardDesignRuleCheck::start()`,
+//!   [`Project::run_drc()`](crate::project::Project::run_drc) does it).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::error::{Error, Result};
-use crate::attribute::{AttributeList, substitute};
 use crate::font::{StrokeFont, StrokeTextPathBuilder};
 use crate::geometry::{NonEmptyPath, PadGeometry, Path, TraceAnchor, ZoneLayers, ZoneRules};
-use crate::library::LibraryBaseElement;
 use crate::library::org::BoardDesignRuleCheckSettings;
+use crate::project::attribute_lookup::ProjectAttributeLookup;
 use crate::project::board::device::ResolvedDevice;
 use crate::project::board::pad_data::PadOnBoard;
 use crate::project::board::{Board, BoardDesignRules, BoardDevice, BoardNetSegment};
 use crate::project::board::{BoardStrokeTextData, FootprintPadView};
 use crate::project::circuit::Circuit;
 use crate::project::{BoardId, EntityKind, NetSignalId, Project, ProjectLibrary};
-use crate::types::{Angle, Layer, Length, MaskConfig, Point, PositiveLength, UnsignedLength, Uuid};
+use crate::types::{Angle, Layer, Length, Point, PositiveLength, UnsignedLength, Uuid};
 use crate::utils::transform::Transform;
 
 /// Design rules of a net class (upstream `Data::NetClass`).
@@ -750,69 +744,21 @@ impl<'a> Extractor<'a> {
         net: Option<NetSignalId>,
         connected_layers: BTreeSet<Layer>,
     ) -> Result<DrcVia> {
-        let net_class_drill = net
-            .and_then(|n| self.circuit.net_signal(n))
-            .and_then(|n| self.circuit.net_class(n.net_class()))
-            .and_then(|nc| nc.default_via_drill());
-        // BI_Via::updateActualDrillAndSize()
-        let drill = via.drill_diameter().unwrap_or_else(|| {
-            net_class_drill.unwrap_or_else(|| self.rules.default_via_drill_diameter())
-        });
-        let size = match via.size() {
-            // Avoid invalid via if drill is auto.
-            Some(size) => size.max(drill),
-            None => {
-                crate::geometry::Via::calc_size_from_rules(drill, &self.rules.via_annular_ring())
-            }
-        };
-        // BI_Via::updateStopMaskDiameters()
-        let config = via.exposure_config();
-        let dia = if let MaskConfig::Manual(offset) = config {
-            size + (offset * 2)
-        } else if config == MaskConfig::Automatic {
-            size + (*self.rules.stop_mask_clearance().calc_value(*size) * 2)
-        } else if self.rules.does_via_require_stop_mask_opening(*drill) {
-            drill + (*self.rules.stop_mask_clearance().calc_value(*drill) * 2)
-        } else {
-            Length::ZERO
-        };
-        let dia = PositiveLength::new(dia).ok();
-        let stop_mask_diameter_top = dia.filter(|_| via.start_layer().is_top());
-        let stop_mask_diameter_bot = dia.filter(|_| via.end_layer().is_bottom());
+        let properties = self.board.via_properties(via, net, self.circuit);
         Ok(DrcVia {
             uuid: via.uuid(),
             position: via.position(),
-            drill_diameter: drill,
-            size,
+            drill_diameter: properties.drill_diameter,
+            size: properties.size,
             connected_layers,
             start_layer: via.start_layer(),
             end_layer: via.end_layer(),
-            drill_layer_span: self.drill_layer_span(via),
+            drill_layer_span: properties.drill_layer_span,
             is_buried: via.is_buried(),
             is_blind: via.is_blind(),
-            stop_mask_diameter_top,
-            stop_mask_diameter_bot,
+            stop_mask_diameter_top: properties.stop_mask_diameter_top,
+            stop_mask_diameter_bot: properties.stop_mask_diameter_bot,
         })
-    }
-
-    /// Upstream `BI_Via::getDrillLayerSpan()`.
-    fn drill_layer_span(&self, via: &crate::geometry::Via) -> Option<(Layer, Layer)> {
-        let inner_count = self.board.settings().inner_layer_count as usize;
-        // If start layer is not enabled, the via is invalid.
-        let start_number = via.start_layer().copper_number();
-        if start_number > inner_count {
-            return None;
-        }
-        // If the via ends at the bottom layer, the via is valid.
-        if via.end_layer().is_bottom() {
-            return Some((via.start_layer(), via.end_layer()));
-        }
-        // Via ends on an inner layer --> check layer span.
-        let end_number = via.end_layer().copper_number().min(inner_count);
-        match Layer::inner_copper(end_number) {
-            Some(end) if start_number < end_number => Some((via.start_layer(), end)),
-            _ => None,
-        }
     }
 
     fn stroke_text(
@@ -820,11 +766,17 @@ impl<'a> Extractor<'a> {
         text: &BoardStrokeTextData,
         device: Option<&BoardDevice>,
     ) -> Result<DrcStrokeText> {
-        let substituted = substitute(
-            text.text(),
-            |key| AttributeLookup::new(self, device).query(key),
-            None,
-        );
+        // Upstream `BI_StrokeText::updateText()`.
+        let substituted = match device {
+            Some(device) => {
+                let component = self.circuit.component_instance(device.component());
+                let part = component.and_then(|c| device.parts(c, None).into_iter().next());
+                ProjectAttributeLookup::for_device(self.project, self.board, device, part.as_ref())
+                    .substitute(text.text())
+            }
+            None => ProjectAttributeLookup::for_board(self.project, self.board, None)
+                .substitute(text.text()),
+        };
         let paths = StrokeTextPathBuilder::build(
             self.font()?,
             text.letter_spacing(),
@@ -1014,129 +966,4 @@ fn anchor_uuid(anchor: TraceAnchor) -> Uuid {
         TraceAnchor::Junction(u) | TraceAnchor::Via(u) | TraceAnchor::Pad(u) => u,
         TraceAnchor::FootprintPad { pad, .. } => pad,
     }
-}
-
-/// Attribute lookup for stroke texts (simplified upstream
-/// `ProjectAttributeLookup` of `BI_StrokeText::updateText()`: for device
-/// texts part → device → component → board → project, for board texts
-/// board → project). TODO(merge): replace by the ported
-/// `ProjectAttributeLookup`.
-struct AttributeLookup<'e, 'a> {
-    x: &'e Extractor<'a>,
-    device: Option<&'e BoardDevice>,
-}
-
-impl<'e, 'a> AttributeLookup<'e, 'a> {
-    fn new(x: &'e Extractor<'a>, device: Option<&'e BoardDevice>) -> Self {
-        Self { x, device }
-    }
-
-    fn query(&self, key: &str) -> Option<String> {
-        if let Some(dev) = self.device {
-            let component = self.x.circuit.component_instance(dev.component());
-            // Part: the first part of the device's assembly options.
-            if let Some(cmp) = component {
-                let part = cmp
-                    .assembly_options()
-                    .iter()
-                    .filter(|o| o.device() == dev.lib_device())
-                    .find_map(|o| {
-                        o.parts()
-                            .iter()
-                            .next()
-                            .map(|p| (p.attributes().clone(), Some(p)))
-                            .or_else(|| Some((o.attributes().clone(), None)))
-                    });
-                if let Some((attributes, part)) = part {
-                    if let Some(v) = attribute(&attributes, key) {
-                        return Some(v);
-                    }
-                    match (key, part) {
-                        ("MPN", Some(p)) => return Some(p.mpn().to_string()),
-                        ("MANUFACTURER", Some(p)) => return Some(p.manufacturer().to_string()),
-                        ("MPN" | "MANUFACTURER", None) => return Some(String::new()),
-                        _ => {}
-                    }
-                }
-            }
-            // Device.
-            if let Some(v) = attribute(dev.attributes(), key) {
-                return Some(v);
-            }
-            let locale_order = &self.x.project.settings().locale_order;
-            let resolved = ResolvedDevice::resolve(dev, self.x.library).ok();
-            match (key, &resolved) {
-                ("DEVICE", Some(r)) => {
-                    return Some(r.device.metadata().names().value(locale_order).to_string());
-                }
-                ("PACKAGE", Some(r)) => {
-                    return Some(r.package.metadata().names().value(locale_order).to_string());
-                }
-                ("FOOTPRINT", Some(r)) => {
-                    return Some(r.footprint.names().value(locale_order).to_string());
-                }
-                _ => {}
-            }
-            // Component.
-            if let Some(cmp) = component {
-                if let Some(v) = attribute(cmp.attributes(), key) {
-                    return Some(v);
-                }
-                match key {
-                    "NAME" => return Some(cmp.name().to_string()),
-                    "VALUE" => return Some(cmp.value().clone()),
-                    "COMPONENT" => {
-                        return self
-                            .x
-                            .library
-                            .component(&cmp.lib_component())
-                            .map(|c| c.metadata().names().value(locale_order).to_string());
-                    }
-                    _ => {}
-                }
-            }
-        }
-        // Board.
-        match key {
-            "BOARD" => return Some(self.x.board.properties().name.to_string()),
-            "BOARD_DIRNAME" => return Some(self.x.board.directory_name().to_owned()),
-            "BOARD_INDEX" => {
-                return self
-                    .x
-                    .project
-                    .board_index(self.x.board.id())
-                    .map(|i| i.to_string());
-            }
-            _ => {}
-        }
-        // Project.
-        let p = self.x.project;
-        let m = p.metadata();
-        if let Some(v) = attribute(&m.attributes, key) {
-            return Some(v);
-        }
-        match key {
-            "PROJECT" => Some(m.name.to_string()),
-            "PROJECT_BASENAME" => Some(
-                p.file_name()
-                    .rsplit_once('.')
-                    .map_or(p.file_name(), |(base, _)| base)
-                    .to_owned(),
-            ),
-            "PROJECT_FILENAME" => Some(p.file_name().to_owned()),
-            "CREATED_DATE" => Some(m.created.format("%Y-%m-%d").to_string()),
-            "CREATED_TIME" => Some(m.created.format("%H:%M:%S").to_string()),
-            "DATE" => Some(p.date_time().format("%Y-%m-%d").to_string()),
-            "TIME" => Some(p.date_time().format("%H:%M:%S").to_string()),
-            "AUTHOR" => Some(m.author.clone()),
-            "VERSION" => Some(m.version.to_string()),
-            "PAGES" => Some(p.schematics().len().to_string()),
-            "PAGE_X_OF_Y" => Some("Page {{PAGE}} of {{PAGES}}".to_owned()),
-            _ => None,
-        }
-    }
-}
-
-fn attribute(attributes: &AttributeList, key: &str) -> Option<String> {
-    attributes.by_name(key, true).map(|a| a.value_tr(true))
 }

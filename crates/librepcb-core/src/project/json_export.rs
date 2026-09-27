@@ -22,9 +22,9 @@ use serde_json::{Map, Value, json};
 use super::Project;
 use super::board::{Board, BoardDevice};
 use super::circuit::AssemblyVariant;
-use crate::geometry::{Path, Via};
+use crate::geometry::Path;
 use crate::library::pkg::Footprint;
-use crate::types::{Layer, Length, PcbColor, Point, PositiveLength};
+use crate::types::{Layer, Length, PcbColor, Point};
 use crate::utils::painter_path;
 
 /// A bounding box given by two opposite corners, or `None` if empty
@@ -130,8 +130,9 @@ pub fn board_to_json(project: &Project, board: &Board) -> Value {
             add_pad_holes(pad.pad());
         }
         for via in segment.vias().values() {
-            if let Some((start, end)) = via_drill_layer_span(via, settings.inner_layer_count) {
-                let drill = *via_actual_drill_diameter(project, board, segment.net(), via);
+            let properties = board.via_properties(via, segment.net(), &project.circuit);
+            if let Some((start, end)) = properties.drill_layer_span {
+                let drill = *properties.drill_diameter;
                 if start.is_top() && end.is_bottom() {
                     tht_vias.diameters.push(drill);
                 } else if start.is_top() || end.is_bottom() {
@@ -310,42 +311,6 @@ fn lib_footprint<'a>(project: &'a Project, device: &BoardDevice) -> Option<&'a F
     let lib_device = project.library.device(&device.lib_device())?;
     let package = project.library.package(&lib_device.package_uuid())?;
     package.footprints().by_uuid(&device.lib_footprint())
-}
-
-/// Upstream `BI_Via::getDrillLayerSpan()`: the copper layers the via is
-/// drilled through, `None` if the via is invalid with the board's inner
-/// layer count.
-fn via_drill_layer_span(via: &Via, inner_layer_count: u32) -> Option<(Layer, Layer)> {
-    let inner = inner_layer_count as usize;
-    // If start layer is not enabled, the via is invalid.
-    let start_number = via.start_layer().copper_number();
-    if start_number > inner {
-        return None;
-    }
-    // If the via ends at the bottom layer, the via is valid.
-    if via.end_layer().is_bottom() {
-        return Some((via.start_layer(), via.end_layer()));
-    }
-    // Via ends on an inner layer --> check layer span.
-    let end_number = via.end_layer().copper_number().min(inner);
-    let end_layer = Layer::inner_copper(end_number)?;
-    (start_number < end_number).then_some((via.start_layer(), end_layer))
-}
-
-/// Upstream `BI_Via::getActualDrillDiameter()`: the via's drill, or the
-/// default drill of its net class resp. of the board design rules.
-fn via_actual_drill_diameter(
-    project: &Project,
-    board: &Board,
-    net: Option<super::NetSignalId>,
-    via: &Via,
-) -> PositiveLength {
-    via.drill_diameter().unwrap_or_else(|| {
-        net.and_then(|n| project.circuit.net_signal(n))
-            .and_then(|n| project.circuit.net_class(n.net_class()))
-            .and_then(|nc| nc.default_via_drill())
-            .unwrap_or_else(|| board.design_rules().default_via_drill_diameter())
-    })
 }
 
 // --- Qt compatible JSON formatting ---

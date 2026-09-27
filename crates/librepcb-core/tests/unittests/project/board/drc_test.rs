@@ -14,21 +14,6 @@ use librepcb_core::project::board::drc::{DrcProgress, DrcResult};
 use librepcb_core::project::{Project, ProjectLoader};
 use librepcb_core::serialization::{List, Mode, SExpression};
 
-/// Boards whose messages depend on plane fragments, which are not built
-/// yet by `Project::run_drc()`. TODO(merge): remove these entries once the
-/// plane fragments builder is wired into `Project::run_drc()`.
-const PENDING_PLANE_FRAGMENTS: &[&str] = &[
-    "checkCopperCopperClearances",
-    "checkCopperBoardClearances",
-    "checkCopperHoleClearances",
-    "checkBoardCutouts",
-];
-
-/// Boards with known differences: among equally long air wires, another
-/// one is chosen than upstream (see COMPAT.md, air wires), so a different
-/// missing connection is reported.
-const KNOWN_DIFFERENCES: &[&str] = &["checkForMissingConnections"];
-
 fn projects_dir() -> PathBuf {
     StdPath::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data/projects")
 }
@@ -123,52 +108,39 @@ fn test_messages() {
         summary.push(line);
         let (expected, actual) = (to_string(&expected), to_string(&approvals));
         if expected != actual {
-            let pending = PENDING_PLANE_FRAGMENTS.contains(&name.as_str())
-                || KNOWN_DIFFERENCES.contains(&name.as_str());
-            failures.push((name, pending, expected, actual));
+            failures.push((name, expected, actual));
         }
     }
-    let mut failed = false;
-    for (name, pending, expected, actual) in &failures {
-        eprintln!(
-            "{} board '{name}':\n--- expected\n{expected}\n--- actual\n{actual}",
-            if *pending {
-                "Pending (plane fragments, air wire ties)"
-            } else {
-                "FAILED"
-            }
-        );
-        failed |= !pending;
+    for (name, expected, actual) in &failures {
+        eprintln!("FAILED board '{name}':\n--- expected\n{expected}\n--- actual\n{actual}");
     }
     eprintln!("Summary:\n{}", summary.join("\n"));
-    assert!(!failed, "DRC approvals differ from upstream");
+    assert!(failures.is_empty(), "DRC approvals differ from upstream");
 }
 
-/// The plane checks use the plane fragments of the board (no upstream
-/// counterpart): with the plane outlines as fragments, the planes of
-/// `checkCopperBoardClearances` violate the board clearance like upstream.
+/// A full check rebuilds the plane fragments first (like upstream), so the
+/// planes of `checkCopperBoardClearances` violate the board clearance even
+/// though no fragments were calculated before.
 #[test]
-fn plane_fragments_are_checked() {
+fn full_check_rebuilds_planes() {
     let mut project = open_project("DRC", "project.lpp");
-    let (id, fragments) = project
+    let id = project
         .boards_with_ids()
         .find(|(_, b)| *b.properties().name == *"checkCopperBoardClearances")
-        .map(|(id, b)| {
-            let fragments: BTreeMap<_, _> = b
-                .planes()
-                .values()
-                .map(|p| {
-                    let mut outline = p.outline().clone();
-                    outline.close();
-                    (p.id(), vec![outline])
-                })
-                .collect();
-            (id, fragments)
-        })
-        .unwrap();
-    project.apply_plane_fragments(id, fragments).unwrap();
+        .unwrap()
+        .0;
+    let fragment_count = |project: &Project| -> usize {
+        let board = project.board(id).unwrap();
+        board
+            .planes()
+            .keys()
+            .map(|plane| board.derived().fragments_of(*plane).len())
+            .sum()
+    };
+    assert_eq!(fragment_count(&project), 0);
     let result = project.run_drc(id, None, false, &no_progress).unwrap();
     assert!(result.errors.is_empty(), "{:?}", result.errors);
+    assert!(fragment_count(&project) > 0);
     let approvals: BTreeSet<SExpression> = result
         .messages
         .iter()

@@ -57,22 +57,40 @@ impl<'a> BoardD356NetlistExport<'a> {
         for segment in board.net_segments().values() {
             let net_name = ctx.net_name(segment.net()).unwrap_or_default();
             for via in ctx.segment_vias(segment) {
-                let solder_mask_covered =
-                    via.stop_mask_top.is_none() && via.stop_mask_bot.is_none();
+                let solder_mask_covered = via.props.stop_mask_diameter_top.is_none()
+                    && via.props.stop_mask_diameter_bot.is_none();
                 let land = D356Land {
                     position: via.via.position(),
-                    width: via.size,
-                    height: via.size,
+                    width: via.props.size,
+                    height: via.props.size,
                     rotation: Angle::DEG0,
                 };
                 let start = via.via.start_layer().copper_number() as i32 + 1;
                 let end = via.via.end_layer().copper_number() as i32 + 1;
                 if via.via.is_blind() {
-                    g.blind_via(net_name, &land, via.drill, start, end, solder_mask_covered);
+                    g.blind_via(
+                        net_name,
+                        &land,
+                        via.props.drill_diameter,
+                        start,
+                        end,
+                        solder_mask_covered,
+                    );
                 } else if via.via.is_buried() {
-                    g.buried_via(net_name, via.via.position(), via.drill, start, end);
+                    g.buried_via(
+                        net_name,
+                        via.via.position(),
+                        via.props.drill_diameter,
+                        start,
+                        end,
+                    );
                 } else {
-                    g.through_via(net_name, &land, via.drill, solder_mask_covered);
+                    g.through_via(
+                        net_name,
+                        &land,
+                        via.props.drill_diameter,
+                        solder_mask_covered,
+                    );
                 }
             }
         }

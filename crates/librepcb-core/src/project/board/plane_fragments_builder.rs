@@ -376,7 +376,7 @@ impl Project {
                 job.vias.push(ViaData {
                     net: segment.net(),
                     position: via.via.position(),
-                    diameter: via.size,
+                    diameter: via.props.size,
                     start_layer: via.via.start_layer(),
                     end_layer: via.via.end_layer(),
                 });

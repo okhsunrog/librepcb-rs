@@ -16,7 +16,8 @@ Done, in `crates/librepcb-core` unless noted:
 - **Geometry, stroke fonts, polygon clipping:** `crates/clipper` is a
   faithful port of Clipper 1, verified differentially against the C++
   library.
-- **Attributes, air wires** (spade + petgraph), the math parser (evalexpr),
+- **Attributes, air wires** (literal port incl. upstream's Delaunay
+  library, same tie-breaking as upstream), the math parser (evalexpr),
   and SQLite.
 - **File I/O** (transactional file system, directory locks, ZIP, CSV) and
   system info; `crates/librepcb-network` (tokio + reqwest).

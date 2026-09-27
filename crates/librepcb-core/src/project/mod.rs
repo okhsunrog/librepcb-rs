@@ -26,7 +26,9 @@
 //! - [`circuit`]: assembly variants, net classes, nets, buses, component
 //!   instances.
 //! - [`schematic`]: schematic pages and their items.
-//! - [`board`]: boards, their items and derived data.
+//! - [`board`]: boards, their items and derived data, the plane fragments
+//!   builder, the design rule check ([`board::drc`]) and the board exports
+//!   (Gerber/Excellon, pick&place, IPC-D-356A).
 //! - [`loader`]: the project loader.
 //! - `mutation`, `change`, `ref_index`, `library`, `project`, `id`,
 //!   `error`: see the re-exports below.
@@ -35,8 +37,7 @@
 //! - [`ProjectAttributeLookup`], [`BomGenerator`], [`json_export`]:
 //!   attribute lookup, BOM generation and the JSON export of projects.
 //!
-//! Not ported yet: `board/drc/`, the board export glue
-//! (`boardgerberexport`, ...), `outputjobrunner`.
+//! Not ported yet: `outputjobrunner`.
 
 mod attribute_lookup;
 pub mod board;

@@ -15,10 +15,12 @@
 //! [`Project::rebuild_planes()`](crate::project::Project::rebuild_planes)).
 //! The fabrication and assembly exports drive the generators of
 //! [`export`](crate::export): [`BoardGerberExport`] (Gerber/Excellon),
-//! [`BoardPickPlaceGenerator`] and [`BoardD356NetlistExport`].
+//! [`BoardPickPlaceGenerator`] and [`BoardD356NetlistExport`]. The design
+//! rule check is [`drc`]
+//! ([`Project::run_drc()`](crate::project::Project::run_drc)).
 //!
-//! Not ported yet: the painters, the Specctra and interactive HTML BOM
-//! exports and the DRC.
+//! Not ported yet: the painters and the Specctra and interactive HTML BOM
+//! exports.
 
 mod air_wire;
 mod air_wires_builder;
@@ -62,7 +64,7 @@ pub use gerber_export::{
     export_fabrication_data,
 };
 pub use hole_data::BoardHoleData;
-pub use net_segment::{BoardNetSegment, BoardSegmentElements};
+pub use net_segment::{BoardNetSegment, BoardSegmentElements, BoardViaProperties};
 pub use net_segment_splitter::{BoardNetSegmentParts, BoardNetSegmentSplitter};
 pub use pad_data::BoardPadData;
 pub use pick_place_generator::{BoardPickPlaceGenerator, export_pick_place_csv};

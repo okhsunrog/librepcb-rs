@@ -18,11 +18,11 @@ use super::{BoardDesignRules, BoardStrokeTextData};
 use crate::attribute::AttributeList;
 use crate::geometry::{ComponentSide, Pad, PadGeometry, StrokeTextList, TraceAnchor, property};
 use crate::library::LibraryBaseElement;
-use crate::library::dev::Device;
+use crate::library::dev::{Device, Part};
 use crate::library::pkg::{Footprint, FootprintPad, Package, PackagePad};
-use crate::project::circuit::Circuit;
+use crate::project::circuit::{Circuit, ComponentInstance};
 use crate::project::error::Result;
-use crate::project::id::{ComponentInstanceId, ComponentSignalRef, NetSignalId};
+use crate::project::id::{AssemblyVariantId, ComponentInstanceId, ComponentSignalRef, NetSignalId};
 use crate::project::library::ProjectLibrary;
 use crate::serialization::{self, DeserializeObject, List, SExpression, SerializeObject};
 use crate::types::{Angle, Layer, Length, MaskConfig, Point, Uuid};
@@ -229,6 +229,48 @@ impl BoardDevice {
                 (hole.uuid(), offset)
             })
             .collect()
+    }
+
+    /// Returns the parts of the device in an assembly variant (all variants
+    /// if `None`): the parts of the assembly options of `component` (the
+    /// device's component instance) for the device's library device; an
+    /// option without parts yields one empty part with the option's
+    /// attributes (upstream `BI_Device::getParts()`).
+    pub fn parts(
+        &self,
+        component: &ComponentInstance,
+        assembly_variant: Option<AssemblyVariantId>,
+    ) -> Vec<Part> {
+        let mut parts = Vec::new();
+        for option in component.assembly_options() {
+            if (option.device() == self.lib_device)
+                && assembly_variant.is_none_or(|av| option.assembly_variants().contains(&av))
+            {
+                parts.extend(option.parts().iter().cloned());
+                if option.parts().is_empty() {
+                    parts.push(Part::new(
+                        Default::default(),
+                        Default::default(),
+                        option.attributes().clone(),
+                    ));
+                }
+            }
+        }
+        parts
+    }
+
+    /// Whether the device is assembled in an assembly variant according to
+    /// the assembly options of `component` (the device's component
+    /// instance), upstream `BI_Device::isInAssemblyVariant()`.
+    pub fn is_in_assembly_variant(
+        &self,
+        component: &ComponentInstance,
+        assembly_variant: AssemblyVariantId,
+    ) -> bool {
+        component.assembly_options().iter().any(|option| {
+            (option.device() == self.lib_device)
+                && option.assembly_variants().contains(&assembly_variant)
+        })
     }
 
     /// Returns the footprint pads of the device, computed from the library

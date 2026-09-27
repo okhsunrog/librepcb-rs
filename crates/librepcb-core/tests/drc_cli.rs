@@ -16,16 +16,9 @@
 //! project first, so all messages are printed and compared (e.g. the order
 //! of the objects in copper clearance messages).
 //!
-//! Known differences, reported but not treated as failures:
-//!
-//! - Boards with planes: `Project::run_drc()` does not build the plane
-//!   fragments yet (TODO(merge): wire the plane fragments builder, then
-//!   remove [`is_pending()`]).
-//! - Missing connections: among equally long air wires, a different one
-//!   may be chosen than upstream (see COMPAT.md, air wires). The two
-//!   anchors of a missing connection are compared unordered, and boards
-//!   differing only in missing connections (with the same total number of
-//!   messages) are reported as pending.
+//! Known differences, normalized before the comparison: the order of the
+//! two objects of copper clearance messages (upstream iterates `QHash`es,
+//! see COMPAT.md).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -80,16 +73,8 @@ struct BoardSummary {
     messages: Vec<String>,
 }
 
-/// Normalizes a message line for the comparison (sorted anchors of
-/// missing connections).
+/// Normalizes a message line for the comparison.
 fn normalize(line: &str) -> String {
-    if let Some(rest) = line.strip_prefix("[ERROR] Missing connection in ")
-        && let Some((net, anchors)) = rest.split_once(": ")
-        && let Some((a, b)) = anchors.split_once(" ↔ ")
-    {
-        let (a, b) = if a <= b { (a, b) } else { (b, a) };
-        return format!("[ERROR] Missing connection in {net}: {a} ↔ {b}");
-    }
     // The order of the objects of copper clearance violations depends on
     // the iteration order of upstream's `QHash`es.
     if let Some(rest) = line.strip_prefix("[ERROR] Clearance on ")
@@ -145,7 +130,7 @@ fn run_upstream(cli: &Path, dir: &Path, lpp: &str) -> BTreeMap<String, BoardSumm
 }
 
 /// Runs our DRC on all boards of a project.
-fn run_ours(dir: &Path, lpp: &str) -> (BTreeMap<String, BoardSummary>, Vec<String>) {
+fn run_ours(dir: &Path, lpp: &str) -> BTreeMap<String, BoardSummary> {
     let fs = TransactionalFileSystem::open_ro(&FilePath::new(dir).unwrap()).unwrap();
     let mut project = ProjectLoader::new()
         .open(TransactionalDirectory::new(Arc::new(fs), ""), lpp)
@@ -157,13 +142,11 @@ fn run_ours(dir: &Path, lpp: &str) -> (BTreeMap<String, BoardSummary>, Vec<Strin
                 id,
                 b.properties().name.to_string(),
                 b.drc_approvals().clone(),
-                !b.planes().is_empty(),
             )
         })
         .collect();
     let mut result = BTreeMap::new();
-    let mut with_planes = Vec::new();
-    for (id, name, approvals, has_planes) in boards {
+    for (id, name, approvals) in boards {
         let drc = project
             .run_drc(id, None, false, &|_: DrcProgress<'_>| {})
             .unwrap();
@@ -182,12 +165,9 @@ fn run_ours(dir: &Path, lpp: &str) -> (BTreeMap<String, BoardSummary>, Vec<Strin
             }
         }
         summary.messages.sort();
-        if has_planes {
-            with_planes.push(name.clone());
-        }
         result.insert(name, summary);
     }
-    (result, with_planes)
+    result
 }
 
 /// Returns the lines only in `a` (multiset difference).
@@ -254,7 +234,6 @@ fn compare_with_cli(filter: impl Fn(&str) -> bool, prepare: impl Fn(&Path)) {
     dirs.sort();
 
     let mut failures = Vec::new();
-    let mut pending = Vec::new();
     let mut checked = 0;
     for src in dirs {
         let Some(lpp) = lpp_file(&src) else {
@@ -268,7 +247,7 @@ fn compare_with_cli(filter: impl Fn(&str) -> bool, prepare: impl Fn(&Path)) {
         copy_dir(&src, &copy);
         prepare(&copy);
         let upstream = run_upstream(&cli, &copy, &lpp);
-        let (ours, with_planes) = run_ours(&copy, &lpp);
+        let ours = run_ours(&copy, &lpp);
         assert_eq!(
             upstream.keys().collect::<Vec<_>>(),
             ours.keys().collect::<Vec<_>>(),
@@ -280,45 +259,20 @@ fn compare_with_cli(filter: impl Fn(&str) -> bool, prepare: impl Fn(&Path)) {
             if actual == expected {
                 continue;
             }
-            let report = format!(
+            failures.push(format!(
                 "{name} / {board}: approved {} (upstream {}), missing messages {:#?}, \
                  extra messages {:#?}",
                 actual.approved,
                 expected.approved,
                 only_in(&expected.messages, &actual.messages),
                 only_in(&actual.messages, &expected.messages),
-            );
-            // Differences only in missing connections (air wire ties) with
-            // the same total number of messages are known.
-            let other = |s: &BoardSummary| -> Vec<String> {
-                s.messages
-                    .iter()
-                    .filter(|m| !is_missing_connection(m))
-                    .cloned()
-                    .collect()
-            };
-            let total = |s: &BoardSummary| s.approved + s.messages.len();
-            let air_wire_ties =
-                (other(actual) == other(expected)) && (total(actual) == total(expected));
-            if air_wire_ties || with_planes.contains(board) {
-                pending.push(report);
-            } else {
-                failures.push(report);
-            }
+            ));
         }
     }
-    println!(
-        "checked {checked} boards, pending differences (plane fragments, air wire ties):\n{}",
-        pending.join("\n")
-    );
+    println!("checked {checked} boards");
     assert!(
         failures.is_empty(),
         "DRC differs from upstream:\n{}",
         failures.join("\n")
     );
-}
-
-/// Whether a (normalized) message line is a missing connection.
-fn is_missing_connection(line: &str) -> bool {
-    line.starts_with("[ERROR] Missing connection in ")
 }

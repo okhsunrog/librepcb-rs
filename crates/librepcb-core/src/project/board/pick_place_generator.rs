@@ -63,7 +63,8 @@ impl<'a> BoardPickPlaceGenerator<'a> {
         let mut exported_designators: HashSet<String> = HashSet::new();
         for dev in &ctx.devices {
             let part = dev.parts(Some(self.assembly_variant)).into_iter().next();
-            let lookup = |key: &str| ctx.device_attribute(dev, part.as_ref(), key);
+            let attributes = ctx.device_lookup(dev, part.as_ref());
+            let lookup = |key: &str| attributes.value(key);
             let mut items = Vec::new();
             let designator = dev.designator();
             let value = simplified(&attribute::substitute(
