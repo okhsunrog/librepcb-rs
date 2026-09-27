@@ -591,9 +591,8 @@ impl BoardEditorFsm {
                 self.set_state(&mut cx, BoardTool::Select);
             }
             // Keep the selection valid after model changes.
-            if let Ok(board) = cx.board() {
-                let board = board.clone();
-                cx.selection.update(&board);
+            if let Some(board) = cx.ctx.editor.project().board(cx.board) {
+                cx.selection.update(board);
             }
             if !cx.is_group_active() {
                 cx.rebuild_air_wires();

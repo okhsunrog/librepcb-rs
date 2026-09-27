@@ -1132,6 +1132,7 @@ impl State for SelectState {
     }
 
     fn process(&mut self, cx: &mut Cx<'_, '_>, input: &BoardFsmInput) -> bool {
+        let selection_rev = cx.selection.revision();
         let handled = match input {
             BoardFsmInput::SelectAll => {
                 if self.busy() {
@@ -1257,7 +1258,13 @@ impl State for SelectState {
             BoardFsmInput::ContextMenu(action) => self.context_action(cx, *action),
             _ => false,
         };
-        self.update_features(cx, true);
+        // Upstream updates the features on selection and undo stack changes
+        // (delayed); pointer moves only change the selection.
+        if !matches!(input, BoardFsmInput::PointerMoved(_))
+            || cx.selection.revision() != selection_rev
+        {
+            self.update_features(cx, true);
+        }
         handled
     }
 
