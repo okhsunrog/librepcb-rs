@@ -50,6 +50,7 @@ mod tab_editing;
 
 pub use add_component_host::OpenAddComponent;
 pub use dialog_host::OpenDialog;
+pub use tab_editing::load_image_file;
 
 /// The application version.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");

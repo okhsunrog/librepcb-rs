@@ -24,9 +24,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use librepcb_app_ui as ui;
 use librepcb_canvas::kurbo::Point;
 use librepcb_canvas::{Modifiers, PointerButton, PointerKind};
-use std::collections::BTreeSet;
-
-use librepcb_core::project::{BoardId, ComponentInstanceId, NetSignalId, SchematicId, SymbolId};
+use librepcb_core::project::{BoardId, SchematicId, SymbolId};
 use librepcb_core::types::{GridStyle, Length, LengthUnit, UnsignedLength, Uuid};
 use librepcb_editor::fsm::board::BoardItemRef;
 use librepcb_editor::fsm::schematic::{ComponentChoice, SchematicTool};
@@ -155,6 +153,17 @@ pub enum TabRequest {
         /// The current width.
         current: UnsignedLength,
     },
+    /// Choose an image file for the schematic image tool (upstream
+    /// `ImageHelpers::execImageChooserDialog()`); the file is passed back
+    /// with [`Tab::add_image()`].
+    ChooseImageFile,
+    /// Choose a DXF file and the import options (upstream
+    /// `DxfImportDialog`); the choice is passed back with
+    /// [`Tab::import_dxf()`].
+    ImportDxf {
+        /// The layers the polygons can be imported to.
+        layers: Vec<librepcb_core::types::Layer>,
+    },
 }
 
 /// The item of a properties dialog request.
@@ -177,21 +186,9 @@ pub enum PropertiesTarget {
 }
 
 /// Cross-probing: what the current tab has selected, highlighted in the
-/// other tabs of the project (upstream `ProjectEditor::getCrossProbe()`).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CrossProbe {
-    /// Selected components (symbols, devices).
-    pub components: BTreeSet<ComponentInstanceId>,
-    /// Selected or highlighted nets.
-    pub nets: BTreeSet<NetSignalId>,
-}
-
-impl CrossProbe {
-    /// Whether nothing is probed.
-    pub fn is_empty(&self) -> bool {
-        self.components.is_empty() && self.nets.is_empty()
-    }
-}
+/// other tabs of the project (upstream `ProjectEditor::getCrossProbe()`):
+/// components, nets, component signals (pins and pads) and buses.
+pub use librepcb_editor::fsm::CrossProbe;
 
 impl TabUpdate {
     /// Only a repaint.
@@ -235,8 +232,15 @@ impl Tab {
         data
     }
 
-    /// Applies base UI data written by the UI (e.g. the find term).
-    pub fn set_ui_data(&mut self, _data: &ui::TabData) {}
+    /// Applies base UI data written by the UI (the find term); returns
+    /// whether it changed.
+    pub fn set_ui_data(&mut self, data: &ui::TabData) -> bool {
+        match self {
+            Self::Home(_) => false,
+            Self::Schematic(t) => t.set_find_term(&data.find_term),
+            Self::Board2d(t) => t.set_find_term(&data.find_term),
+        }
+    }
 
     /// The schematic tab data (default for other tabs).
     pub fn schematic_data(&self, projects: &[Rc<AppProject>]) -> ui::SchematicTabData {
@@ -333,6 +337,25 @@ impl Tab {
     pub fn add_component(&mut self, choice: Option<ComponentChoice>) -> TabUpdate {
         match self {
             Self::Schematic(t) => t.add_component(choice),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// The answer of [`TabRequest::ChooseImageFile`].
+    pub fn add_image(&mut self, data: librepcb_editor::fsm::schematic::ImageData) -> TabUpdate {
+        match self {
+            Self::Schematic(t) => t.add_image(data),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// The answer of [`TabRequest::ImportDxf`].
+    pub fn import_dxf(
+        &mut self,
+        settings: librepcb_editor::fsm::board::DxfImportSettings,
+    ) -> TabUpdate {
+        match self {
+            Self::Board2d(t) => t.import_dxf(settings),
             _ => TabUpdate::default(),
         }
     }

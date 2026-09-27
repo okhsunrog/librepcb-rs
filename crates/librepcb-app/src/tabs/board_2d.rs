@@ -10,11 +10,16 @@
 //! highlighted nets are shown, the overlays are updated and the tool bar
 //! data (`tool-*` fields of `Board2dTabData`) is refreshed.
 //!
-//! Not available yet: the add pad tools, DXF import, the unplaced
-//! components panel, plane rebuilds, DRC, exports and the "find" feature;
-//! dialogs requested by the FSM (properties, line width) show a
-//! notification; grid changes are undoable modifications of the board
-//! settings (upstream: without undo).
+//! The standalone pad tools (with their tool bar: net, board side, shape,
+//! size, drill, corner radius, press-fit), the DXF import (file chooser and
+//! import dialog of the application), the "find" field, cross-probing of
+//! components, nets and component signals (pads) and the plane visibility
+//! of the context menu are wired to the FSM like upstream.
+//!
+//! Not available yet: the unplaced components panel. Grid changes are
+//! undoable modifications of the board settings (upstream: without undo);
+//! the plane visibility is kept in the model without an undo step (like
+//! upstream, it is not saved).
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
@@ -23,16 +28,19 @@ use librepcb_app_ui as ui;
 use librepcb_canvas::kurbo::{Point, Vec2};
 use librepcb_canvas::peniko::Color;
 use librepcb_canvas::{Grid, Modifiers, PointerAction, PointerButton, PointerKind};
+use librepcb_core::geometry::ComponentSide;
 use librepcb_core::geometry::ZoneRules;
 use librepcb_core::project::{BoardId, BoardMutation, ComponentInstanceId, Mutation, NetSignalId};
 use librepcb_core::types::{
-    Angle, GridStyle, Layer, Length, LengthUnit, Orientation, PositiveLength, UnsignedLength, Uuid,
+    Angle, GridStyle, Layer, Length, LengthUnit, Orientation, PositiveLength, Ratio,
+    UnsignedLength, UnsignedLimitedRatio, Uuid,
 };
 use librepcb_editor::commands::ApplyMutations;
 use librepcb_editor::fsm::board::{
     BoardContext, BoardEditorFsm, BoardEditorSettings, BoardItemRef, BoardRequest, BoardTool,
-    BoardToolData, ContextAction, ToolNet, ToolSetting, WireMode,
+    BoardToolData, ContextAction, DxfImportSettings, ToolNet, ToolPadShape, ToolSetting, WireMode,
 };
+use librepcb_editor::fsm::find::FindResult;
 use librepcb_editor::fsm::{PointerEvent, ViewState};
 use librepcb_i18n::tr;
 use librepcb_scene::{BoardObject, BoardScene, BoardSceneLayer, BoardSide, ColorScheme, SceneSync};
@@ -112,6 +120,12 @@ pub struct Board2dTab {
     /// Actions of the entries of the last context menu (`None`:
     /// separator).
     menu: Vec<Option<ContextAction>>,
+    /// The item of the last context menu.
+    menu_item: Option<BoardItemRef>,
+    /// Cross-probed by the last "find next/previous" (until the next click).
+    find_probe: CrossProbe,
+    /// Suggestions of the "find" field (updated in place while typing).
+    find_suggestions: Rc<slint::VecModel<ui::SimpleListItemData>>,
 }
 
 impl Board2dTab {
@@ -178,9 +192,14 @@ impl Board2dTab {
             configured_tool: None,
             probe: CrossProbe::default(),
             menu: Vec::new(),
+            menu_item: None,
+            find_probe: CrossProbe::default(),
+            find_suggestions: Rc::new(slint::VecModel::default()),
         };
         tab.init_layers();
         tab.apply_grid();
+        // Enter the select tool (its features, e.g. for the menus).
+        tab.run(|f, c| f.set_tool(c, BoardTool::Select));
         tab
     }
 
@@ -515,18 +534,30 @@ impl Board2dTab {
         let tool = self.fsm.tool();
         let data = self.fsm.tool_data();
         let line_width = data.line_width.map_or(Length::ZERO, |w| w.get());
-        let size = data.size.map_or(Length::ZERO, |s| s.get());
+        // Fiducials: the size field is the copper clearance.
+        let size = data
+            .size
+            .map(|s| s.get())
+            .or(data.copper_clearance.map(|c| c.get()))
+            .unwrap_or(Length::ZERO);
         let drill = data.drill.map_or(Length::ZERO, |d| d.get());
         if self.configured_tool != Some(tool) {
             self.configured_tool = Some(tool);
+            let pad = matches!(tool, BoardTool::AddThtPad | BoardTool::AddSmtPad(_));
             let (line_min, size_steps) = match tool {
                 BoardTool::DrawTrace => (Length::new(1), steps::GENERIC),
                 BoardTool::AddStrokeText => (Length::ZERO, steps::TEXT_HEIGHT),
+                _ if pad => (Length::new(1), steps::GENERIC),
                 _ => (Length::ZERO, steps::GENERIC),
+            };
+            let size_min = if data.fiducial {
+                Length::ZERO
+            } else {
+                Length::new(1)
             };
             self.line_width
                 .configure(line_width, line_min, steps::GENERIC);
-            self.size.configure(size, Length::new(1), size_steps);
+            self.size.configure(size, size_min, size_steps);
             self.drill
                 .configure(drill, Length::new(1), steps::DRILL_DIAMETER);
         } else {
@@ -565,14 +596,17 @@ impl Board2dTab {
             .chain(self.probe.nets.iter())
             .copied()
             .collect();
+        let signals = &self.probe.component_signals;
         let want: HashSet<_> = {
             let p = self.project.shared().lock();
             let proj = p.project();
             let board = proj.board(self.board);
             let segment_net = |seg| board.and_then(|b| b.net_segment(seg)).and_then(|s| s.net());
-            // Nets of footprint pads (only computed when needed).
+            // Nets of footprint pads and the pads of cross-probed component
+            // signals (only computed when needed).
             let mut pad_nets: HashMap<(ComponentInstanceId, Uuid), NetSignalId> = HashMap::new();
-            if !nets.is_empty()
+            let mut probed_pads: HashSet<(ComponentInstanceId, Uuid)> = HashSet::new();
+            if (!nets.is_empty() || !signals.is_empty())
                 && let Some(b) = board
             {
                 for device in b.devices().values() {
@@ -580,6 +614,9 @@ impl Board2dTab {
                         for pad in pads {
                             if let Some(net) = pad.net() {
                                 pad_nets.insert((device.component(), pad.uuid()), net);
+                            }
+                            if pad.component_signal().is_some_and(|s| signals.contains(&s)) {
+                                probed_pads.insert((device.component(), pad.uuid()));
                             }
                         }
                     }
@@ -598,6 +635,10 @@ impl Board2dTab {
                             BoardObject::StrokeText(u) => device_texts.contains(&u),
                             _ => false,
                         };
+                    let probed_pad = match object {
+                        BoardObject::FootprintPad(c, pad) => probed_pads.contains(&(c, pad)),
+                        _ => false,
+                    };
                     let net = !nets.is_empty()
                         && match object {
                             BoardObject::Trace(seg, _)
@@ -610,7 +651,7 @@ impl Board2dTab {
                             }
                             _ => false,
                         };
-                    (selected || net).then_some(id)
+                    (selected || net || probed_pad).then_some(id)
                 })
                 .collect()
         };
@@ -663,7 +704,8 @@ impl Board2dTab {
             BoardRequest::LineWidthDialog { current } => {
                 update.requests.push(TabRequest::LineWidth { current });
             }
-            BoardRequest::ContextMenu { pos, items, .. } => {
+            BoardRequest::ContextMenu { pos, items, item } => {
+                self.menu_item = Some(item);
                 let entries: Vec<ContextMenuEntry> = items
                     .iter()
                     .map(|i| match i.action {
@@ -707,8 +749,98 @@ impl Board2dTab {
         };
         self.menu.clear();
         let before = self.snapshot();
+        if let ContextAction::PlaneVisible(visible) = action {
+            // A view setting (upstream `BI_Plane::setVisible()`, not
+            // saved and not undoable).
+            let item = self.menu_item.take();
+            if let Some(BoardItemRef::Plane(plane)) = item {
+                self.set_plane_visible(plane, visible);
+            }
+            let mut update = self.after_fsm(&before);
+            update.repaint = true;
+            return update;
+        }
         self.run(|f, c| f.context_menu_action(c, action));
         self.after_fsm(&before)
+    }
+
+    /// Shows or hides the fragments of a plane (context menu "Visible").
+    pub fn set_plane_visible(&mut self, plane: librepcb_core::project::PlaneId, visible: bool) {
+        let result = self
+            .project
+            .shared()
+            .lock()
+            .editor
+            .set_plane_visible(self.board, plane, visible);
+        if let Err(e) = result {
+            log::error!("Failed to change the plane visibility: {e}");
+        }
+    }
+
+    /// Imports a DXF file with the choices of the import dialog (the
+    /// answer of [`TabRequest::ImportDxf`]).
+    pub fn import_dxf(&mut self, settings: DxfImportSettings) -> TabUpdate {
+        let before = self.snapshot();
+        self.run(|f, c| f.import_dxf(c, settings));
+        self.after_fsm(&before)
+    }
+
+    /// Sets the term of the "find" field; returns whether it changed.
+    pub fn set_find_term(&mut self, term: &str) -> bool {
+        if self.fsm.search().term() == term.trim() {
+            return false;
+        }
+        self.fsm.set_find_term(term);
+        self.update_find_suggestions();
+        true
+    }
+
+    fn update_find_suggestions(&self) {
+        use slint::Model;
+        let items: Vec<ui::SimpleListItemData> = self
+            .fsm
+            .search()
+            .suggestions()
+            .iter()
+            .map(|c| ui::SimpleListItemData {
+                icon: Default::default(),
+                text: c.name.as_str().into(),
+            })
+            .collect();
+        let model = &self.find_suggestions;
+        if model
+            .iter()
+            .map(|i| i.text)
+            .eq(items.iter().map(|i| i.text.clone()))
+        {
+            return;
+        }
+        model.set_vec(items);
+    }
+
+    /// Zooms to the objects found by "find next/previous" (upstream
+    /// `goToObjects()`) and cross-probes them.
+    fn go_to_found(&mut self, result: Option<FindResult>, extra: &mut TabUpdate) {
+        let Some(result) = result else { return };
+        if result.zoom_rect.is_some() {
+            // Zoom to the bounding box of the found items (upstream uses
+            // the graphics items, the FSM only their positions).
+            self.apply_highlight();
+            if let Some(rect) = self
+                .scene
+                .as_ref()
+                .and_then(|s| super::editing::selection_zoom_rect(s.scene()))
+            {
+                self.canvas.zoom_to(rect);
+                self.update_overlays();
+                extra.repaint = true;
+            }
+        }
+        self.find_probe = CrossProbe {
+            components: result.components.into_iter().collect(),
+            nets: result.nets.into_iter().collect(),
+            ..CrossProbe::default()
+        };
     }
 
     /// Aborts the current tool if the project has an open undo group.
@@ -732,16 +864,22 @@ impl Board2dTab {
             .is_group_active()
     }
 
-    /// What this tab cross-probes: the components of selected devices and
-    /// the nets of selected traces, vias and pads (and the nets the current
-    /// tool highlights).
+    /// What this tab cross-probes: what the FSM reports
+    /// ([`BoardEditorFsm::cross_probe()`]: nets, components of devices,
+    /// component signals of pads), the components of selected devices, the
+    /// nets of selected traces, vias and pads, the nets the current tool
+    /// highlights and the objects found by "find".
     pub fn cross_probe(&self) -> CrossProbe {
         let p = self.project.shared().lock();
         let board = p.project().board(self.board);
-        let mut probe = CrossProbe {
-            nets: self.fsm.highlighted_nets().clone(),
-            ..CrossProbe::default()
-        };
+        let mut probe = self.fsm.cross_probe().clone();
+        probe
+            .nets
+            .extend(self.fsm.highlighted_nets().iter().copied());
+        probe
+            .components
+            .extend(self.find_probe.components.iter().copied());
+        probe.nets.extend(self.find_probe.nets.iter().copied());
         for item in self.fsm.selection().items() {
             match *item {
                 BoardItemRef::Device(c) => {
@@ -819,7 +957,7 @@ impl Board2dTab {
             grid: feature(writable),
             zoom: feature(true),
             background_image: ui::FeatureState::NotSupported,
-            import_graphics: ui::FeatureState::NotSupported,
+            import_graphics: edit(f.import_graphics),
             export_graphics: ui::FeatureState::NotSupported,
             select: feature(f.select),
             cut: edit(f.cut),
@@ -836,10 +974,12 @@ impl Board2dTab {
             unlock: edit(f.unlock),
             modify_line_width: edit(f.modify_line_width),
             edit_properties: feature(f.properties),
-            find: ui::FeatureState::NotSupported,
+            find: feature(true),
         };
         ui::TabData {
             r#type: ui::TabType::Board2d,
+            find_term: self.fsm.search().term().into(),
+            find_autocompletions: slint::ModelRc::from(self.find_suggestions.clone()),
             title: self.title.as_str().into(),
             features,
             read_only: !writable,
@@ -847,7 +987,6 @@ impl Board2dTab {
             undo_text: undo.undo_text().unwrap_or_default().into(),
             redo_text: undo.redo_text().unwrap_or_default().into(),
             layers: model_rc(&self.layers_model),
-            ..Default::default()
         }
     }
 
@@ -866,7 +1005,8 @@ impl Board2dTab {
                     format!("[{}]", tr!("Board2dTab", "Auto")),
                 ));
             }
-            BoardTool::DrawPlane => {}
+            BoardTool::DrawPlane | BoardTool::AddThtPad => {}
+            BoardTool::AddSmtPad(_) if !data.fiducial => {}
             _ => return nets,
         }
         nets.push((
@@ -967,7 +1107,30 @@ impl Board2dTab {
                         .collect(),
                 ),
             },
-            tool_pressfit: data.auto_drill,
+            tool_pressfit: match data.press_fit {
+                Some(press_fit) => press_fit,
+                None => data.auto_drill,
+            },
+            tool_bottom: data.component_side == Some(ComponentSide::Bottom),
+            tool_shape: match data.pad_shape {
+                Some(ToolPadShape::RoundedRect) => ui::PadShape::RoundedRect,
+                Some(ToolPadShape::Rect) => ui::PadShape::Rect,
+                Some(ToolPadShape::Octagon) => ui::PadShape::Octagon,
+                Some(ToolPadShape::Round) | None => ui::PadShape::Round,
+            },
+            tool_ratio: {
+                let ratio = data.pad_radius.map_or(0, |r| r.get().to_ppm());
+                ui::RatioEditData {
+                    value: ratio,
+                    minimum: 0,
+                    maximum: 1_000_000,
+                    can_increase: ratio < 1_000_000,
+                    can_decrease: ratio > 0,
+                    increase: false,
+                    decrease: false,
+                }
+            },
+            tool_fiducial: data.fiducial,
             tool_no_copper: data.zone_rules.contains(ZoneRules::NO_COPPER),
             tool_no_planes: data.zone_rules.contains(ZoneRules::NO_PLANES),
             tool_no_exposures: data.zone_rules.contains(ZoneRules::NO_EXPOSURE),
@@ -1027,7 +1190,9 @@ impl Board2dTab {
             || data.tool_drill.increase
             || data.tool_drill.decrease
             || data.tool_angle.increase
-            || data.tool_angle.decrease;
+            || data.tool_angle.decrease
+            || data.tool_ratio.increase
+            || data.tool_ratio.decrease;
         after
     }
 
@@ -1110,6 +1275,9 @@ impl Board2dTab {
                     settings.push(ToolSetting::Text(text));
                 }
             }
+            BoardTool::AddThtPad | BoardTool::AddSmtPad(_) => {
+                settings.extend(self.pad_settings(data, &current));
+            }
             BoardTool::AddHole => {
                 if self.drill.set_ui_data(&data.tool_drill).is_some()
                     && let Ok(d) = PositiveLength::new(self.drill.value())
@@ -1143,6 +1311,75 @@ impl Board2dTab {
                 }
             }
             _ => {}
+        }
+        settings
+    }
+
+    /// The tool bar values of the pad tools changed by the UI (upstream
+    /// `Board2dTab::setDerivedUiData()`: the ratio before the shape).
+    fn pad_settings(
+        &mut self,
+        data: &ui::Board2dTabData,
+        current: &BoardToolData,
+    ) -> Vec<ToolSetting> {
+        let mut settings = Vec::new();
+        if let Some(side) = current.component_side {
+            let bottom = if data.tool_bottom {
+                ComponentSide::Bottom
+            } else {
+                ComponentSide::Top
+            };
+            if bottom != side {
+                settings.push(ToolSetting::ComponentSide(bottom));
+            }
+        }
+        let radius = current.pad_radius.map_or(0, |r| r.get().to_ppm());
+        let step = Ratio::from_percent(1).to_ppm();
+        let new_radius = if data.tool_ratio.increase {
+            (radius + step).min(1_000_000)
+        } else if data.tool_ratio.decrease {
+            (radius - step).max(0)
+        } else {
+            data.tool_ratio.value
+        };
+        if new_radius != radius
+            && let Ok(r) = UnsignedLimitedRatio::new(Ratio::new(new_radius))
+        {
+            settings.push(ToolSetting::PadRadius(r));
+        }
+        let shape = match data.tool_shape {
+            ui::PadShape::Round => ToolPadShape::Round,
+            ui::PadShape::RoundedRect => ToolPadShape::RoundedRect,
+            ui::PadShape::Rect => ToolPadShape::Rect,
+            ui::PadShape::Octagon => ToolPadShape::Octagon,
+        };
+        if Some(shape) != current.pad_shape {
+            settings.push(ToolSetting::PadShape(shape));
+        }
+        if let Some(width) = self.line_width.set_ui_data(&data.tool_line_width)
+            && let Ok(w) = PositiveLength::new(width)
+        {
+            settings.push(ToolSetting::PadWidth(w));
+        }
+        if self.size.set_ui_data(&data.tool_size).is_some() {
+            if current.fiducial {
+                if let Ok(c) = UnsignedLength::new(self.size.value()) {
+                    settings.push(ToolSetting::FiducialClearance(c));
+                }
+            } else if let Ok(h) = PositiveLength::new(self.size.value()) {
+                settings.push(ToolSetting::PadHeight(h));
+            }
+        }
+        if current.drill.is_some()
+            && self.drill.set_ui_data(&data.tool_drill).is_some()
+            && let Ok(d) = PositiveLength::new(self.drill.value())
+        {
+            settings.push(ToolSetting::HoleDiameter(d));
+        }
+        if let Some(press_fit) = current.press_fit
+            && data.tool_pressfit != press_fit
+        {
+            settings.push(ToolSetting::PressFit(data.tool_pressfit));
         }
         settings
     }
@@ -1353,11 +1590,26 @@ impl Board2dTab {
                 self.run(tool(BoardTool::AddSmtPad(function)));
             }
             A::ImportDxf => {
-                extra.status = Some(tr!(
-                    "MainWindow",
-                    "Not available yet in this version: {0}",
-                    format!("{action:?}")
-                ));
+                // Upstream `processImportDxf()` opens the file chooser and
+                // the import dialog from the select state; here the
+                // application does and passes the choice to `import_dxf()`.
+                if self.fsm.view_state().features.import_graphics {
+                    extra.requests.push(TabRequest::ImportDxf {
+                        layers: self.geometry_layers(),
+                    });
+                }
+            }
+            A::FindRefreshSuggestions => {
+                self.run(|f, c| f.refresh_find_suggestions(c));
+                self.update_find_suggestions();
+            }
+            A::FindNext => {
+                let result = self.run(|f, c| f.find_next(c));
+                self.go_to_found(result, &mut extra);
+            }
+            A::FindPrevious => {
+                let result = self.run(|f, c| f.find_previous(c));
+                self.go_to_found(result, &mut extra);
             }
             _ => return TabUpdate::default(),
         }
@@ -1370,6 +1622,18 @@ impl Board2dTab {
         }
         update.requests.extend(extra.requests);
         update
+    }
+
+    /// The layers of imported DXF polygons (upstream
+    /// `getAllowedGeometryLayers()`), sorted.
+    fn geometry_layers(&self) -> Vec<Layer> {
+        let p = self.project.shared().lock();
+        let copper = p
+            .project()
+            .board(self.board)
+            .map(|b| b.copper_layers())
+            .unwrap_or_default();
+        crate::dialogs::board::board_geometry_layers(&copper)
     }
 
     fn content_bounds(&mut self) -> Option<librepcb_canvas::kurbo::Rect> {
@@ -1423,6 +1687,7 @@ impl Board2dTab {
             }
             PointerAction::LeftPressed(world) => {
                 let e = event(world);
+                self.find_probe = CrossProbe::default();
                 self.cursor = Some(e.pos);
                 if self.double_click.press(pos) {
                     self.run(|f, c| f.left_double_clicked(c, e));

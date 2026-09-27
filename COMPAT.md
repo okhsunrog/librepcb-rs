@@ -1021,10 +1021,27 @@ upstream `librepcb-cli` 2.1.1 except for:
   and macOS Qt stores custom MIME types under its own format names, which
   are not reproduced. Without a system clipboard (no display, or
   `LIBREPCB_NO_SYSTEM_CLIPBOARD` set), an in-app clipboard is used.
-- **Not available yet in the tabs:** the bus and image tools (schematic;
-  the bus label rename and symbol text dialogs work), the add pad tools,
-  DXF import, the unplaced components panel and plane rebuilds (board),
-  "find".
+- **M3d tools in the tabs:** buses (the tool button's menu of existing
+  buses starts the tool with the chosen bus), images, the standalone pad
+  tools and DXF import work like upstream, with these differences:
+  - *Bus member menu:* the "Add New Bus Member" / nets / "Cancel" menu is
+    the scene's Slint popup; closing it by clicking into the scene counts
+    as "Cancel" (upstream's `QMenu::exec()` is modal).
+  - *Images:* PNG, JPEG and SVG files only (upstream converts other
+    formats supported by Qt's image readers to PNG); the image file name
+    is not asked for (the file's base name is used).
+  - *DXF import dialog:* a form dialog; its choices are remembered while
+    the application runs (upstream: in the client settings); the scale
+    factor is a text field.
+  - *Find:* the suggestions have no icons; the zoom rectangle is the
+    bounding box of the highlighted scene items (upstream: graphics items
+    of the found objects), with upstream's margin.
+  - *Plane visibility* (plane context menu "Visible") is a model setting
+    applied without undo step, like upstream not saved.
+  - *Cross-probing* also highlights the pins or pads of the component
+    signals the other tab reports (`fsmCrossProbe()`) and buses.
+- **Not available yet in the tabs:** the unplaced components panel and
+  plane rebuilds (board).
 - **Keyboard shortcuts:** `Backend.is-shortcut` compares with the default
   shortcut of the `.slint` command set only (no user overrides, no
   alternative shortcuts).

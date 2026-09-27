@@ -119,6 +119,7 @@ pub mod app;
 pub mod canvas_view;
 pub mod clipboard;
 pub mod dialogs;
+pub mod file_dialog;
 pub mod helpers;
 pub mod history;
 pub mod icons;

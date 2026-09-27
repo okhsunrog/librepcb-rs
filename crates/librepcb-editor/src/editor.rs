@@ -334,6 +334,38 @@ impl ProjectEditor {
         Ok(result)
     }
 
+    /// Shows or hides a plane (upstream `BI_Plane::setVisible()`, the
+    /// "Visible" entry of the plane context menu): a view setting which is
+    /// neither saved nor undoable, applied directly to the model (the
+    /// change journal reports it, so scenes update). Returns whether it
+    /// changed.
+    pub fn set_plane_visible(
+        &mut self,
+        board: librepcb_core::project::BoardId,
+        plane: librepcb_core::project::PlaneId,
+        visible: bool,
+    ) -> Result<bool> {
+        use librepcb_core::project::{BoardMutation, Mutation};
+        let Some(mut data) = self
+            .project
+            .board(board)
+            .and_then(|b| b.plane(plane))
+            .cloned()
+        else {
+            return Ok(false);
+        };
+        if data.visible() == visible {
+            return Ok(false);
+        }
+        data.set_visible(visible);
+        self.project
+            .apply(Mutation::Board(BoardMutation::UpdatePlane {
+                board,
+                plane: data,
+            }))?;
+        Ok(true)
+    }
+
     /// Whether the project is unmodified since the last save.
     pub fn is_clean(&self) -> bool {
         self.undo_stack.is_clean()

@@ -129,6 +129,8 @@ pub enum TabDialogResult {
     LineWidth(librepcb_core::types::UnsignedLength),
     /// The new positions of the "Move/Align Elements" dialog.
     Positions(Vec<librepcb_core::types::Point>),
+    /// The choices of the DXF import dialog.
+    ImportDxf(librepcb_editor::fsm::board::DxfImportSettings),
 }
 
 /// Buttons and size of a form dialog.

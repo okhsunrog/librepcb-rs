@@ -368,6 +368,19 @@ pub fn is_overlay_layer(id: LayerId) -> bool {
     id.0 >= layers::GRAY_OUT.0 && id.0 <= layers::SELECTION_LINE.0
 }
 
+/// The rectangle to zoom to for the selected (highlighted) items of a
+/// scene (upstream `goToObjects()` of the schematic and board tabs): their
+/// bounding box plus a margin of 1.5 times its larger dimension, at most
+/// 10 mm.
+pub fn selection_zoom_rect(scene: &librepcb_canvas::Scene) -> Option<librepcb_canvas::kurbo::Rect> {
+    let bbox = scene
+        .selection()
+        .filter_map(|id| scene.item(id).map(|i| i.bounding_box()))
+        .reduce(|a, b| a.union(b))?;
+    let margin = (1.5 * bbox.width().max(bbox.height())).min(10.0);
+    Some(bbox.inflate(margin, margin))
+}
+
 /// Upstream `EditorToolbox::toSingleLine()` (tool bar text inputs).
 pub fn to_single_line(text: &str) -> String {
     text.replace('\n', "\\n")

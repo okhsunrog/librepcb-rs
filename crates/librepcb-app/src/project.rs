@@ -177,6 +177,21 @@ impl AppProject {
                 ..Default::default()
             })
             .collect();
+        // Upstream `ProjectEditor::getUiData()`: the buses sorted by name.
+        let mut buses: Vec<(String, String)> = project
+            .circuit()
+            .buses()
+            .iter()
+            .map(|(id, b)| (b.name().to_string(), id.to_string()))
+            .collect();
+        buses.sort_by(|a, b| crate::dialogs::natural_cmp(&a.0, &b.0));
+        let buses = buses
+            .into_iter()
+            .map(|(name, uuid)| ui::BusData {
+                uuid: uuid.into(),
+                name: name.into(),
+            })
+            .collect();
         ui::ProjectData {
             valid: true,
             path: self.path.to_native().into(),
@@ -186,7 +201,7 @@ impl AppProject {
             writable: self.writable,
             ieee315_symbols: false,
             unsaved_changes: p.has_unsaved_changes(),
-            buses: vec_model(Vec::new()),
+            buses: vec_model(buses),
             erc: checks.erc_data(read_only),
         }
     }
