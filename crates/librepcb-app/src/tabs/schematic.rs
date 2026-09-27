@@ -16,7 +16,7 @@ use librepcb_canvas::{Grid, PointerAction, PointerButton, PointerKind};
 use librepcb_core::project::SchematicId;
 use librepcb_core::types::{GridStyle, Length, LengthUnit, PositiveLength};
 use librepcb_i18n::tr;
-use librepcb_scene::{ColorScheme, SchematicObject, SchematicScene};
+use librepcb_scene::{ColorScheme, SceneSync, SchematicObject, SchematicScene};
 
 use super::{TabId, TabUpdate, feature, project_index};
 use crate::canvas_view::{CanvasView, DEFAULT_SCHEMATIC_RECT};
@@ -41,8 +41,8 @@ pub struct SchematicTab {
     schematic: SchematicId,
     scheme: ColorScheme,
     scene: Option<SchematicScene>,
-    /// Project revision the scene was built from.
-    scene_revision: u64,
+    /// Journal cursor of the scene.
+    sync: SceneSync,
     canvas: CanvasView,
     title: String,
     grid_style: GridStyle,
@@ -89,7 +89,7 @@ impl SchematicTab {
             schematic,
             scheme,
             scene,
-            scene_revision: revision,
+            sync: SceneSync::at(revision),
             canvas: CanvasView::new(background, DEFAULT_SCHEMATIC_RECT, content),
             title,
             grid_style,
@@ -163,25 +163,32 @@ impl SchematicTab {
         }
     }
 
-    /// Rebuilds the scene if the project changed since it was built.
+    /// Updates the scene from the project's change journal if the project
+    /// changed (e.g. through the MCP server): incrementally where possible.
     pub fn rebuild_if_modified(&mut self) -> TabUpdate {
         let p = self.project.shared().lock();
         let proj = p.project();
-        if proj.revision() == self.scene_revision {
+        if !self.sync.is_outdated(proj) {
             return TabUpdate::default();
         }
-        match SchematicScene::build(proj, self.schematic, &self.scheme) {
-            Ok(scene) => {
+        let result = match &mut self.scene {
+            Some(scene) => self.sync.sync(proj, scene),
+            None => SchematicScene::build(proj, self.schematic, &self.scheme).map(|scene| {
                 self.scene = Some(scene);
-                self.scene_revision = proj.revision();
-                if let Some(s) = proj.schematic(self.schematic) {
-                    self.title = s.properties().name.to_string();
-                }
-            }
-            Err(e) => log::error!("Failed to rebuild the schematic scene: {e}"),
+                self.sync = SceneSync::new(proj);
+                true
+            }),
+        };
+        if let Err(e) = &result {
+            log::error!("Failed to update the schematic scene: {e}");
+            self.sync = SceneSync::new(proj);
+        }
+        if let Some(s) = proj.schematic(self.schematic) {
+            self.title = s.properties().name.to_string();
         }
         drop(p);
-        self.selected = None;
+        // Refresh the selection (items may have been replaced).
+        self.select(self.selected);
         self.apply_pin_numbers();
         TabUpdate {
             repaint: true,

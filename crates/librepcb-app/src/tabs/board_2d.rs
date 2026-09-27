@@ -16,7 +16,7 @@ use librepcb_canvas::{Grid, PointerAction, PointerButton, PointerKind};
 use librepcb_core::project::BoardId;
 use librepcb_core::types::{GridStyle, Layer, Length, LengthUnit, PositiveLength};
 use librepcb_i18n::tr;
-use librepcb_scene::{BoardObject, BoardScene, BoardSceneLayer, BoardSide, ColorScheme};
+use librepcb_scene::{BoardObject, BoardScene, BoardSceneLayer, BoardSide, ColorScheme, SceneSync};
 
 use super::{TabId, TabUpdate, feature, project_index};
 use crate::canvas_view::{CanvasView, DEFAULT_BOARD_RECT};
@@ -42,7 +42,8 @@ pub struct Board2dTab {
     scheme: ColorScheme,
     side: BoardSide,
     scene: Option<BoardScene>,
-    scene_revision: u64,
+    /// Journal cursor of the scene.
+    sync: SceneSync,
     canvas: CanvasView,
     title: String,
     grid_style: GridStyle,
@@ -91,7 +92,7 @@ impl Board2dTab {
             scheme,
             side,
             scene,
-            scene_revision: revision,
+            sync: SceneSync::at(revision),
             canvas: CanvasView::new(background, DEFAULT_BOARD_RECT, content),
             title,
             grid_style,
@@ -165,6 +166,29 @@ impl Board2dTab {
                     .is_layer_visible(BoardSceneLayer::Board(*l).id())
             })
             .collect();
+        self.update_layers_model();
+    }
+
+    /// Re-lists the layers after a rebuild (the board's layers may have
+    /// changed), keeping the visibility of known layers.
+    fn init_layers_keep_visibility(&mut self) {
+        let old: Vec<(Layer, bool)> = self
+            .layers
+            .iter()
+            .copied()
+            .zip(self.visible.iter().copied())
+            .collect();
+        self.init_layers();
+        for (i, layer) in self.layers.iter().enumerate() {
+            if let Some((_, v)) = old.iter().find(|(l, _)| l == layer) {
+                self.visible[i] = *v;
+            }
+        }
+        if let Some(scene) = &mut self.scene {
+            for (layer, visible) in self.layers.iter().zip(&self.visible) {
+                scene.set_layer_visible(*layer, *visible);
+            }
+        }
         self.update_layers_model();
     }
 
@@ -261,7 +285,7 @@ impl Board2dTab {
                     scene.set_layer_visible(*layer, *visible);
                 }
                 self.scene = Some(scene);
-                self.scene_revision = proj.revision();
+                self.sync = SceneSync::new(proj);
                 if let Some(b) = proj.board(self.board) {
                     self.title = b.properties().name.to_string();
                 }
@@ -271,12 +295,35 @@ impl Board2dTab {
         self.selected = None;
     }
 
-    /// Rebuilds the scene if the project changed since it was built.
+    /// Updates the scene from the project's change journal if the project
+    /// changed (e.g. through the MCP server): incrementally where possible.
     pub fn rebuild_if_modified(&mut self) -> TabUpdate {
-        if self.project.revision() == self.scene_revision {
+        let p = self.project.shared().lock();
+        let proj = p.project();
+        if !self.sync.is_outdated(proj) {
             return TabUpdate::default();
         }
-        self.rebuild();
+        let result = match &mut self.scene {
+            Some(scene) => self.sync.sync(proj, scene),
+            None => Ok(true),
+        };
+        let rebuilt = match result {
+            Ok(rebuilt) => rebuilt,
+            Err(e) => {
+                log::warn!("Incremental board scene update failed, rebuilding: {e}");
+                true
+            }
+        };
+        if let Some(b) = proj.board(self.board) {
+            self.title = b.properties().name.to_string();
+        }
+        drop(p);
+        if rebuilt {
+            self.rebuild();
+            self.init_layers_keep_visibility();
+        } else {
+            self.select(self.selected);
+        }
         TabUpdate {
             repaint: true,
             data_changed: true,

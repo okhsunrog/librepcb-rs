@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 
 use librepcb_app::screenshot::{self, write_png};
 use librepcb_app::{App, InitialTab, startup, ui};
+use librepcb_core::project::Mutation;
+use librepcb_core::types::ElementName;
 use slint::{ComponentHandle, Model as _, Rgb8Pixel};
 
 const WIDTH: u32 = 1200;
@@ -134,4 +136,23 @@ fn main_window_screenshots() {
     );
     let data = app.window().global::<ui::Data>();
     assert_eq!(data.get_current_tab().r#type, ui::TabType::Schematic);
+    assert_eq!(data.get_current_tab().title, "Main");
+
+    // A modification from elsewhere (e.g. the MCP server) reaches the tab
+    // through the change journal.
+    {
+        let state = app.state().borrow();
+        let mut project = state.projects()[0].shared().lock();
+        let mut props = project.project().schematics()[0].properties();
+        props.name = ElementName::new("Renamed").unwrap();
+        project
+            .editor
+            .apply_mutations("Rename", vec![Mutation::UpdateSchematic(props)])
+            .unwrap();
+    }
+    // The tabs poll their project every 250 ms.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    headless.settle(5);
+    assert_eq!(data.get_current_tab().title, "Renamed");
+    assert!(data.get_current_tab().features.undo == ui::FeatureState::Enabled);
 }
