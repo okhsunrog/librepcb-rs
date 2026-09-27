@@ -277,3 +277,64 @@ fn project_setup() {
     assert_ne!(p.project().metadata().name.as_str(), "My Project");
     assert!(p.project().circuit().net_class_by_name("Power").is_none());
 }
+
+#[test]
+fn move_align() {
+    use librepcb_app::dialogs::TabDialogResult;
+    use librepcb_app::dialogs::move_align::MoveAlignDialog;
+    let dir = tempfile::tempdir().unwrap();
+    let (project, _, _) = create_project(dir.path());
+    // Three elements in a row (given unordered).
+    let positions = vec![mm(5.08, 0.0), mm(0.0, 0.0), mm(2.54, 0.0)];
+    let mut dialog = MoveAlignDialog::new(positions, LengthUnit::Millimeters);
+    let d: &mut dyn FormDialog = &mut dialog;
+    // Absolute mode with the leftmost element as reference, constant pitch.
+    assert_eq!(d.form().get_index("mode"), Some(0));
+    assert_eq!(d.form().get_length("x"), len(0.0));
+    assert!(d.form().get_checked("interval_x_on"));
+    assert_eq!(d.form().get_length("interval_x"), len(2.54));
+    set_length(d, &project, "x", len(10.0));
+    set_length(d, &project, "y", len(5.0));
+    set_length(d, &project, "interval_x", len(1.0));
+    assert_eq!(
+        apply(d, &project),
+        Ok(Applied::Tab(TabDialogResult::Positions(vec![
+            mm(12.0, 5.0),
+            mm(10.0, 5.0),
+            mm(11.0, 5.0)
+        ])))
+    );
+    // Centered around the Y axis.
+    edit(d, &project, "center_h", |f| f.checked = true);
+    assert!(!d.form().field("x").unwrap().enabled);
+    assert_eq!(
+        apply(d, &project),
+        Ok(Applied::Tab(TabDialogResult::Positions(vec![
+            mm(1.0, 5.0),
+            mm(-1.0, 5.0),
+            mm(0.0, 5.0)
+        ])))
+    );
+    edit(d, &project, "center_h", |f| f.checked = false);
+    // Relative mode converts the reference position.
+    edit(d, &project, "mode", |f| f.index = 1);
+    assert_eq!(d.form().get_length("x"), len(10.0));
+    edit(d, &project, "mode", |f| f.index = 0);
+    assert_eq!(d.form().get_length("x"), len(10.0));
+    // Align vertically: ΔX = 0.
+    edit(d, &project, "align_vertically", |f| {
+        f.action = ui::FormFieldAction::Clicked;
+    });
+    assert_eq!(d.form().get_length("interval_x"), len(0.0));
+
+    // A single element: relative mode, no pitch.
+    let mut dialog = MoveAlignDialog::new(vec![mm(1.0, 2.0)], LengthUnit::Millimeters);
+    let d: &mut dyn FormDialog = &mut dialog;
+    assert_eq!(d.form().get_index("mode"), Some(1));
+    assert!(!d.form().field("interval_x_on").unwrap().enabled);
+    set_length(d, &project, "x", len(1.0));
+    assert_eq!(
+        apply(d, &project),
+        Ok(Applied::Tab(TabDialogResult::Positions(vec![mm(2.0, 2.0)])))
+    );
+}

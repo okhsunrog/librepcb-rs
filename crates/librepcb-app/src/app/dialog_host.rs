@@ -262,6 +262,11 @@ impl State {
             TabDialogResult::LineWidth(width) => {
                 self.sections[si].tabs_mut()[ti].set_line_width(width)
             }
+            TabDialogResult::Positions(_) => {
+                // Only the package editor uses the move/align dialog (M4).
+                log::debug!("Move/align result without a library editor tab.");
+                return;
+            }
         };
         self.apply_update(si, ti, update);
         self.after_tab_event(si, ti);

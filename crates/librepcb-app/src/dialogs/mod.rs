@@ -37,6 +37,7 @@ pub mod attributes;
 pub mod board;
 pub mod form;
 pub mod geometry;
+pub mod move_align;
 pub mod output;
 pub mod schematic;
 pub mod setup;
@@ -125,6 +126,8 @@ pub enum Applied {
 pub enum TabDialogResult {
     /// The line width of the "Set Width" dialog.
     LineWidth(librepcb_core::types::UnsignedLength),
+    /// The new positions of the "Move/Align Elements" dialog.
+    Positions(Vec<librepcb_core::types::Point>),
 }
 
 /// Buttons and size of a form dialog.
