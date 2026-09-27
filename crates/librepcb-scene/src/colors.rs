@@ -6,62 +6,98 @@
 //! colors of the interactive editor): the schematic schemes "LibrePCB Light"
 //! (upstream default) and "LibrePCB Dark", and the board scheme "LibrePCB
 //! Dark" (upstream default). Colors are looked up by the color role
-//! identifier, which is also what [`Layer::color_role()`] returns.
+//! identifier, which is also what [`Layer::color_role()`] returns. Custom
+//! schemes ([`ColorScheme::custom()`]) carry the colors of graphics exports.
 //!
 //! [`Layer::color_role()`]: librepcb_core::types::Layer::color_role
+
+use std::borrow::Cow;
 
 use librepcb_canvas::peniko::Color;
 
 /// A color scheme: color role identifier → color.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Either one of upstream's default schemes (the constants) or a custom set
+/// of colors ([`ColorScheme::custom()`], e.g. those of a graphics export).
+#[derive(Debug, Clone, PartialEq)]
 pub struct ColorScheme {
-    name: &'static str,
-    colors: &'static [(&'static str, u32)],
-    inner_copper: &'static [u32],
+    name: Cow<'static, str>,
+    colors: Colors,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Colors {
+    Builtin {
+        colors: &'static [(&'static str, u32)],
+        inner_copper: &'static [u32],
+    },
+    Custom(Vec<(String, Color)>),
 }
 
 impl ColorScheme {
     /// Upstream `schematicLibrePcbLight()` (the default schematic scheme).
-    pub const SCHEMATIC_LIGHT: Self = Self {
-        name: "LibrePCB Light",
-        colors: SCHEMATIC_LIGHT,
-        inner_copper: &[],
-    };
+    pub const SCHEMATIC_LIGHT: Self = Self::builtin("LibrePCB Light", SCHEMATIC_LIGHT, &[]);
 
     /// Upstream `schematicLibrePcbDark()`.
-    pub const SCHEMATIC_DARK: Self = Self {
-        name: "LibrePCB Dark",
-        colors: SCHEMATIC_DARK,
-        inner_copper: &[],
-    };
+    pub const SCHEMATIC_DARK: Self = Self::builtin("LibrePCB Dark", SCHEMATIC_DARK, &[]);
 
     /// Upstream `boardLibrePcbDark()` (the default board scheme).
-    pub const BOARD_DARK: Self = Self {
-        name: "LibrePCB Dark",
-        colors: BOARD_DARK,
-        inner_copper: BOARD_DARK_INNER,
-    };
+    pub const BOARD_DARK: Self = Self::builtin("LibrePCB Dark", BOARD_DARK, BOARD_DARK_INNER);
+
+    const fn builtin(
+        name: &'static str,
+        colors: &'static [(&'static str, u32)],
+        inner_copper: &'static [u32],
+    ) -> Self {
+        Self {
+            name: Cow::Borrowed(name),
+            colors: Colors::Builtin {
+                colors,
+                inner_copper,
+            },
+        }
+    }
+
+    /// A custom scheme; roles which are not contained have no color (their
+    /// items are not drawn).
+    pub fn custom(
+        name: impl Into<String>,
+        colors: impl IntoIterator<Item = (String, Color)>,
+    ) -> Self {
+        Self {
+            name: Cow::Owned(name.into()),
+            colors: Colors::Custom(colors.into_iter().collect()),
+        }
+    }
 
     /// The (untranslated) name of the scheme.
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// The primary color of a color role (e.g. `"board_copper_top"`), `None`
     /// if the scheme does not define the role.
     pub fn color(&self, role: &str) -> Option<Color> {
-        if let Some(number) = role.strip_prefix("board_copper_inner_") {
-            let n: usize = number.parse().ok()?;
-            if n == 0 || self.inner_copper.is_empty() {
-                return None;
+        match &self.colors {
+            Colors::Custom(colors) => colors.iter().find(|(r, _)| r == role).map(|(_, c)| *c),
+            Colors::Builtin {
+                colors,
+                inner_copper,
+            } => {
+                if let Some(number) = role.strip_prefix("board_copper_inner_") {
+                    let n: usize = number.parse().ok()?;
+                    if n == 0 || inner_copper.is_empty() {
+                        return None;
+                    }
+                    // Upstream repeats the inner layer colors cyclically.
+                    return Some(argb(inner_copper[(n - 1) % inner_copper.len()]));
+                }
+                colors
+                    .iter()
+                    .find(|(r, _)| *r == role)
+                    .map(|(_, c)| argb(*c))
             }
-            // Upstream repeats the inner layer colors cyclically.
-            return Some(argb(self.inner_copper[(n - 1) % self.inner_copper.len()]));
         }
-        self.colors
-            .iter()
-            .find(|(r, _)| *r == role)
-            .map(|(_, c)| argb(*c))
     }
 
     /// Like [`color()`](Self::color), but transparent for unknown roles.

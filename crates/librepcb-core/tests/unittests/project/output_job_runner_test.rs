@@ -8,7 +8,9 @@ use librepcb_core::fileio::{
 };
 use librepcb_core::job::{BomOutputJob, CopyOutputJob, GerberExcellonOutputJob, OutputJob};
 use librepcb_core::project::board::{Board, BoardItem, BoardPlane, BoardPolygonData, ExportInfo};
-use librepcb_core::project::{OutputJobRunner, Project};
+use librepcb_core::project::{
+    GraphicsExportResult, GraphicsExporter, GraphicsPage, OutputJobRunner, Project,
+};
 use librepcb_core::types::{ElementName, Layer, Length, PositiveLength, UnsignedLength, Uuid};
 
 use crate::helpers::TempDir;
@@ -188,4 +190,62 @@ fn test_unsupported_job_types() {
     let graphics = OutputJob::new_default::<librepcb_core::job::GraphicsOutputJob>();
     let err = runner.run(&[graphics]).unwrap_err();
     assert!(err.to_string().contains("'graphics' are not supported yet"));
+}
+
+/// Records the pages and reports an additional file per call.
+struct RecordingExporter(std::sync::Mutex<Vec<(usize, String, String)>>);
+
+impl GraphicsExporter for RecordingExporter {
+    fn export(
+        &self,
+        _project: &Project,
+        pages: &[GraphicsPage],
+        file_path: &FilePath,
+        document_name: &str,
+    ) -> GraphicsExportResult {
+        self.0.lock().unwrap().push((
+            pages.len(),
+            file_path.file_name().to_owned(),
+            document_name.to_owned(),
+        ));
+        let extra = file_path.parent_dir().unwrap().path_to("extra.png");
+        GraphicsExportResult {
+            written_files: vec![file_path.clone(), extra],
+            errors: Vec::new(),
+        }
+    }
+}
+
+/// Not upstream: graphics jobs build the pages and pass them to the
+/// exporter; additional files are tracked.
+#[test]
+fn test_graphics_job_with_exporter() {
+    use librepcb_core::job::{GraphicsOutputJob, OutputJobKind};
+    let tmp = TempDir::new();
+    let mut project = create_project(&tmp.path().path_to("project"));
+    let exporter = Arc::new(RecordingExporter(Default::default()));
+    let mut runner = OutputJobRunner::new(&mut project, info()).unwrap();
+    runner.set_output_directory(&tmp.path().path_to("out"));
+    runner.set_graphics_exporter(Some(exporter.clone()));
+    let job = GraphicsOutputJob::schematic_pdf();
+    let uuid = job.uuid();
+    runner.run(&[job]).unwrap();
+    assert_eq!(runner.written_files().get(&uuid).unwrap().len(), 2);
+    // A new project has no schematics, thus no pages.
+    assert_eq!(
+        exporter.0.lock().unwrap().as_slice(),
+        &[(
+            0,
+            "Unnamed_v1_Schematic.pdf".to_owned(),
+            "Unnamed - v1".to_owned()
+        )]
+    );
+
+    // Unknown page sizes fail like upstream.
+    let mut job = GraphicsOutputJob::schematic_pdf();
+    if let OutputJobKind::Graphics(g) = job.kind_mut() {
+        g.content[0].page_size = Some("Foo".into());
+    }
+    let err = runner.run(&[job]).unwrap_err();
+    assert_eq!(err.to_string(), "Unsupported page size: 'Foo'");
 }

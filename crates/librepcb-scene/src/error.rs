@@ -26,6 +26,9 @@ pub enum Error {
     /// Rendering failed.
     #[error(transparent)]
     Render(#[from] librepcb_canvas::render::Error),
+    /// A polygon operation of the realistic board rendering failed.
+    #[error(transparent)]
+    Clipper(#[from] librepcb_core::utils::clipper_helpers::Error),
     /// PNG encoding failed.
     #[error("PNG encoding failed: {0}")]
     Png(#[from] png::EncodingError),

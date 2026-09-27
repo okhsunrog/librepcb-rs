@@ -14,8 +14,8 @@
 //!
 //! The official CLI is taken from the environment variable `LIBREPCB_CLI`,
 //! or `librepcb-cli` in `PATH`. Without it, the comparison is skipped (with
-//! a message on stderr). Unsupported features (graphics, STEP, DRC) are not
-//! compared.
+//! a message on stderr). Graphics exports (other bytes than Qt's) and
+//! unsupported features (STEP, DRC) are not compared.
 
 use std::collections::BTreeMap;
 use std::io::Read;

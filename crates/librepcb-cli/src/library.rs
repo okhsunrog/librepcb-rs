@@ -7,10 +7,12 @@
 //! an upstream build without OpenCascade, minifying and loading STEP models
 //! fails with upstream's error message.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use librepcb_core::export::GraphicsExportSettings;
 use librepcb_core::fileio::{
-    RestoreMode, TransactionalDirectory, TransactionalFileSystem, file_utils,
+    FilePath, RestoreMode, TransactionalDirectory, TransactionalFileSystem, file_utils,
 };
 use librepcb_core::library::cat::{ComponentCategory, PackageCategory};
 use librepcb_core::library::cmp::Component;
@@ -20,6 +22,7 @@ use librepcb_core::library::pkg::Package;
 use librepcb_core::library::sym::Symbol;
 use librepcb_core::library::{Library, LibraryBaseElement};
 use librepcb_i18n::tr;
+use librepcb_scene::export::{ExportPage, GraphicsExport, footprint_drawing, symbol_drawing};
 
 use crate::args::{OpenLibraryArgs, OpenPackageArgs, OpenStepArgs, OpenSymbolArgs, TR};
 use crate::error::{CliError, CliResult};
@@ -27,11 +30,24 @@ use crate::output::{
     absolute_path, fail_if_file_format_unstable, format_check_summary, prepare_rule_check_messages,
     pretty_path, print, print_err,
 };
-use crate::project::{clean_file_name, graphics_export_error};
+use crate::project::{clean_file_name, graphics_creator};
 
 /// Upstream `OccModel::throwNotAvailable()` (a build without OpenCascade).
 const OCC_NOT_AVAILABLE: &str =
     "Attempted to work with STEP file, but LibrePCB was compiled without OpenCascade.";
+
+/// Settings of symbol and footprint exports: the defaults without page
+/// margins.
+fn library_export_settings() -> GraphicsExportSettings {
+    let zero = librepcb_core::types::UnsignedLength::ZERO;
+    GraphicsExportSettings {
+        margin_left: zero,
+        margin_top: zero,
+        margin_right: zero,
+        margin_bottom: zero,
+        ..GraphicsExportSettings::default()
+    }
+}
 
 /// Options of [`process_element()`].
 #[derive(Debug, Clone, Copy)]
@@ -316,12 +332,22 @@ pub fn open_symbol(a: &OpenSymbolArgs) -> bool {
                 Some(&mut clean_file_name),
             );
             let fp = absolute_path(&dest);
-            print_err(&format!(
-                "  {}: {}",
-                tr!(TR, "ERROR"),
-                graphics_export_error(&fp)
-            ));
-            success = false;
+            let settings = library_export_settings();
+            let font = librepcb_scene::default_stroke_font();
+            let page = ExportPage {
+                drawing: symbol_drawing(&symbol, font.as_ref(), &settings),
+                settings,
+            };
+            let mut export = GraphicsExport::new(graphics_creator());
+            export.set_document_name(symbol.metadata().name().as_str());
+            let result = export.export(&[page], &fp);
+            for written in &result.written_files {
+                print(&format!("  => '{}'", pretty_path(written, &dest)));
+            }
+            for error in &result.errors {
+                print_err(&format!("  {}: {}", tr!(TR, "ERROR"), error));
+                success = false;
+            }
         }
         Ok(success)
     })();
@@ -363,6 +389,8 @@ pub fn open_package(a: &OpenPackageArgs) -> bool {
             print(&tr!(TR, "Export footprint(s) to '{0}'...", export));
             let name = package.metadata().name().to_string();
             let uuid = package.metadata().uuid().to_string();
+            let font = librepcb_scene::default_stroke_font();
+            let mut written_files: BTreeMap<FilePath, usize> = BTreeMap::new();
             for (index, footprint) in package.footprints().iter().enumerate() {
                 let footprint_name = footprint.names().default_value().to_string();
                 let footprint_uuid = footprint.uuid().to_string();
@@ -379,10 +407,41 @@ pub fn open_package(a: &OpenPackageArgs) -> bool {
                     Some(&mut clean_file_name),
                 );
                 let fp = absolute_path(&dest);
-                print_err(&format!(
-                    "  {}: {}",
-                    tr!(TR, "ERROR"),
-                    graphics_export_error(&fp)
+                let settings = library_export_settings();
+                let page = ExportPage {
+                    drawing: footprint_drawing(footprint, font.as_ref(), &settings),
+                    settings,
+                };
+                let mut export = GraphicsExport::new(graphics_creator());
+                export.set_document_name(format!("{name} ({footprint_name})"));
+                let result = export.export(&[page], &fp);
+                for written in &result.written_files {
+                    print(&format!("  => '{}'", pretty_path(written, &dest)));
+                    *written_files.entry(written.clone()).or_default() += 1;
+                }
+                for error in &result.errors {
+                    print_err(&format!("  {}: {}", tr!(TR, "ERROR"), error));
+                    success = false;
+                }
+            }
+
+            // Fail if some files were written multiple times.
+            let mut files_overwritten = false;
+            for (fp, count) in &written_files {
+                if *count > 1 {
+                    files_overwritten = true;
+                    print_err(&tr!(
+                        TR,
+                        "ERROR: The file '{0}' was written multiple times!",
+                        pretty_path(fp, package_file)
+                    ));
+                }
+            }
+            if files_overwritten {
+                print_err(&tr!(
+                    TR,
+                    "NOTE: To avoid writing files multiple times, make sure to pass unique filepaths to all export functions. For footprint output files, you could add a placeholder like '{0}' to the path.",
+                    "{{FOOTPRINT}}"
                 ));
                 success = false;
             }

@@ -35,7 +35,7 @@ use crate::text::{RenderedText, TextRenderer, TextStyle};
 /// Color roles of the schematic in upstream's graphics export order
 /// (`GraphicsExportSettings::loadColorsFromScheme()`); painted in reverse
 /// order, so the first role is on top.
-const ROLES: &[&str] = &[
+pub(crate) const ROLES: &[&str] = &[
     "schematic_frames",
     "schematic_outlines",
     "schematic_grab_areas",
@@ -129,7 +129,7 @@ impl SchematicScene {
             project,
             schematic: sch,
             scene: Scene::new(),
-            scheme: *scheme,
+            scheme: scheme.clone(),
             objects: HashMap::new(),
             warnings: Vec::new(),
             text: TextRenderer::new(schematic_font(project)),
@@ -143,7 +143,7 @@ impl SchematicScene {
         builder.add_bus_segments();
         Ok(Self {
             scene: builder.scene,
-            scheme: *scheme,
+            scheme: scheme.clone(),
             objects: builder.objects,
             warnings: builder.warnings,
         })
