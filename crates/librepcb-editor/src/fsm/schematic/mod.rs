@@ -293,8 +293,6 @@ pub(crate) struct Output {
     /// A state asked to go back to the select state (upstream
     /// `requestLeavingState()`, processed after the call).
     pub leave_requested: bool,
-    /// A state asked to place the remaining gates of a component.
-    pub add_remaining_gates: Option<(ComponentInstanceId, Option<Uuid>)>,
     /// The last pointer position.
     pub last_pos: Option<Point>,
 }
@@ -557,6 +555,18 @@ impl SchematicEditorFsm {
     /// Replaces the selection (e.g. cross-probing, "find").
     pub fn set_selection(&mut self, items: impl IntoIterator<Item = SchematicItem>) {
         self.out.selection = items.into_iter().collect();
+    }
+
+    /// Removes items which no longer exist from the selection; call after
+    /// changing the project outside the FSM (undo, redo, MCP). While a tool
+    /// keeps an undo group open (dragging, drawing, placing), undo and redo
+    /// are not possible: call [`abort()`](Self::abort) first.
+    pub fn project_changed(&mut self, project: &Project) {
+        if let Some(s) = project.schematic(self.schematic) {
+            self.out
+                .selection
+                .retain(|item| selection::item_exists(item, s));
+        }
     }
 
     /// The item under the cursor in the select state (for highlighting).
@@ -995,12 +1005,21 @@ impl SchematicEditorFsm {
     /// Processes queued state requests and lets the state update its
     /// outputs.
     fn after_event(&mut self, ctx: &mut SchematicContext<'_>) {
-        if let Some((component, gate)) = self.out.add_remaining_gates.take() {
-            let old = self.current;
-            self.add_remaining_gates_impl(ctx, component, gate, old);
-        }
         if std::mem::take(&mut self.out.leave_requested) {
             self.set_next_state(ctx, StateKind::Select);
+        }
+        // Forget removed items (e.g. after undo).
+        if let Some(s) = ctx.editor.project().schematic(self.schematic) {
+            self.out
+                .selection
+                .retain(|item| selection::item_exists(item, s));
+            if self
+                .out
+                .hovered
+                .is_some_and(|item| !selection::item_exists(&item, s))
+            {
+                self.out.hovered = None;
+            }
         }
         let kind = self.current;
         let mut cx = Cx {

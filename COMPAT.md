@@ -749,6 +749,32 @@ Rendering only; no file is affected.
   unless placed individually, and the default device of `AddDevice` is the
   first device of the component's assembly options.
 
+### Schematic editor FSM (`fsm::schematic`)
+
+- **Undo steps:** a drag (and a paste) is one undo group including the
+  simplification of the modified net segments; upstream executes the
+  simplification as a separate undo command. Drawing a wire is one group
+  per clicked segment plus a simplification group when finishing, like
+  upstream.
+- **Live previews** are mutations in the open undo group, replaced on
+  every pointer move; upstream modifies the objects without undo and
+  records the command at the end. While a tool keeps a group open, other
+  commands (e.g. from the embedded MCP server) join that group.
+- **Clipboard:** the format is upstream's (`schematic.lp` in a ZIP under
+  `application/x-librepcb-clipboard.schematic; version=<app version>`),
+  but buses and bus segments are not copied (lines attached to bus
+  junctions end at new junctions), and images are copied but not pasted.
+  Pasting symbol clipboard data (from the symbol editor) is not supported.
+- **Hit testing:** junctions are tested on the model with upstream's
+  1.2 mm grab square; symbol texts are part of their symbol (not
+  selectable on their own); items of equal priority keep the item order
+  (upstream: `QMultiMap` insertion order).
+- Not ported yet: buses (drawing, labels, net selection menu), adding and
+  resizing images, moving polygon vertices, cross-probing, the tool bar's
+  value attribute and unit, the "find" feature. The info box shows name,
+  value, net, net class, signal and pin (no MPN, pad numbers or forced net
+  mismatch).
+
 ## project (output job runner)
 
 - **Graphics jobs** need a `GraphicsExporter` set by the caller

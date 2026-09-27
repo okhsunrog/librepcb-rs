@@ -92,7 +92,9 @@ struct Harness {
     fsm: SchematicEditorFsm,
     clipboard: MemoryClipboard,
     cursor: Point,
-    _dir: tempfile::TempDir,
+    /// Requests of the FSM (except errors, which fail the test).
+    requests: Vec<SchematicRequest>,
+    _dir: Option<tempfile::TempDir>,
 }
 
 impl Harness {
@@ -121,6 +123,15 @@ impl Harness {
                 })
                 .unwrap();
         }
+        Self::with_editor(editor, schematic, Some(dir))
+    }
+
+    /// The FSM on a schematic of an editor.
+    fn with_editor(
+        editor: ProjectEditor,
+        schematic: SchematicId,
+        dir: Option<tempfile::TempDir>,
+    ) -> Self {
         let scene =
             SchematicScene::build(editor.project(), schematic, &ColorScheme::SCHEMATIC_LIGHT)
                 .unwrap();
@@ -133,6 +144,7 @@ impl Harness {
             fsm: SchematicEditorFsm::new(schematic, SchematicEditorSettings::default()),
             clipboard: MemoryClipboard::new(),
             cursor: Point::ORIGIN,
+            requests: Vec::new(),
             _dir: dir,
         }
     }
@@ -155,12 +167,12 @@ impl Harness {
         self.sync
             .sync(self.editor.project(), &mut self.scene)
             .unwrap();
-        let errors: Vec<_> = self
+        let (errors, others): (Vec<_>, Vec<_>) = self
             .fsm
             .take_requests()
             .into_iter()
-            .filter(|r| matches!(r, SchematicRequest::ShowError(_)))
-            .collect();
+            .partition(|r| matches!(r, SchematicRequest::ShowError(_)));
+        self.requests.extend(others);
         assert!(errors.is_empty(), "FSM errors: {errors:?}");
         result
     }
@@ -782,4 +794,116 @@ fn draw_wire_to_supply_symbol_applies_forced_net_name() {
     let net = p.circuit().net_signal(segment.net()).unwrap();
     assert_eq!(net.name().as_str(), gnd.value().as_str());
     assert!(!net.has_auto_name());
+}
+
+#[test]
+fn double_click_and_context_menu_requests() {
+    let mut h = Harness::new();
+    let r1 = h.symbol("R1");
+    h.click(Point::ORIGIN);
+    h.run(|fsm, ctx| fsm.left_double_clicked(ctx, PointerEvent::new(Point::ORIGIN)));
+    assert_eq!(
+        std::mem::take(&mut h.requests),
+        vec![SchematicRequest::SymbolProperties(r1)]
+    );
+    h.run(|fsm, ctx| fsm.right_released(ctx, PointerEvent::new(Point::ORIGIN)));
+    assert_eq!(
+        std::mem::take(&mut h.requests),
+        vec![SchematicRequest::ContextMenu {
+            item: SchematicItem::Symbol(r1),
+            pos: Point::ORIGIN
+        }]
+    );
+    assert!(h.run(|fsm, ctx| fsm.edit_properties(ctx)));
+    assert_eq!(
+        std::mem::take(&mut h.requests),
+        vec![SchematicRequest::SymbolProperties(r1)]
+    );
+    // Undoing the components (R2, then R1) removes R1 from the selection.
+    h.undo();
+    h.fsm.project_changed(h.editor.project());
+    assert_eq!(h.fsm.selection().len(), 1);
+    h.undo();
+    h.fsm.project_changed(h.editor.project());
+    assert!(h.fsm.selection().is_empty());
+}
+
+/// Opens an upstream test project read-only (in memory).
+fn open_upstream(dir: &std::path::Path) -> Project {
+    use librepcb_core::fileio::{FilePath, TransactionalDirectory, TransactionalFileSystem};
+    let lpp = std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.ends_with(".lpp"))
+        .expect("*.lpp file");
+    let fs = TransactionalFileSystem::open_ro(&FilePath::new(dir).unwrap()).unwrap();
+    let directory = TransactionalDirectory::new(std::sync::Arc::new(fs), "");
+    librepcb_core::project::ProjectLoader::new()
+        .open(directory, &lpp)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+}
+
+/// Select all, move, rotate, mirror, snap, copy & paste on every page of
+/// the upstream test projects, then undo everything: the pages must be
+/// unchanged.
+#[test]
+fn edit_upstream_projects_and_undo() {
+    let root = crate::helpers::test_data_dir().join("projects");
+    let mut dirs: Vec<_> = std::fs::read_dir(&root)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.join(".librepcb-project").exists())
+        .collect();
+    dirs.sort();
+    let mut pages = 0;
+    for dir in dirs {
+        let project = open_upstream(&dir);
+        let schematics: Vec<SchematicId> = project.schematics().iter().map(|s| s.id()).collect();
+        let mut editor = ProjectEditor::new(project);
+        for schematic in schematics {
+            let original = editor.project().schematic(schematic).unwrap().clone();
+            let circuit = editor.project().circuit().clone();
+            if original.symbols().is_empty() {
+                continue;
+            }
+            pages += 1;
+            let mut h = Harness::with_editor(editor, schematic, None);
+            let index = h.editor.undo_stack().index();
+            h.run(|fsm, ctx| fsm.select_all(ctx));
+            assert!(
+                h.run(|fsm, ctx| fsm.move_by(ctx, mm(2.54, 5.08))),
+                "{}",
+                dir.display()
+            );
+            assert!(h.run(|fsm, ctx| fsm.rotate(ctx, Angle::DEG90)));
+            assert!(h.run(|fsm, ctx| fsm.mirror(ctx, Orientation::Vertical)));
+            h.run(|fsm, ctx| fsm.snap_to_grid(ctx));
+            assert!(h.p().is_ref_index_consistent(), "{}", dir.display());
+            // Copy and paste everything.
+            h.cursor = Point::ORIGIN;
+            assert!(h.run(|fsm, ctx| fsm.copy(ctx)));
+            h.cursor = mm(100.0, 100.0);
+            assert!(h.run(|fsm, ctx| fsm.paste(ctx)), "{}", dir.display());
+            h.press(mm(100.0, 100.0));
+            assert!(!h.editor.undo_stack().is_group_active());
+            let s = h.p().schematic(schematic).unwrap();
+            assert_eq!(
+                s.symbols().len(),
+                2 * original.symbols().len(),
+                "{}",
+                dir.display()
+            );
+            assert!(h.p().is_ref_index_consistent(), "{}", dir.display());
+            while h.editor.undo_stack().index() > index {
+                h.undo();
+            }
+            let s = h.p().schematic(schematic).unwrap();
+            assert_eq!(s, &original, "{}", dir.display());
+            assert_eq!(h.p().circuit(), &circuit, "{}", dir.display());
+            editor = h.editor;
+        }
+    }
+    assert!(pages >= 3, "{pages}");
 }
