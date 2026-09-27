@@ -3,7 +3,7 @@ import { DrawPolygonToolBar } from "drawpolygontoolbar.slint";
 import { AddTextToolBar } from "addtexttoolbar.slint";
 import { AddComponentToolBar } from "addcomponenttoolbar.slint";
 import { Tab } from "../../tab.slint";
-import { ComponentChooser, SceneContextMenu, SceneEditor } from "../sceneeditor.slint";
+import { SceneContextMenu, SceneEditor } from "../sceneeditor.slint";
 import {
     Button,
     LinkText,
@@ -530,15 +530,6 @@ export component SchematicTab inherits Tab {
         scroll-event(event) => {
             Backend.scene-scrolled(section-index, self.mouse-x, self.mouse-y, event, 0) ? accept : reject
         }
-    }
-
-    // Temporary "add component" chooser (librepcb-rs, see sceneeditor.slint).
-    if SceneEditor.chooser-shown && (SceneEditor.chooser-section == section-index): ComponentChooser {
-        width: min(500px, root.width - 40px);
-        height: min(450px, root.height - 40px);
-        x: (root.width - self.width) / 2;
-        y: 20px;
-        section-index: section-index;
     }
 
     // Scene context menu (librepcb-rs, see sceneeditor.slint).

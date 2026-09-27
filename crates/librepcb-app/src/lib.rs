@@ -42,10 +42,17 @@
 //!   tab action events go to the FSM; afterwards the tab syncs its scene
 //!   from the change journal, highlights the selection, updates the
 //!   overlays ([`tabs::editing`]) and the tool bar data. Requests of the
-//!   FSMs (notifications, context menus, the "add component" chooser) are
+//!   FSMs (notifications, context menus, the "add component" dialog) are
 //!   handled by the application (`app::tab_editing`, `ui/project/sceneeditor.slint`),
 //!   and so are cross-probing and aborting tools of other tabs. Copy/paste
 //!   uses the system clipboard with upstream's MIME types ([`clipboard`]).
+//! - **Dialogs (M3b):** [`dialogs`] ports upstream's project dialogs
+//!   (properties of schematic and board items, board and project setup,
+//!   graphics export, output jobs, BOM review, pick&place, move/align) as
+//!   form dialogs rendered by `ui/dialogs/formdialog.slint`, and the "add
+//!   component" dialog (`ui/dialogs/addcomponentdialog.slint`). They are
+//!   shown as overlays of the main window (`app::dialog_host`,
+//!   `app::add_component_host`) and apply their changes as one undo group.
 //!
 //! # Running
 //!
@@ -111,6 +118,7 @@
 pub mod app;
 pub mod canvas_view;
 pub mod clipboard;
+pub mod dialogs;
 pub mod helpers;
 pub mod history;
 pub mod icons;

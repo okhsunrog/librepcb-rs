@@ -699,3 +699,70 @@ impl Command for AddBusLabel {
         Ok(uuid)
     }
 }
+
+/// Renames the bus of a bus segment (upstream `RenameBusSegmentDialog`):
+/// the whole bus is renamed (`CmdBusEdit`) or merged into an existing bus
+/// with that name (`CmdCombineBuses`), or only the segment is moved to the
+/// existing or a new bus with that name (`CmdBusAdd`,
+/// `CmdChangeBusOfSchematicBusSegment`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RenameBusSegment {
+    /// The bus segment.
+    pub segment: BusSegmentRef,
+    /// The new bus name.
+    pub name: BusName,
+    /// Rename (or merge) the whole bus instead of moving only the segment.
+    pub whole_bus: bool,
+}
+
+impl Command for RenameBusSegment {
+    /// The bus of the segment afterwards.
+    type Output = BusId;
+
+    fn text(&self) -> String {
+        if self.whole_bus {
+            tr!("CmdBusEdit", "Edit Bus")
+        } else {
+            tr!("RenameBusSegmentDialog", "Change Bus of Bus Segment")
+        }
+    }
+
+    fn execute(self, tx: &mut Transaction<'_>) -> Result<BusId> {
+        let p = tx.project();
+        let old = p
+            .schematic(self.segment.schematic)
+            .and_then(|s| s.bus_segments().get(&self.segment.segment))
+            .ok_or_else(|| Error::not_found("Bus segment", self.segment.segment))?
+            .bus();
+        let existing = p
+            .circuit()
+            .bus_by_name(self.name.as_str())
+            .map(|(id, _)| id);
+        match (existing, self.whole_bus) {
+            (Some(bus), _) if bus == old => Ok(old),
+            (Some(bus), true) => {
+                combine_buses(tx, old, bus)?;
+                Ok(bus)
+            }
+            (None, true) => {
+                let mut bus = tx
+                    .project()
+                    .circuit()
+                    .bus(old)
+                    .ok_or_else(|| Error::not_found("Bus", old))?
+                    .clone();
+                bus.set_name(self.name, false);
+                tx.apply(Mutation::UpdateBus(bus))?;
+                Ok(old)
+            }
+            (existing, false) => {
+                let bus = match existing {
+                    Some(bus) => bus,
+                    None => add_bus(tx, Some(self.name))?,
+                };
+                change_bus_of_bus_segment(tx, self.segment, bus)?;
+                Ok(bus)
+            }
+        }
+    }
+}

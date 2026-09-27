@@ -134,14 +134,27 @@ them into the app):
   cut/copy/paste through the system clipboard (upstream MIME types, so
   copy/paste works between our app and upstream LibrePCB), save,
   cross-probing between schematic and board (highlighted nets, selection).
-- M3b project dialogs as Slint dialogs (upstream Qt `.ui` → Slint, one
-  agent per area): add component dialog (library search, symbol and
-  footprint preview), symbol instance / device instance / net label /
-  net segment / bus segment properties, via / pad / plane / polygon /
-  zone / hole / stroke text / text / circle properties, move-align,
-  board setup, project setup, BOM review, pick & place generator,
-  graphics export dialog, output jobs dialog (all job types), order PCB
-  panel (already `.slint`), place devices panel.
+- M3b project dialogs as Slint dialogs (**done** except the order PCB and
+  place devices panels, which are already `.slint` and not wired yet, and
+  the circle properties dialog of the library editors): add component
+  dialog (library search, category tree, symbol and footprint preview,
+  symbol variant and device), symbol instance / symbol text / device
+  instance / net label / bus label properties, via / pad / plane /
+  polygon / zone / hole / stroke text / text properties, line width,
+  move-align, board setup, project setup, BOM review, pick & place
+  generator, graphics export dialog, output jobs dialog (all job types).
+  Design: a dialog describes its fields as a `Form` (rows of
+  `FormField`: labels, text, length/angle/ratio edits, check boxes,
+  combo boxes, radio buttons, lists and tables, attribute lists,
+  buttons; pages and a side column) with the labels of the upstream
+  `.ui` file (translated with upstream's Qt context, e.g.
+  `librepcb::editor::BoardSetupDialog`); the generic
+  `ui/dialogs/formdialog.slint` renders it with upstream's widgets and
+  writes edited rows back (like the other UI models); the dialog reacts
+  to field events and applies its values as one undo group
+  (`FormDialog::apply()`), or returns a value for the tab (line width,
+  move/align positions) or output jobs to run in a worker thread. The
+  dialogs are tested without a window by editing their forms.
 - M3c project lifecycle: new project wizard, project library updater,
   directory lock handler dialog (upstream-compatible lock prompts),
   autosave/restore, file format upgrade messages, recent/favorite
@@ -249,3 +262,11 @@ Useful element ids: `SchematicTab::ta` and `Board2dTab::ta` (scene touch
 areas), `AppWindow::menubar`, `AppWindow::sidebar`. Everything else is found
 with `get_element_tree` / `query_element_descendants` (accessible labels of
 upstream's widgets).
+
+Dialogs (M3b) are overlays of the main window: the editors of a form
+dialog have the field id as accessible label (e.g. `author` in the
+project setup dialog), the page tabs are `PageButton`s and the buttons
+are found by their text ("OK", "Apply", "Cancel"). Example: click
+`ProjectSection::setup-dialog-btn`, find the `author` text input, click
+it, `dispatch_key_event` some text, click "OK": the undo button's label
+becomes "Undo: Modify Project Setup".

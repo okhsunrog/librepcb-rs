@@ -53,7 +53,7 @@ use crate::error::Result;
 
 pub use autoroute::*;
 pub use board::*;
-pub use bus::{AddBusLabel, BusAnchor, BusResult, DrawBus};
+pub use bus::{AddBusLabel, BusAnchor, BusResult, DrawBus, RenameBusSegment};
 pub use circuit::*;
 pub use component::*;
 pub use image::AddSchematicImage;

@@ -63,3 +63,16 @@ same style.
    `toggle-mcp-server()`; `statusbar.slint` button with popup (enable
    the server, "show what the agent edits") left of the notifications
    button.
+5. Scene editing (M3a, librepcb-rs only): `project/sceneeditor.slint`
+   (scene context menus; upstream opens `QMenu`s from the editor states),
+   shown by `project/schematic/schematictab.slint` and
+   `project/board/board2dtab.slint`.
+6. Project dialogs (M3b, librepcb-rs only; upstream uses Qt Widgets
+   dialogs): `dialogs/formdialog.slint` (the generic form dialog of the
+   properties, rename, setup, export and output jobs dialogs, built from
+   upstream's widgets) and `dialogs/addcomponentdialog.slint` (port of
+   upstream's `addcomponentdialog.ui`), shown as overlays by
+   `appwindow.slint` and exported by `ui.slint`.
+7. `widgets/treeview.slint`: `current-index` is `in-out` (was private) so
+   the backend can select a row (the "add component" dialog selects the
+   first device found).

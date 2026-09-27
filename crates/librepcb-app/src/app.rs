@@ -44,7 +44,12 @@ use crate::tabs::{
 use crate::theme::UiTheme;
 use crate::workspace_models::{FileSystemTree, QuickAccess};
 
+mod add_component_host;
+mod dialog_host;
 mod tab_editing;
+
+pub use add_component_host::OpenAddComponent;
+pub use dialog_host::OpenDialog;
 
 /// The application version.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -92,6 +97,10 @@ pub struct State {
     pub(crate) mcp: McpController,
     /// Editing in the scene tabs (see [`tab_editing`]).
     pub(crate) editing: tab_editing::EditingState,
+    /// The open form dialog (see [`crate::dialogs`]).
+    pub(crate) form_dialog: Option<OpenDialog>,
+    /// The open "add component" dialog.
+    pub(crate) add_component: Option<OpenAddComponent>,
 }
 
 thread_local! {
@@ -157,6 +166,8 @@ impl App {
                 status_timer: slint::Timer::default(),
                 mcp: McpController::default(),
                 editing: tab_editing::EditingState::default(),
+                form_dialog: None,
+                add_component: None,
             })
         });
         let app = Self {
@@ -420,6 +431,8 @@ impl App {
             )
         });
         tab_editing::bind(&self.window, weak);
+        dialog_host::bind(&self.window, weak);
+        add_component_host::bind(&self.window, weak);
 
         // Pure helpers.
         b.on_is_shortcut(|event, command| helpers::is_shortcut(&event, &command));
@@ -1008,6 +1021,10 @@ impl State {
                     )),
                 }
                 self.refresh_project(&project);
+            }
+            ui::ProjectAction::OpenSetupDialog => {
+                let dialog = crate::dialogs::setup::ProjectSetupDialog::new(&project);
+                self.show_form_dialog(project, Box::new(dialog));
             }
             ui::ProjectAction::OpenFolder => {
                 if let Some(dir) = project.path().parent_dir()

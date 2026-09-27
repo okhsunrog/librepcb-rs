@@ -38,12 +38,14 @@ use librepcb_i18n::tr;
 use librepcb_scene::{ColorScheme, SceneSync, SchematicObject, SchematicScene};
 
 use super::editing::{
-    DoubleClick, OverlayColors, Overlays, dialog_not_available, error_notification, fsm_key_event,
-    fsm_modifiers, info_box_text, mouse_cursor, point_from_world, point_to_world, to_multi_line,
-    to_single_line,
+    DoubleClick, OverlayColors, Overlays, error_notification, fsm_key_event, fsm_modifiers,
+    info_box_text, mouse_cursor, point_from_world, point_to_world, to_multi_line, to_single_line,
 };
 use super::schematic_view::{SchematicSceneView, schematic_item};
-use super::{ContextMenuEntry, CrossProbe, TabId, TabRequest, TabUpdate, feature, project_index};
+use super::{
+    ContextMenuEntry, CrossProbe, PropertiesTarget, TabId, TabRequest, TabUpdate, feature,
+    project_index,
+};
 use crate::canvas_view::{CanvasView, DEFAULT_SCHEMATIC_RECT};
 use crate::clipboard::{ensure_opened, with_clipboard};
 use crate::helpers::{
@@ -226,7 +228,12 @@ impl SchematicTab {
         &self.project
     }
 
-    /// The schematic shown.
+    /// The length unit of the grid (for dialogs).
+    pub fn length_unit(&self) -> LengthUnit {
+        self.unit
+    }
+
+    /// The schematic.
     pub fn schematic(&self) -> SchematicId {
         self.schematic
     }
@@ -511,11 +518,54 @@ impl SchematicTab {
                     .requests
                     .push(TabRequest::AddComponent { search_term });
             }
-            SchematicRequest::SymbolProperties(_)
-            | SchematicRequest::NetLabelProperties(..)
-            | SchematicRequest::PolygonProperties(_)
-            | SchematicRequest::TextProperties(_) => {
-                update.requests.push(dialog_not_available());
+            SchematicRequest::SymbolProperties(symbol) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::Symbol(symbol)));
+            }
+            SchematicRequest::NetLabelProperties(segment, _) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::NetSegment(
+                        self.schematic,
+                        segment.0,
+                    )));
+            }
+            SchematicRequest::BusLabelProperties(segment, _) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::BusSegment(
+                        self.schematic,
+                        segment.0,
+                    )));
+            }
+            SchematicRequest::SymbolTextProperties(symbol, uuid) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::SymbolText(
+                        symbol, uuid,
+                    )));
+            }
+            SchematicRequest::ChooseImageFile | SchematicRequest::BusMemberMenu { .. } => {
+                // The image and bus tools are not exposed in the tool bar
+                // yet (follow-up of M3d).
+                log::debug!("Unhandled schematic editor request: {request:?}");
+            }
+            SchematicRequest::PolygonProperties(uuid) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::SchematicPolygon(
+                        self.schematic,
+                        uuid,
+                    )));
+            }
+            SchematicRequest::TextProperties(uuid) => {
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::SchematicText(
+                        self.schematic,
+                        uuid,
+                    )));
             }
             SchematicRequest::ContextMenu { item, pos, .. } => {
                 let entries = self.build_context_menu(item);
@@ -652,7 +702,7 @@ impl SchematicTab {
         self.after_fsm(&before)
     }
 
-    /// A component was chosen in the "add component" chooser.
+    /// A component was chosen in the "add component" dialog.
     pub fn add_component(&mut self, choice: Option<ComponentChoice>) -> TabUpdate {
         let before = self.snapshot();
         if let Some(choice) = choice {
@@ -1315,6 +1365,8 @@ fn tool_to_ui(tool: SchematicTool) -> ui::EditorTool {
     match tool {
         SchematicTool::Select => ui::EditorTool::Select,
         SchematicTool::Wire => ui::EditorTool::Wire,
+        SchematicTool::Bus => ui::EditorTool::Bus,
+        SchematicTool::Image => ui::EditorTool::Image,
         SchematicTool::Label => ui::EditorTool::Label,
         SchematicTool::Component => ui::EditorTool::Component,
         SchematicTool::Polygon => ui::EditorTool::Polygon,

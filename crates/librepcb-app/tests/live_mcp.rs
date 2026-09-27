@@ -293,6 +293,13 @@ fn live_mcp_rule_checks_and_outputs() {
     let output = project_dir.join("output");
     backend.invoke_trigger_tab(0, board_tab, ui::TabAction::ExportFabricationData);
     backend.invoke_trigger_tab(0, board_tab, ui::TabAction::ExportPdf);
+    // The graphics export dialog opens; "Run" exports.
+    headless.settle(5);
+    let forms = app.window().global::<ui::Dialogs>();
+    assert!(forms.get_form_shown());
+    forms.invoke_form_button(-1);
+    headless.settle(5);
+    assert!(!forms.get_form_shown());
     let has = |ext: &str| {
         walk(&output)
             .iter()
