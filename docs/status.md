@@ -43,7 +43,15 @@ Done, in `crates/librepcb-core` unless noted:
   jobs fail like an upstream build without OpenCascade).
 - **`crates/librepcb-editor`:** undo stack and intent-level commands
   (components, wiring with forced net names, devices, traces, vias,
-  planes, outline, autorouting) used by MCP and later the UI. M4b
+  planes, outline, autorouting) used by MCP and later the UI. The
+  schematic and board editor FSMs (`fsm::schematic`, `fsm::board`) cover
+  all upstream tools and actions (M3d done in the editor crate: buses,
+  images, polygon vertex editing, standalone board pads, DXF import,
+  "find", change device, segment simplification after edits, the tool
+  bar's value attribute, pasting graphics from the library editors,
+  cross-probing outputs; headless scenarios in
+  `tests/editor/{fsm_schematic,board_fsm}_test.rs`); the application tabs
+  do not expose all of them yet. M4b
   groundwork: `library_editor` (element editor with snapshot undo stack,
   dirty state, interface check, save; commands for symbols, packages,
   components and devices; check fixes) and `fsm::library` (symbol and

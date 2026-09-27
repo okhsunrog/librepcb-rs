@@ -78,6 +78,18 @@ impl Transaction<'_> {
             .execute(self.project, Operation::RemoveLibraryElement { kind, uuid })
     }
 
+    /// Writes (`Some`) or removes (`None`) a file of the project directory
+    /// (undoable; `path` is relative to the project directory).
+    pub fn write_file(&mut self, path: impl Into<String>, content: Option<Vec<u8>>) -> Result<()> {
+        self.stack.execute(
+            self.project,
+            Operation::WriteFile {
+                path: path.into(),
+                content,
+            },
+        )
+    }
+
     /// Runs a nested command inside this transaction; if it fails, only its
     /// own changes are rolled back.
     pub fn run<C: Command>(&mut self, command: C) -> Result<C::Output> {

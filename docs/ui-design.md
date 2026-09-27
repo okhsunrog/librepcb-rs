@@ -151,7 +151,9 @@ them into the app):
   wizard.
 - M3d the missing FSM parts: buses, images, standalone board pads, DXF
   import, "find", segment simplification after edits (see COMPAT.md
-  "Schematic editor FSM" / "Board editor FSM").
+  "Schematic editor FSM" / "Board editor FSM"). Done in
+  `librepcb-editor`; wiring the new tools into the application tabs
+  (tool bar buttons, dialogs, "find" field) remains.
 
 **M4 — library editors and library management** (the `.slint` tabs exist
 upstream: `library/{lib,cat,sym,pkg,cmp,dev,org}`, library tree, create

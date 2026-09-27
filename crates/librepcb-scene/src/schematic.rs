@@ -97,6 +97,9 @@ pub enum SchematicObject {
     Symbol(SymbolId),
     /// A pin of a symbol (library pin UUID).
     SymbolPin(SymbolId, Uuid),
+    /// A text of a symbol (text UUID); it belongs to the unit of its
+    /// symbol.
+    SymbolText(SymbolId, Uuid),
     /// A net line of a net segment.
     NetLine(NetSegmentId, Uuid),
     /// A junction dot (net segment junction or symbol pin).
@@ -733,7 +736,8 @@ impl Builder<'_> {
                     parse_overlines: false,
                 },
             );
-            self.insert_text(layer, z::TEXTS, rendered, object);
+            let text_object = SchematicObject::SymbolText(symbol.id(), text.uuid());
+            self.insert_text(layer, z::TEXTS, rendered, text_object);
         }
         Ok(())
     }

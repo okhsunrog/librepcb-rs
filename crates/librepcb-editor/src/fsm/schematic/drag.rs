@@ -16,7 +16,8 @@ use std::collections::BTreeSet;
 use librepcb_core::geometry::{Image, Junction, NetLabel, Polygon, Text};
 use librepcb_core::project::schematic::{Schematic, SchematicSymbol};
 use librepcb_core::project::{
-    Mutation, NetSegmentId, NetSegmentRef, Project, SchematicId, SchematicMutation, SymbolRef,
+    BusSegmentId, BusSegmentRef, Mutation, NetSegmentId, NetSegmentRef, Project, SchematicId,
+    SchematicMutation, SymbolId, SymbolRef,
 };
 use librepcb_core::types::{Angle, Length, Orientation, Point, PositiveLength};
 
@@ -147,11 +148,17 @@ pub(crate) struct DragSelection {
     symbols: Vec<SchematicSymbol>,
     junctions: Vec<(NetSegmentId, Junction)>,
     labels: Vec<(NetSegmentId, NetLabel)>,
+    bus_junctions: Vec<(BusSegmentId, Junction)>,
+    bus_labels: Vec<(BusSegmentId, NetLabel)>,
     polygons: Vec<Polygon>,
     texts: Vec<Text>,
+    /// Texts of symbols which are not dragged themselves.
+    symbol_texts: Vec<(SymbolId, Text)>,
     images: Vec<Image>,
     /// Net segments whose geometry changes (for the simplification).
     modified_segments: BTreeSet<NetSegmentId>,
+    /// Bus segments whose geometry changes (for the simplification).
+    modified_bus_segments: BTreeSet<BusSegmentId>,
     item_count: i64,
     center: Point,
     start: Point,
@@ -171,10 +178,14 @@ impl DragSelection {
             symbols: Vec::new(),
             junctions: Vec::new(),
             labels: Vec::new(),
+            bus_junctions: Vec::new(),
+            bus_labels: Vec::new(),
             polygons: Vec::new(),
             texts: Vec::new(),
+            symbol_texts: Vec::new(),
             images: Vec::new(),
             modified_segments: BTreeSet::new(),
+            modified_bus_segments: BTreeSet::new(),
             item_count: 0,
             center: Point::ORIGIN,
             start: Point::ORIGIN,
@@ -191,6 +202,7 @@ impl DragSelection {
     /// position of the drag.
     pub fn new(s: &Schematic, query: &SelectionQuery, start: Point) -> Self {
         let mut query = query.clone();
+        query.add_junctions_of_bus_lines(s, false);
         query.add_net_points_of_net_lines(s, false);
         let grid = s.properties().grid_interval;
         let mut d = Self {
@@ -200,6 +212,9 @@ impl DragSelection {
         };
         for (seg, _) in query.net_lines.iter().chain(&query.net_points) {
             d.modified_segments.insert(*seg);
+        }
+        for (seg, _) in query.bus_lines.iter().chain(&query.bus_junctions) {
+            d.modified_bus_segments.insert(*seg);
         }
         for symbol in &query.symbols {
             for (seg_id, seg) in s.net_segments() {
@@ -214,6 +229,18 @@ impl DragSelection {
             center += symbol.position();
             d.item_count += 1;
             d.symbols.push(symbol.clone());
+        }
+        for (seg, j) in &query.bus_junctions {
+            let junction = &s.bus_segments()[seg].junctions()[j];
+            center += junction.position();
+            d.item_count += 1;
+            d.bus_junctions.push((*seg, junction.clone()));
+        }
+        for (seg, l) in &query.bus_labels {
+            let label = &s.bus_segments()[seg].labels()[l];
+            center += label.position();
+            d.item_count += 1;
+            d.bus_labels.push((*seg, label.clone()));
         }
         for (seg, j) in &query.net_points {
             let junction = &s.net_segments()[seg].junctions()[j];
@@ -240,6 +267,16 @@ impl DragSelection {
             center += text.position();
             d.item_count += 1;
             d.texts.push(text.clone());
+        }
+        for (symbol, id) in &query.symbol_texts {
+            // Texts of dragged symbols move with their symbol.
+            if query.symbols.contains(symbol) {
+                continue;
+            }
+            let text = &s.symbols()[symbol].texts()[id];
+            center += text.position();
+            d.item_count += 1;
+            d.symbol_texts.push((*symbol, text.clone()));
         }
         for id in &query.images {
             let image = &s.images()[id];
@@ -303,6 +340,24 @@ impl DragSelection {
     /// Net segments whose geometry is changed by the drag.
     pub fn modified_segments(&self) -> &BTreeSet<NetSegmentId> {
         &self.modified_segments
+    }
+
+    /// Bus segments whose geometry is changed by the drag.
+    pub fn modified_bus_segments(&self) -> &BTreeSet<BusSegmentId> {
+        &self.modified_bus_segments
+    }
+
+    /// A "drag" of a single bus label (placing a bus label).
+    pub fn for_bus_label(schematic: SchematicId, segment: BusSegmentId, label: NetLabel) -> Self {
+        let pos = label.position();
+        Self {
+            schematic,
+            center: pos,
+            start: pos,
+            item_count: 1,
+            bus_labels: vec![(segment, label)],
+            ..Self::empty(schematic)
+        }
     }
 
     /// Current position of the dragged items relative to the start.
@@ -458,6 +513,52 @@ impl DragSelection {
                         segment: *segment,
                     },
                     label,
+                }));
+            }
+        }
+        for (segment, original) in &self.bus_junctions {
+            let mut junction = original.clone();
+            for op in &self.ops {
+                transform_junction(&mut junction, *op);
+            }
+            if junction.position() != original.position() {
+                result.push(sch(SchematicMutation::SetBusJunctionPosition {
+                    segment: BusSegmentRef {
+                        schematic,
+                        segment: *segment,
+                    },
+                    junction: junction.uuid(),
+                    position: junction.position(),
+                }));
+            }
+        }
+        for (segment, original) in &self.bus_labels {
+            let mut label = original.clone();
+            for op in &self.ops {
+                transform_label(&mut label, *op);
+            }
+            if &label != original {
+                result.push(sch(SchematicMutation::UpdateBusLabel {
+                    segment: BusSegmentRef {
+                        schematic,
+                        segment: *segment,
+                    },
+                    label,
+                }));
+            }
+        }
+        for (symbol, original) in &self.symbol_texts {
+            let mut text = original.clone();
+            for op in &self.ops {
+                transform_text(&mut text, *op);
+            }
+            if &text != original {
+                result.push(sch(SchematicMutation::UpdateSymbolText {
+                    symbol: SymbolRef {
+                        schematic,
+                        symbol: *symbol,
+                    },
+                    text,
                 }));
             }
         }

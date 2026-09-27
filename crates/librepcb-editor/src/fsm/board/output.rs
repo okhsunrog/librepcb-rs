@@ -5,9 +5,11 @@
 
 use std::collections::BTreeSet;
 
-use librepcb_core::geometry::ZoneRules;
+use librepcb_core::geometry::{ComponentSide, PadFunction, ZoneRules};
 use librepcb_core::project::{ComponentInstanceId, NetSignalId};
-use librepcb_core::types::{Angle, Layer, Point, PositiveLength, UnsignedLength, Uuid};
+use librepcb_core::types::{
+    Angle, Layer, Point, PositiveLength, UnsignedLength, UnsignedLimitedRatio, Uuid,
+};
 
 use super::view::BoardItemRef;
 use crate::fsm::ViewState;
@@ -31,6 +33,11 @@ pub enum BoardTool {
     DrawZone,
     /// Add non-plated holes.
     AddHole,
+    /// Add standalone THT pads.
+    AddThtPad,
+    /// Add standalone SMT pads of a function (standard, thermal, BGA, edge
+    /// connector, test pad, local or global fiducial).
+    AddSmtPad(PadFunction),
     /// Add stroke texts.
     AddStrokeText,
     /// Place a device (started with
@@ -123,6 +130,33 @@ pub struct BoardToolData {
     pub value_suggestions: Vec<String>,
     /// Zone rules (zone tool).
     pub zone_rules: ZoneRules,
+    /// Pad shape (pad tools).
+    pub pad_shape: Option<ToolPadShape>,
+    /// Pad corner radius (pad tools, UI: `tool-ratio`); the pad width is
+    /// in [`line_width`](Self::line_width), the height in
+    /// [`size`](Self::size) and the drill in [`drill`](Self::drill).
+    pub pad_radius: Option<UnsignedLimitedRatio>,
+    /// Component side (SMT pad tools).
+    pub component_side: Option<ComponentSide>,
+    /// Whether the pad is a fiducial (the size field is the clearance).
+    pub fiducial: bool,
+    /// Whether the THT pad is a press-fit pad (THT pad tool).
+    pub press_fit: Option<bool>,
+    /// Copper clearance of fiducials (pad tools).
+    pub copper_clearance: Option<UnsignedLength>,
+}
+
+/// The pad shapes of the pad tools (upstream `ui::PadShape`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ToolPadShape {
+    /// Round (rounded rectangle with 100% radius).
+    Round,
+    /// Rounded rectangle with the recommended radius.
+    RoundedRect,
+    /// Rectangle.
+    Rect,
+    /// Octagon.
+    Octagon,
 }
 
 /// Changes of tool bar values by the user (upstream `Board2dTab` signals
@@ -159,6 +193,20 @@ pub enum ToolSetting {
     Angle(Angle),
     /// Zone rules.
     ZoneRules(ZoneRules),
+    /// Component side of SMT pads.
+    ComponentSide(ComponentSide),
+    /// Pad shape.
+    PadShape(ToolPadShape),
+    /// Pad width (fiducials: diameter).
+    PadWidth(PositiveLength),
+    /// Pad height.
+    PadHeight(PositiveLength),
+    /// Pad corner radius.
+    PadRadius(UnsignedLimitedRatio),
+    /// Press-fit THT pad.
+    PressFit(bool),
+    /// Clearance (copper and stop mask) of fiducials.
+    FiducialClearance(UnsignedLength),
     /// Store the trace width as board default.
     SaveTraceWidthInBoard,
     /// Store the trace width as net class default.
@@ -194,6 +242,9 @@ pub enum ContextAction {
     Lock(bool),
     /// Reset all texts of the device.
     ResetTexts,
+    /// Change the device (library device from the library element
+    /// source, upstream "Change Device" menu).
+    ChangeDevice(Uuid),
     /// Change the footprint of the device.
     ChangeFootprint(Uuid),
     /// Change the 3D model of the device.
@@ -274,6 +325,7 @@ pub enum BoardRequest {
 pub(crate) struct Output {
     pub view: ViewState,
     pub highlighted_nets: BTreeSet<NetSignalId>,
+    pub cross_probe: crate::fsm::CrossProbe,
     pub hovered: Option<BoardItemRef>,
     pub tool_data: BoardToolData,
     pub requests: Vec<BoardRequest>,

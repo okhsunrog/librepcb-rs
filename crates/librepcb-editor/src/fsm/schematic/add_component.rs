@@ -142,6 +142,9 @@ impl AddComponentState {
                     .unwrap_or_default();
             }
             self.update_value_suggestions(cx);
+            if !keep_value {
+                self.update_value_attribute(cx);
+            }
             let pos = cx.cursor_pos().mapped_to_grid(cx.grid());
             if !self.start_adding_next_gate(cx, pos, None)? {
                 return Err(crate::Error::ComponentWithoutSymbols(choice.component));
@@ -273,23 +276,84 @@ impl AddComponentState {
             return;
         };
         let value = cx.out.tool_data.value.clone();
-        let current = cx
-            .project()
-            .circuit()
-            .component_instance(component)
-            .map(|c| c.value().clone());
-        if current.is_some_and(|c| c != value)
+        let Some(current) = cx.project().circuit().component_instance(component) else {
+            return;
+        };
+        let mut attributes = current.attributes().clone();
+        if let Some(attr) = &cx.out.tool_data.value_attribute
+            && let Some(index) = attributes.index_of_name(attr.key().as_str(), true)
+            && let Some(existing) = attributes.get_mut(index)
+        {
+            *existing = attr.clone();
+        }
+        let value_changed = current.value() != &value;
+        let attributes_changed = current.attributes() != &attributes;
+        if (value_changed || attributes_changed)
             && let Err(e) = cx.ctx.editor.execute(EditComponent {
                 component: ComponentRef::Id(component),
                 name: None,
-                value: Some(value),
-                attributes: None,
+                value: value_changed.then_some(value),
+                attributes: attributes_changed.then_some(attributes),
                 assembly_options: None,
                 lock_assembly: None,
             })
         {
             log::warn!("Failed to set the component value: {e}");
         }
+    }
+
+    /// The first attribute of the component referenced by the value
+    /// (upstream `setValue()`: only the first one, see
+    /// LibrePCB-Libraries/LibrePCB_Base.lplib#138).
+    fn update_value_attribute(&self, cx: &mut Cx<'_, '_>) {
+        let attribute = self
+            .component
+            .and_then(|c| cx.project().circuit().component_instance(c))
+            .and_then(|c| {
+                let mut first = None;
+                librepcb_core::attribute::substitute(
+                    &cx.out.tool_data.value,
+                    |key| {
+                        if first.is_none() {
+                            first = c.attributes().by_name(key, true).cloned();
+                        }
+                        None
+                    },
+                    None,
+                );
+                first
+            });
+        cx.out.tool_data.value_attribute = attribute;
+    }
+
+    /// The value of the value attribute was changed in the tool bar
+    /// (upstream `setValueAttributeValue()`; invalid values are ignored).
+    pub fn value_attribute_value_changed(&mut self, cx: &mut Cx<'_, '_>, value: &str) {
+        if let Some(attr) = &mut cx.out.tool_data.value_attribute
+            && attr.value() != value
+            && attr.attribute_type().is_value_valid(value)
+        {
+            let (t, unit) = (attr.attribute_type(), attr.unit());
+            let _ = attr.set_type_value_unit(t, value, unit);
+        }
+        self.apply(cx);
+    }
+
+    /// The unit of the value attribute was changed in the tool bar
+    /// (upstream `setValueAttributeUnit()`).
+    pub fn value_attribute_unit_changed(
+        &mut self,
+        cx: &mut Cx<'_, '_>,
+        unit: Option<&'static librepcb_core::attribute::AttributeUnit>,
+    ) {
+        if let Some(attr) = &mut cx.out.tool_data.value_attribute
+            && attr.unit() != unit
+            && attr.attribute_type().is_unit_available(unit)
+        {
+            let (t, value) = (attr.attribute_type(), attr.value().to_owned());
+            let _ = attr.set_type_value_unit(t, value, unit);
+        }
+        self.apply(cx);
     }
 
     fn update_value_suggestions(&self, cx: &mut Cx<'_, '_>) {
@@ -309,6 +373,7 @@ impl AddComponentState {
     /// The value was changed in the tool bar.
     pub fn value_changed(&mut self, cx: &mut Cx<'_, '_>) {
         self.update_value_suggestions(cx);
+        self.update_value_attribute(cx);
         self.apply(cx);
     }
 
