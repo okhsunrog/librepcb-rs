@@ -104,11 +104,58 @@ need new Slint dialogs (M3, batched per area) and a new 3D renderer (M5).
   location, approve), export graphics (PDF) and output jobs run from the
   menu.
 
-**M3 — editor:** port the schematic and board editor FSMs (select/move/
-rotate/flip/delete, draw wire, add component, net labels, draw trace,
-vias, planes, polygons, zones, holes, texts), clipboard, and the property
-dialogs as Slint dialogs (batched per area). **M4:** library editors
-(their `.slint` files are already there). **M5:** 3D view, importers.
+**M3 — schematic and board editors** (the FSMs are already ported in
+`librepcb-editor::fsm::{schematic, board}` and tested headless; M3 wires
+them into the app):
+- M3a editing in the tabs: `SchematicView`/`BoardView` adapters on the
+  scenes, Slint pointer/key events → FSM, FSM outputs → `Data` (tool bar
+  `tool-*` fields, cursor, overlays: rubber band, previews, ruler, info
+  box, status bar), tool bars from upstream `.slint`
+  (`drawwiretoolbar`, `addcomponenttoolbar`, `drawtracetoolbar`,
+  `addviatoolbar`, `drawplanetoolbar`, ...), context menus, undo/redo,
+  cut/copy/paste through the system clipboard (upstream MIME types, so
+  copy/paste works between our app and upstream LibrePCB), save,
+  cross-probing between schematic and board (highlighted nets, selection).
+- M3b project dialogs as Slint dialogs (upstream Qt `.ui` → Slint, one
+  agent per area): add component dialog (library search, symbol and
+  footprint preview), symbol instance / device instance / net label /
+  net segment / bus segment properties, via / pad / plane / polygon /
+  zone / hole / stroke text / text / circle properties, move-align,
+  board setup, project setup, BOM review, pick & place generator,
+  graphics export dialog, output jobs dialog (all job types), order PCB
+  panel (already `.slint`), place devices panel.
+- M3c project lifecycle: new project wizard, project library updater,
+  directory lock handler dialog (upstream-compatible lock prompts),
+  autosave/restore, file format upgrade messages, recent/favorite
+  projects, workspace settings dialog (settings items incl. library
+  locale/norm order, API servers, keyboard shortcuts, color schemes via
+  the already-copied `colorschemedialog.slint`), initialize workspace
+  wizard.
+- M3d the missing FSM parts: buses, images, standalone board pads, DXF
+  import, "find", segment simplification after edits (see COMPAT.md
+  "Schematic editor FSM" / "Board editor FSM").
+
+**M4 — library editors and library management** (the `.slint` tabs exist
+upstream: `library/{lib,cat,sym,pkg,cmp,dev,org}`, library tree, create
+and download library tabs, libraries panel):
+- M4a library management UI: libraries panel, download library tab
+  (installer from `librepcb-network`), create library tab, library tab
+  (metadata, dependencies, element list, library checks with approvals).
+- M4b element editors: symbol editor (FSM port of upstream
+  `library/sym/fsm`: pins, lines, polygons, circles, arcs, texts, names/
+  values; pin properties dialog), package editor (`library/pkg/fsm`:
+  footprints, pads, holes, zones, stroke texts, pad properties dialog,
+  footprint tag/transform panels, 3D model assignment), component editor
+  (signals, symbol variants, gates, pin-signal mapping), device editor
+  (pinout, parts), category and organization tabs; chooser dialogs
+  (category, component, package, symbol); element checks with fixes.
+- M4c library import: Eagle and KiCad library import wizards (parsers in
+  core, wizard UI in Slint).
+
+**M5 — the rest:** 3D board view and STEP export (needs an OpenCascade
+replacement or a mesh-based approach), Eagle/KiCad project import, PCB
+ordering API integration, printing, keyboard shortcut editor polish,
+accessibility pass.
 
 ## Risks
 

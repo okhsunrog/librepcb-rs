@@ -30,20 +30,26 @@ diffing outputs against the official `librepcb-cli`.
 
 ## M2 — viewer
 
-Read-only Slint app: schematic and board tabs on `librepcb-canvas`, layers
-panel, live updates from the change journal (watch an AI agent work).
-Schematic PDF export.
+Slint app on upstream's `.slint` UI (see `ui-design.md`): home tab,
+schematic and board tabs on `librepcb-scene`, layers panel, navigation,
+live updates from the change journal with the embedded MCP server (watch
+an AI agent work), ERC/DRC panels, graphics export and output jobs.
 
-## M3 — editing
+## M3 — schematic and board editors
 
-Selection, move/rotate/delete, wires and traces, placing components,
-property dialogs (batched per area), save.
+Editing in the tabs through the ported FSMs (select, move, rotate, flip,
+delete, wires, components, labels, traces, vias, planes, polygons, zones,
+holes, texts), clipboard compatible with upstream, cross-probing, all
+project dialogs as Slint dialogs (properties, board/project setup, BOM
+review, output jobs, graphics export, new project wizard), workspace
+settings.
 
-## M4 — library editor
+## M4 — library editors
 
-Symbol, package, component and device editors.
+Library management (download, create, libraries panel), symbol, package,
+component, device, category and organization editors with their FSMs and
+dialogs, library checks with fixes, Eagle/KiCad library import.
 
 ## M5 — the rest
 
-3D view and STEP, interactive HTML BOM, PCB ordering API, Eagle and KiCad
-importers.
+3D view and STEP, Eagle/KiCad project import, PCB ordering API, printing.
