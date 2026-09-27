@@ -31,6 +31,7 @@ use librepcb_i18n::tr;
 use slint::{ComponentHandle, Model, ModelRc, SharedString};
 
 use crate::helpers;
+use crate::libraries;
 use crate::models::{UiModel, defer, model_rc, vec_model};
 use crate::notifications::{Notification, Notifications};
 use crate::project::AppProject;
@@ -83,6 +84,24 @@ pub struct State {
     sections: Vec<WindowSection>,
     sections_model: Rc<UiModel<ui::WindowSectionData>>,
     status_timer: slint::Timer,
+}
+
+thread_local! {
+    /// The state of the application running on this (UI) thread, for
+    /// results delivered from worker threads with
+    /// `slint::invoke_from_event_loop()` (closures there must be `Send`).
+    static CURRENT: RefCell<Weak<RefCell<State>>> = const { RefCell::new(Weak::new()) };
+}
+
+/// Runs `f` with the state of the application on the calling UI thread, if
+/// it is not busy.
+fn with_current_state(f: impl FnOnce(&mut State)) {
+    let state = CURRENT.with(|c| c.borrow().upgrade());
+    if let Some(s) = state
+        && let Ok(mut s) = s.try_borrow_mut()
+    {
+        f(&mut s);
+    }
 }
 
 /// Runs `f` with the state, deferred (see the module documentation).
@@ -208,6 +227,16 @@ impl App {
 
         self.connect_models(&weak);
         self.bind_backend(&weak);
+
+        CURRENT.with(|c| *c.borrow_mut() = weak.clone());
+
+        // Installed libraries, then rescan them in the background (upstream
+        // `GuiApplication` constructor).
+        {
+            let mut s = self.state.borrow_mut();
+            s.refresh_libraries();
+            s.start_library_scan();
+        }
 
         // One section with the home tab (upstream `MainWindow` constructor).
         {
@@ -841,6 +870,7 @@ impl State {
             }
             ui::Action::ProjectOpen => self.open_project_dialog(),
             ui::Action::LibraryPanelEnsurePopulated => {}
+            ui::Action::WorkspaceLibrariesRescan => self.start_library_scan(),
             other => self.not_implemented(&format!("{other:?}")),
         }
     }
@@ -1035,6 +1065,41 @@ impl State {
         if let Some(w) = self.window() {
             w.global::<ui::Data>().set_theme(theme.to_ui());
         }
+    }
+
+    /// Updates the installed libraries (`Data.local-libraries`,
+    /// `Data.remote-libraries`) from the library database.
+    fn refresh_libraries(&mut self) {
+        let Some(w) = self.window() else { return };
+        let d = w.global::<ui::Data>();
+        let db = self.workspace.library_db();
+        let remote_dir = self.workspace.remote_libraries_path();
+        let locales = self.workspace.settings().library_locale_order.get().clone();
+        let local = libraries::installed_libraries(db, &remote_dir, false, &locales);
+        let remote = libraries::installed_libraries(db, &remote_dir, true, &locales);
+        d.set_local_libraries_data(libraries::list_data(&local, false));
+        d.set_remote_libraries_data(libraries::list_data(&remote, true));
+        d.set_local_libraries(vec_model(local));
+        d.set_remote_libraries(vec_model(remote));
+    }
+
+    /// Starts a background rescan of the workspace libraries.
+    fn start_library_scan(&mut self) {
+        if let Some(w) = self.window() {
+            w.global::<ui::Data>()
+                .set_libraries_rescan_in_progress(true);
+        }
+        libraries::start_rescan(self.workspace.library_db().scanner(), |ok| {
+            with_current_state(|s| {
+                if let Some(w) = s.window() {
+                    w.global::<ui::Data>()
+                        .set_libraries_rescan_in_progress(false);
+                }
+                if ok {
+                    s.refresh_libraries();
+                }
+            });
+        });
     }
 
     /// Changes the schematic or board grid style of the workspace settings

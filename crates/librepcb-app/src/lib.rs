@@ -66,15 +66,20 @@
 //! - `SLINT_BACKEND=headless` uses a windowless software-rendered backend
 //!   (works without a display, e.g. in the cloud sandbox).
 //!
-//! Then talk JSON-RPC over HTTP: `initialize`, `tools/list`, and tools such
-//! as `list_windows`, `get_element_tree`, `take_screenshot` (base64 PNG),
-//! `click_element`, `drag`, `type_text`. `docs/ui-design.md` has a
-//! complete example session.
+//! Then talk JSON-RPC over HTTP: `initialize` (returns usage
+//! instructions), `tools/list`, and `tools/call` with tools such as
+//! `list_windows`, `get_element_tree`, `find_elements_by_id`,
+//! `take_screenshot` (base64 PNG), `click_element`, `drag_element`,
+//! `dispatch_pointer_scroll` and `dispatch_key_event`. The scene touch
+//! areas have the ids `SchematicTab::ta` and `Board2dTab::ta`.
+//! `docs/ui-design.md` ("Debugging the UI with agents") has a complete
+//! example session.
 
 pub mod app;
 pub mod canvas_view;
 pub mod helpers;
 pub mod icons;
+pub mod libraries;
 pub mod models;
 pub mod notifications;
 pub mod project;

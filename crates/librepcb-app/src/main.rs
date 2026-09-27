@@ -24,6 +24,7 @@ enum TabArg {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum PanelArg {
     Home,
+    Libraries,
     Documents,
     Layers,
     About,
@@ -113,6 +114,7 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     if let Some(panel) = args.panel {
         app.show_panel(match panel {
             PanelArg::Home => ui::PanelPage::Home,
+            PanelArg::Libraries => ui::PanelPage::Libraries,
             PanelArg::Documents => ui::PanelPage::Documents,
             PanelArg::Layers => ui::PanelPage::Layers,
             PanelArg::About => ui::PanelPage::About,
