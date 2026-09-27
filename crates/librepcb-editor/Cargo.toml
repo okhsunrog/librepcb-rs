@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+libm = "0.2.16"
 librepcb-autoroute = { version = "0.1.0", path = "../librepcb-autoroute" }
 librepcb-core = { version = "0.1.0", path = "../librepcb-core" }
 librepcb-i18n = { version = "0.1.0", path = "../librepcb-i18n" }

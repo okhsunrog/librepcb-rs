@@ -265,8 +265,7 @@ impl ProjectEditor {
     /// an open group, like upstream's temporary `setPosition()` calls).
     /// Does nothing if no group is active or it is not longer than `len`.
     pub fn rollback_group_to(&mut self, len: usize) {
-        self.undo_stack
-            .rollback_active_to(&mut self.project, len);
+        self.undo_stack.rollback_active_to(&mut self.project, len);
     }
 
     /// Undoes the last group; returns `false` if there was nothing to undo.
