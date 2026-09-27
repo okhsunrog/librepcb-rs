@@ -16,6 +16,7 @@ mod sqlite_database_test;
 mod system_info_test;
 mod types;
 mod utils;
+mod workspace;
 
 /// Not a test: the "dummy-binary" process used by the systeminfo and
 /// directory lock tests (see [`helpers::spawn_dummy_process()`]). Sleeps only

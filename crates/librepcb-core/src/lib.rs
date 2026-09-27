@@ -25,6 +25,8 @@
 //! - [`project`]: projects (metadata, project library, circuit, schematics,
 //!   boards), their mutations, change journal, loading and saving.
 //! - [`utils`]: helpers from `core/utils` needed by the above.
+//! - [`workspace`]: workspaces, workspace settings and the library index
+//!   (SQLite) with the library scanner.
 
 pub mod algorithm;
 pub mod application;
@@ -41,3 +43,4 @@ pub mod sqlite_database;
 pub mod system_info;
 pub mod types;
 pub mod utils;
+pub mod workspace;

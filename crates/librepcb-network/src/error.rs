@@ -121,6 +121,33 @@ pub enum Error {
     /// The PCB order upload returned an invalid redirection URL.
     #[error("Received an invalid redirection URL.")]
     InvalidOrderRedirect,
+    /// A downloaded library ZIP does not contain a library
+    /// (`LibraryDownload`).
+    #[error(
+        "{}",
+        tr!(
+            "librepcb::editor::LibraryDownload",
+            "The downloaded ZIP file does not contain a LibrePCB library."
+        )
+    )]
+    NoLibraryInZip,
+    /// No library with this name or UUID is available on the server.
+    #[error("Library not found: {0}")]
+    LibraryNotFound(String),
+    /// The server provides no download URL for a library.
+    #[error("No download URL for library {0}")]
+    NoDownloadUrl(String),
+    /// Installing a library failed.
+    #[error("Failed to install library {library}: {source}")]
+    LibraryInstall {
+        /// Library name.
+        library: String,
+        /// The underlying error.
+        source: Box<Error>,
+    },
+    /// Workspace library database access failed.
+    #[error(transparent)]
+    Workspace(#[from] librepcb_core::workspace::Error),
     /// A background task panicked or was cancelled.
     #[error("Background task failed: {0}")]
     Task(String),

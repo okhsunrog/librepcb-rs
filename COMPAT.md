@@ -373,6 +373,12 @@ differ between platforms/implementations:
   `formatFileSize()` (`"1.50 MB"`) instead of
   `QLocale::formattedDataSize()` (`"2 MiB"`).
 
+- `LibraryDownload` (upstream in the editor) is part of this crate; it
+  returns the library directory or an error instead of emitting
+  `finished(bool, QString)`. The library installer (`library_installer`,
+  selecting libraries by name/UUID with their dependencies) has no upstream
+  counterpart; upstream does this in the library manager UI.
+
 ## project/schematic
 
 - Loading validates each schematic page as a whole after deserializing it
@@ -423,3 +429,45 @@ differ between platforms/implementations:
 - `BoardNetSegmentSplitter`: new junction UUIDs come from a caller provided
   generator, and the elements of a resulting segment may be listed in
   another order. Files are unaffected (elements are saved sorted by UUID).
+
+## workspace
+
+- **Library database** (`libraries/cache_v8.sqlite`): same file name,
+  schema, database version and row contents as upstream, so both
+  implementations can use the same workspace (not at the same time, the
+  data directory is locked). Values are bound like the Qt SQLite driver:
+  empty icons/logos and empty `generated_by` are `NULL`, strings upstream
+  passes through `nonNull()` are empty strings. URLs (organizations,
+  resources, PCB design rules) are stored verbatim instead of normalized by
+  `QUrl::toString()`; they are only read for display.
+- **Scanner** runs synchronously on a caller provided thread instead of
+  an owned `QThread`; progress is a callback. Libraries are scanned in the
+  order of their directory names compared case insensitively with
+  `str::to_lowercase()` (upstream: `QDir` default sorting), which only
+  changes the database row IDs and thus which of two elements with the
+  same UUID *and* version is returned as "latest".
+- `WorkspaceLibraryDb::Part` is `library::dev::Part`; parts are sorted
+  like upstream, with attribute values compared by the natural order of
+  `natural_cmp_case_insensitive()` instead of `QCollator` (see library). If
+  two attribute values compare equal there, the next attribute decides
+  (upstream: the parts compare equal).
+- **Workspace settings**: color schemes (`schematic_color_schemes`,
+  `board_color_schemes`, `3d_color_schemes`) are kept as raw S-expressions
+  and written back unchanged (upstream re-serializes them canonically when
+  they are written, i.e. after an edit or a file format upgrade). Keyboard
+  shortcuts keep their key sequences as strings without
+  `QKeySequence` normalization. The migration of the legacy `themes` entry
+  only restores the grid styles; its colors are not converted into user
+  color schemes (upstream creates `*_color_schemes` entries from them).
+  API endpoint URLs are stored verbatim (upstream: `QUrl`), and an endpoint
+  counts as valid if its URL is non-empty (upstream: `QUrl::isValid()`).
+- The "workspace requires LibrePCB %2 or later" message fills in both
+  placeholders (path and version); upstream passes only the version, so its
+  message shows the version as path and a literal `%2`.
+- The most recently used workspace path (`QSettings`) is not ported (it
+  belongs to the application). `Workspace::open_or_create()` performs the
+  steps of the upstream workspace initialization wizard (create, choose and
+  copy the data directory) without UI and without downloading the example
+  projects.
+- Not ported: UI themes and color scheme logic (`UiTheme`, `ColorRole`,
+  `BaseColorScheme`, `UserColorScheme`).
