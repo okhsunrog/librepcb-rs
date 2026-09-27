@@ -2024,10 +2024,7 @@ fn device_menu_items(
                     _ => None,
                 })
                 .unwrap_or_default();
-            let mut name = format!(
-                "{} [{pkg_name}]",
-                device.metadata().names().default_value()
-            );
+            let mut name = format!("{} [{pkg_name}]", device.metadata().names().default_value());
             if compatible.contains(&uuid) {
                 name += " \u{2714}";
             }

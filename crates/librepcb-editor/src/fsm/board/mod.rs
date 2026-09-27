@@ -51,6 +51,7 @@
 
 mod clipboard;
 mod context;
+mod find;
 mod output;
 mod selection;
 mod simplify;
@@ -276,6 +277,7 @@ pub struct BoardEditorFsm {
     selection: BoardSelection,
     cursor_pos: Option<Point>,
     left_button: bool,
+    search: crate::fsm::find::SearchContext,
 }
 
 impl BoardEditorFsm {
@@ -305,6 +307,7 @@ impl BoardEditorFsm {
             selection: BoardSelection::default(),
             cursor_pos: None,
             left_button: false,
+            search: crate::fsm::find::SearchContext::new(),
         }
     }
 

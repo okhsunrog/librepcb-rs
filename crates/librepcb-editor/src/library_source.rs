@@ -168,7 +168,8 @@ impl LibraryElementSource for DirectoryLibrarySource {
             .filter_map(|((_, uuid), (_, dir))| {
                 let file = dir.path_to(&format!("{}.lp", long_element_name(kind)));
                 let content = std::fs::read(file.as_path()).ok()?;
-                let root = SExpression::parse(&content, Some(file.as_path()), Mode::LibrePcb).ok()?;
+                let root =
+                    SExpression::parse(&content, Some(file.as_path()), Mode::LibrePcb).ok()?;
                 let cmp: Uuid = root.child_value("component/@0").ok()?;
                 (cmp == *component).then_some(*uuid)
             })

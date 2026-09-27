@@ -1137,3 +1137,56 @@ fn change_device_from_context_menu() {
     assert!(h.editor.undo().unwrap());
     assert_eq!(h.board().device(r1).unwrap().lib_device(), lib::r0805());
 }
+
+#[test]
+fn find_components_and_nets() {
+    use librepcb_editor::fsm::find::{FindCandidate, FindKind};
+    let mut h = build(true);
+    let r1 = h.component("R1");
+    let vcc = h.net("VCC");
+    let mut ctx = BoardContext::new(&mut h.editor, &h.view, &mut h.clipboard);
+    h.fsm.refresh_find_suggestions(&ctx);
+    // Components on the board and nets with labels (MID has none).
+    let names: Vec<(FindKind, String)> = h
+        .fsm
+        .search()
+        .suggestions()
+        .iter()
+        .map(|c| (c.kind, c.name.clone()))
+        .collect();
+    assert!(names.contains(&(FindKind::Component, "R1".into())));
+    assert!(names.contains(&(FindKind::Net, "VCC".into())));
+    assert!(!names.iter().any(|(_, n)| n == "MID"), "{names:?}");
+    h.fsm.set_find_term("r1");
+    assert_eq!(
+        h.fsm.search().suggestions(),
+        &[FindCandidate::component("R1")]
+    );
+    let result = h.fsm.find_next(&mut ctx);
+    assert_eq!(result.components, vec![r1]);
+    let (p1, p2) = result.zoom_rect.unwrap();
+    let pos = h
+        .editor
+        .project()
+        .board(h.board)
+        .unwrap()
+        .device(r1)
+        .unwrap()
+        .position();
+    assert!(p1.x < pos.x && p1.y < pos.y && p2.x > pos.x && p2.y > pos.y);
+    assert!(h.fsm.selection().contains(BoardItemRef::Device(r1)));
+
+    let mut ctx = BoardContext::new(&mut h.editor, &h.view, &mut h.clipboard);
+    h.fsm.set_find_term("VCC");
+    let result = h.fsm.find_next(&mut ctx);
+    assert_eq!(result.nets, vec![vcc]);
+    assert!(h.fsm.highlighted_nets().contains(&vcc));
+    assert!(
+        h.fsm
+            .selection()
+            .items()
+            .iter()
+            .any(|i| matches!(i, BoardItemRef::FootprintPad(c, _) if *c == r1))
+    );
+    assert!(!h.fsm.selection().contains(BoardItemRef::Device(r1)));
+}
