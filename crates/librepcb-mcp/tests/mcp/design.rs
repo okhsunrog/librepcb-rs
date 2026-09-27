@@ -4,8 +4,6 @@
 //! outputs), with undo/redo and revision checks, then opened with the
 //! official `librepcb-cli` if available.
 
-mod common;
-
 use std::path::Path;
 
 use librepcb_mcp::tools::board_edit::{
@@ -114,7 +112,7 @@ fn design_rc_circuit_with_populated_library() {
         true,
     )
     .unwrap();
-    common::install_populated_library(Path::new(ws.result["libraries_path"].as_str().unwrap()));
+    crate::common::install_populated_library(Path::new(ws.result["libraries_path"].as_str().unwrap()));
     library::library_rescan(&session).unwrap();
     project::project_create(
         &mut session,
@@ -499,13 +497,13 @@ fn design_rc_circuit_with_populated_library() {
         .parent()
         .unwrap()
         .to_owned();
-    if let Some(cli) = common::upstream_cli() {
+    if let Some(cli) = crate::common::upstream_cli() {
         let lpp = Path::new(&session.project.as_ref().unwrap().file_path()).to_owned();
         let copy = tempfile::tempdir().unwrap();
-        common::copy_dir(&dir, copy.path());
+        crate::common::copy_dir(&dir, copy.path());
         let _ = std::fs::remove_file(copy.path().join(".lock"));
         let lpp_copy = copy.path().join(lpp.file_name().unwrap());
-        let (ok, text) = common::run_cli(
+        let (ok, text) = crate::common::run_cli(
             &cli,
             &[
                 "open-project",
@@ -536,7 +534,7 @@ fn design_rc_circuit_with_populated_library() {
 #[test]
 fn jobs_run_writes_the_output_job_files() {
     let tmp = tempfile::tempdir().unwrap();
-    let lpp = common::copy_test_project("Project With Two Boards", tmp.path());
+    let lpp = crate::common::copy_test_project("Project With Two Boards", tmp.path());
     let mut session = Session::new();
     project::project_open(
         &mut session,

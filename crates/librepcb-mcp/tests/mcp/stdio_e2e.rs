@@ -1,8 +1,6 @@
 //! End-to-end test over stdio: runs the `librepcb-mcp` binary as child
 //! process and talks to it with the rmcp client.
 
-mod common;
-
 use std::path::Path;
 
 use rmcp::ServiceExt;
@@ -135,7 +133,7 @@ async fn stdio_end_to_end() {
         .as_str()
         .unwrap()
         .to_owned();
-    common::install_populated_library(Path::new(&libraries_path));
+    crate::common::install_populated_library(Path::new(&libraries_path));
     let scan = call_ok(&client, "library_rescan", json!({})).await;
     assert_eq!(scan["library_count"], 1);
     let found = call_ok(
@@ -165,7 +163,7 @@ async fn stdio_end_to_end() {
     call_ok(&client, "project_close", json!({})).await;
 
     // Upstream test project: read, ERC, Gerber, render.
-    let project = common::copy_test_project("Nested Planes", tmp.path());
+    let project = crate::common::copy_test_project("Nested Planes", tmp.path());
     call_ok(
         &client,
         "project_open",
@@ -434,9 +432,9 @@ async fn stdio_design_led_board_with_official_libraries() {
     call_ok(&client, "project_close", json!({})).await;
     client.cancel().await.unwrap();
 
-    match common::upstream_cli() {
+    match crate::common::upstream_cli() {
         Some(cli) => {
-            let (ok, text) = common::run_cli(
+            let (ok, text) = crate::common::run_cli(
                 &cli,
                 &[
                     "open-project",
