@@ -34,6 +34,8 @@ pub enum Change {
     /// changed (upstream `Project::attributesChanged()` /
     /// `normOrderChanged()`).
     ProjectSettings,
+    /// The output jobs changed.
+    OutputJobs,
     /// The ERC message approvals changed.
     ErcApprovals,
     /// An assembly variant was added.

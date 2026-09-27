@@ -19,7 +19,7 @@ pub struct Project {
     file_name: String,                      // "*.lpp"
     metadata: ProjectMetadata,              // uuid, name, author, version, created, attributes
     settings: ProjectSettings,              // locale/norm order, custom BOM attrs, lock default
-    output_jobs: SExpression,               // raw jobs.lp until `job` is ported (round-trips bytes)
+    output_jobs: OutputJobList,             // project/jobs.lp (`job` module)
     stroke_fonts: StrokeFontPool,
     library: ProjectLibrary,
     circuit: Circuit,
@@ -363,7 +363,7 @@ occasional full snapshot).
 read the format version; reject newer; run file format migrations on the
 `TransactionalDirectory` (the migration agent's code, one call site here,
 producing the same `MigrationLog` HTML); then `metadata.lp`, `settings.lp`,
-`jobs.lp` (kept as `SExpression` until `job` is ported), library
+`jobs.lp` (typed `job::OutputJobList`), library
 (`library/{sym,pkg,cmp,dev}/<uuid>/` via `TransactionalFileSystem::dirs()`;
 invalid element directories are skipped with a warning, loaded with
 `LibraryBaseElement::open`), `circuit/circuit.lp` (variants, net classes,
@@ -524,9 +524,10 @@ state (`Board::derived`, the verbatim `raw` files) is skipped.
   directory from the transactional file system when a page/board is
   removed (upstream moves it to a temporary file system; the files are
   regenerated from the value on undo + save, byte-identical).
-- `project/jobs.lp` is kept as a raw `SExpression` until `core/job` is
-  ported; `Project::create()` does not copy the application's fontobene
-  fonts yet (no resources directory port).
+- `project/jobs.lp` is the typed `job::OutputJobList` (replaced as a whole
+  by `Mutation::SetOutputJobs`, journaled as `Change::OutputJobs`);
+  `Project::create()` does not copy the application's fontobene fonts yet
+  (no resources directory port).
 - Projects in an older file format are upgraded by the file format
   migrations (`serialization::file_format_migrations()`), but the ERC
   approval cleanup after a migration waits for the ERC port.
@@ -577,7 +578,7 @@ state (`Board::derived`, the verbatim `raw` files) is skipped.
    `DerivedState` map keyed by `BoardId` on `Project`.
 5. **`output_jobs` as raw `SExpression`** until `core/job` is ported
    (recommended: guarantees byte-identical round trip now) vs porting `job`
-   first.
+   first. (Done: `job` is ported, `output_jobs` is typed.)
 6. **`serde` on `Mutation`/`Change`**: feature-gated derive in core
    (cheap, recommended once the MCP crate exists) vs hand-written DTOs in the
    MCP crate only.

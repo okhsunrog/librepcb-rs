@@ -26,7 +26,11 @@ Done, in `crates/librepcb-core` unless noted:
   are stored in files.
 - **Export generators:** Gerber, Excellon, IPC-D-356A, BOM and pick & place.
 - **File format migrations** v0.1 → v1 → v2. Migrated projects and
-  libraries match `librepcb-cli` byte for byte, except `jobs.lp`.
+  libraries match `librepcb-cli` byte for byte.
+- **Output jobs** (`job`): all job types as plain data (`OutputJob` +
+  `OutputJobKind` enum), `jobs.lp` and organization job templates typed,
+  presets and the editor's default job set, `GraphicsExportSettings`
+  (plain data). The job runner is not ported yet.
 - **Project model** (`project/`), designed in `project-model-design.md`:
   circuit, schematics and boards with mutations, inverses, the reverse
   index, the change journal and serde. All test projects round-trip byte
@@ -45,8 +49,8 @@ Done, in `crates/librepcb-core` unless noted:
    - DRC (the largest remaining core piece, about 8k lines of C++);
    - ERC, the BOM generator, project attribute lookup, and the JSON export
      of the project.
-2. **Wave 4:** the `job` module (output jobs, which also fixes the pending
-   `jobs.lp` round trip), the output job runner and the CLI. Acceptance:
+2. **Wave 4:** the output job runner (on top of the ported `job` data
+   model) and the CLI. Acceptance:
    upstream `tests/cli` (pytest, run with `uv`) passing against our CLI,
    plus output diffs against the official `librepcb-cli`.
 3. **Then M1.5** (MCP, library manager, Specctra) per `roadmap.md` and the

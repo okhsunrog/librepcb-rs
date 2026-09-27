@@ -188,6 +188,35 @@ stated otherwise. Entries are grouped by module.
   Unicode versions (for characters new in one of them).
 - Invalid paths and failed arc computations are logged with `log` instead of
   `qWarning()`/`qCritical()`; the output is the same.
+- **`GraphicsExportSettings`** is plain data: the page size is its
+  `QPageSize` key string, and the painting helpers (`getFillColor()`,
+  `convertImageColors()`) are not ported. Color schemes are not in core
+  yet, so the default colors of `BaseColorScheme::schematicLibrePcbLight()`
+  and `boardLibrePcbDark()` are embedded (`load_default_colors()` replaces
+  `loadColorsFromScheme()`). The adjustment of board colors for white
+  backgrounds deliberately ports Qt 6's `QColor` HSV conversion (single
+  precision, 16 bit channels, `qt_div_257()` rounding), because the
+  resulting colors are written to `jobs.lp` by the default graphics jobs.
+
+## job
+
+- **Class hierarchy → enum:** `OutputJob` holds UUID, name and options,
+  and `OutputJobKind` the type specific settings (one struct per upstream
+  subclass, plain data with public fields). Signals and icons are not
+  ported. Output is identical.
+- **Copies keep the forward compatibility options:** upstream's
+  `OutputJob` copy constructor (used by `cloneShared()`, e.g. when copying
+  a job in the output jobs dialog) drops the `option` nodes of the base
+  job; `Clone` keeps them. Only differs for copied jobs of a future minor
+  version with options.
+- **Ordering of options and layer colors** (upstream `QMap<QString, ...>`)
+  is `str` ordering, see "String ordering" under General.
+- **Colors** (`layer`/`background` of graphics jobs) are parsed with
+  `Color` (hex forms only, see types); `QColor` also accepts SVG color
+  names, which LibrePCB never writes.
+- **Default job set:** upstream creates it in the editor's output jobs
+  dialog; here it is `job::default_output_jobs()` in core, taking the
+  Gerber settings and custom BOM attributes as parameters.
 
 ## sqlite_database
 
@@ -323,8 +352,7 @@ differ between platforms/implementations:
   Sources are always empty in organizations.
 - **`Organization::duplicate_from()`** copies the output jobs with new UUIDs;
   upstream clears the job lists before iterating over them and thus drops
-  all jobs of the duplicate. Output jobs are kept as raw S-expression nodes
-  until `OutputJob` is ported (written back unchanged).
+  all jobs of the duplicate.
 - **`Component::duplicate_from()`**: a pin-signal-map entry referring to a
   non-existent signal becomes unconnected (upstream: undefined behavior).
 - **Package check geometry** (pad clearances, legend clearance, annular

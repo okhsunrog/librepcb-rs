@@ -16,6 +16,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::Utc;
 use librepcb_core::fileio::TransactionalDirectory;
+use librepcb_core::job::OutputJobList;
 use librepcb_core::library::BaseMetadata;
 use librepcb_core::library::cmp::{Component, ComponentSignal, ComponentSymbolVariant};
 use librepcb_core::project::board::Board;
@@ -141,6 +142,7 @@ pub fn add_component(
 pub struct Snapshot {
     metadata: ProjectMetadata,
     settings: ProjectSettings,
+    output_jobs: OutputJobList,
     erc_approvals: BTreeSet<SExpression>,
     circuit: Circuit,
     schematics: Vec<Schematic>,
@@ -153,6 +155,7 @@ pub fn snapshot(p: &Project) -> Snapshot {
     Snapshot {
         metadata: p.metadata().clone(),
         settings: p.settings().clone(),
+        output_jobs: p.output_jobs().clone(),
         erc_approvals: p.erc_approvals().clone(),
         circuit: p.circuit().clone(),
         schematics: p.schematics().to_vec(),

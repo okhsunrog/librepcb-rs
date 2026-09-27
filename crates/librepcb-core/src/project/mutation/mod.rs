@@ -37,6 +37,7 @@ use super::id::{
 };
 use super::project::{ProjectMetadata, ProjectSettings};
 use super::schematic::{Schematic, SchematicProperties};
+use crate::job::OutputJobList;
 use crate::library::LibraryBaseElement;
 use crate::library::cmp::Component;
 use crate::library::dev::Device;
@@ -57,6 +58,8 @@ pub enum Mutation {
     SetProjectMetadata(ProjectMetadata),
     /// Replaces the settings.
     SetProjectSettings(ProjectSettings),
+    /// Replaces all output jobs (upstream `CmdProjectEdit::setOutputJobs()`).
+    SetOutputJobs(OutputJobList),
     /// Replaces all ERC message approvals.
     SetErcApprovals(BTreeSet<SExpression>),
     /// Approves or unapproves one ERC message.
@@ -154,6 +157,7 @@ impl Project {
         match mutation {
             Mutation::SetProjectMetadata(m) => self.set_project_metadata(m),
             Mutation::SetProjectSettings(s) => self.set_project_settings(s),
+            Mutation::SetOutputJobs(jobs) => self.set_output_jobs(jobs),
             Mutation::SetErcApprovals(a) => self.set_erc_approvals(a),
             Mutation::SetErcApproval { approval, approved } => {
                 self.set_erc_approval(approval, approved)
@@ -224,6 +228,12 @@ impl Project {
         let old = std::mem::replace(&mut self.settings, settings);
         self.record(Change::ProjectSettings);
         Ok(Mutation::SetProjectSettings(old))
+    }
+
+    fn set_output_jobs(&mut self, jobs: OutputJobList) -> Result<Mutation> {
+        let old = std::mem::replace(&mut self.output_jobs, jobs);
+        self.record(Change::OutputJobs);
+        Ok(Mutation::SetOutputJobs(old))
     }
 
     fn set_erc_approvals(&mut self, approvals: BTreeSet<SExpression>) -> Result<Mutation> {

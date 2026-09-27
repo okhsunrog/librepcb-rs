@@ -9,6 +9,7 @@ mod fileio;
 mod font;
 mod geometry;
 mod helpers;
+mod job;
 mod library;
 mod project;
 mod serialization;
