@@ -1190,3 +1190,86 @@ fn find_components_and_nets() {
     );
     assert!(!h.fsm.selection().contains(BoardItemRef::Device(r1)));
 }
+
+fn dxf_settings(
+    dir: &std::path::Path,
+    placement: Option<Point>,
+) -> librepcb_editor::fsm::board::DxfImportSettings {
+    let file = dir.join("import.dxf");
+    std::fs::write(
+        &file,
+        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+         0\nSECTION\n2\nENTITIES\n\
+         0\nLWPOLYLINE\n90\n4\n70\n1\n10\n0.0\n20\n0.0\n10\n10.0\n20\n0.0\n\
+         10\n10.0\n20\n5.0\n10\n0.0\n20\n5.0\n\
+         0\nCIRCLE\n10\n5.0\n20\n2.5\n40\n0.5\n\
+         0\nENDSEC\n0\nEOF\n",
+    )
+    .unwrap();
+    librepcb_editor::fsm::board::DxfImportSettings {
+        file: librepcb_core::fileio::FilePath::new(&file).unwrap(),
+        layer: Layer::BOARD_OUTLINES,
+        line_width: librepcb_core::types::UnsignedLength::default(),
+        scale_factor: 1.0,
+        join_tangent_polylines: true,
+        circles_as_drills: true,
+        placement,
+    }
+}
+
+#[test]
+fn import_dxf_fixed_and_interactive() {
+    let mut h = build(false);
+    let tmp = tempfile::tempdir().unwrap();
+    let polygons_before = h.board().polygons().len();
+    let holes_before = h.board().holes().len();
+    // Fixed placement: pasted and committed at once.
+    let settings = dxf_settings(tmp.path(), Some(mm(20.0, 5.0)));
+    assert!(h.input(BoardFsmInput::ImportDxf(settings)));
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(h.undo_text().as_deref(), Some("Paste board elements"));
+    assert_eq!(h.board().polygons().len(), polygons_before + 1);
+    assert_eq!(h.board().holes().len(), holes_before + 1);
+    let hole = h
+        .board()
+        .holes()
+        .values()
+        .find(|hole| hole.path().vertices()[0].pos == mm(25.0, 7.5))
+        .expect("hole at the circle center plus offset");
+    assert_eq!(hole.diameter().to_mm(), 1.0);
+    let polygon = h.board().polygons().values().find(|p| {
+        p.layer() == Layer::BOARD_OUTLINES && p.path().vertices()[0].pos == mm(20.0, 5.0)
+    });
+    assert!(polygon.is_some());
+
+    // Interactive placement: follows the cursor, a click places it.
+    let settings = dxf_settings(tmp.path(), None);
+    h.move_to(mm(0.0, 0.0));
+    assert!(h.input(BoardFsmInput::ImportDxf(settings)));
+    assert!(h.editor.undo_stack().is_group_active());
+    h.move_to(mm(2.54, 2.54));
+    h.press(mm(2.54, 2.54));
+    h.release(mm(2.54, 2.54));
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(h.board().holes().len(), holes_before + 2);
+    assert!(
+        h.board()
+            .holes()
+            .values()
+            .any(|hole| hole.path().vertices()[0].pos == mm(5.0 + 2.54, 2.5 + 2.54))
+    );
+
+    // A file without objects is an error.
+    let empty = tmp.path().join("empty.dxf");
+    std::fs::write(&empty, "").unwrap();
+    let mut settings = dxf_settings(tmp.path(), None);
+    settings.file = librepcb_core::fileio::FilePath::new(&empty).unwrap();
+    let mut ctx = BoardContext::new(&mut h.editor, &h.view, &mut h.clipboard);
+    assert!(!h.fsm.import_dxf(&mut ctx, settings));
+    assert!(
+        h.fsm
+            .take_requests()
+            .iter()
+            .any(|r| matches!(r, BoardRequest::ShowError(_)))
+    );
+}

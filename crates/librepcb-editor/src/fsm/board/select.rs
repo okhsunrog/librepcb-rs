@@ -6,11 +6,15 @@
 
 use std::collections::BTreeSet;
 
-use librepcb_core::geometry::{Path, TraceAnchor, Vertex};
+use librepcb_core::geometry::{NonEmptyPath, Path, TraceAnchor, Vertex};
+use librepcb_core::import::DxfReader;
 use librepcb_core::library::LibraryBaseElement;
+use librepcb_core::project::board::{BoardHoleData, BoardPolygonData};
 use librepcb_core::project::board::{BoardItem, BoardNetSegment};
 use librepcb_core::project::{BoardMutation, Mutation, NetSegmentId, NetSignalId};
+use librepcb_core::types::MaskConfig;
 use librepcb_core::types::{Angle, Length, Orientation, Point, UnsignedLength, Uuid};
+use librepcb_core::utils::tangent_path_joiner;
 use librepcb_core::utils::toolbox;
 use librepcb_i18n::{tr, trn};
 
@@ -20,7 +24,7 @@ use super::output::{BoardRequest, BoardToolData, ContextAction, ContextMenuItem}
 use super::selection::{SelectionQuery, all_items, segment_items};
 use super::transform::{DragItems, flip_mutations};
 use super::view::{BoardItemRef, FindFilter, FindFlags};
-use super::{BoardFsmInput, State};
+use super::{BoardFsmInput, DxfImportSettings, State};
 use crate::commands::{BoardSelection as RemoveSelection, RemoveBoardItems};
 use crate::fsm::Features;
 
@@ -280,6 +284,17 @@ impl SelectState {
                 return false;
             }
         };
+        self.start_paste(cx, data, None)
+    }
+
+    /// Upstream `startPaste()`: pastes the items and lets them follow the
+    /// cursor, or places them at `fixed_offset` and finishes.
+    fn start_paste(
+        &mut self,
+        cx: &mut Cx<'_, '_>,
+        data: BoardClipboardData,
+        fixed_offset: Option<Point>,
+    ) -> bool {
         cx.selection.clear();
         if let Err(e) = cx.begin(tr!("BoardEditorState_Select", "Paste board elements")) {
             cx.error(e);
@@ -287,13 +302,22 @@ impl SelectState {
         }
         self.pasting = true;
         let start = cx.cursor_pos;
-        let offset = (start - data.cursor_pos).mapped_to_grid(cx.grid());
+        let offset =
+            fixed_offset.unwrap_or_else(|| (start - data.cursor_pos).mapped_to_grid(cx.grid()));
         let board = cx.board_id();
         match cx.exec(PasteBoardItems {
             board,
             data,
             offset,
         }) {
+            Ok(items) if !items.is_empty() && fixed_offset.is_some() => {
+                self.pasting = false;
+                if let Err(e) = cx.commit() {
+                    cx.error(e);
+                }
+                cx.selection.replace(items);
+                true
+            }
             Ok(items) if !items.is_empty() => {
                 cx.selection.replace(items);
                 let Some(mut query) = Self::query(cx, true) else {
@@ -313,6 +337,75 @@ impl SelectState {
                 self.pasting = false;
                 false
             }
+            Err(e) => {
+                cx.error(e);
+                self.abort_command(cx);
+                false
+            }
+        }
+    }
+
+    /// Upstream `processImportDxf()` (the dialog's choices are the
+    /// settings): reads the DXF file and pastes its polygons and holes.
+    fn import_dxf(&mut self, cx: &mut Cx<'_, '_>, settings: &DxfImportSettings) -> bool {
+        if self.busy() {
+            return false;
+        }
+        let result = (|| -> crate::error::Result<BoardClipboardData> {
+            let mut reader = DxfReader::new();
+            reader.set_scale_factor(settings.scale_factor);
+            reader
+                .parse_file(&settings.file)
+                .map_err(|e| crate::Error::InvalidArgument(e.to_string()))?;
+            let mut paths = reader.polygons().to_vec();
+            if settings.join_tangent_polylines {
+                paths =
+                    tangent_path_joiner::join(paths, Some(std::time::Duration::from_secs(2))).paths;
+            }
+            let board_uuid = cx.board()?.uuid();
+            let mut data = BoardClipboardData::new(board_uuid, Point::ORIGIN)?;
+            for path in paths {
+                data.polygons.push(BoardPolygonData::new(
+                    Uuid::new_random(),
+                    settings.layer,
+                    settings.line_width,
+                    path,
+                    false,
+                    false,
+                    false,
+                ));
+            }
+            for circle in reader.circles() {
+                if settings.circles_as_drills {
+                    data.holes.push(BoardHoleData::new(
+                        Uuid::new_random(),
+                        circle.diameter,
+                        NonEmptyPath::from_point(circle.position),
+                        MaskConfig::Automatic,
+                        false,
+                    ));
+                } else {
+                    data.polygons.push(BoardPolygonData::new(
+                        Uuid::new_random(),
+                        settings.layer,
+                        settings.line_width,
+                        Path::circle(circle.diameter).translated(circle.position),
+                        false,
+                        false,
+                        false,
+                    ));
+                }
+            }
+            if data.is_empty() {
+                return Err(crate::Error::InvalidArgument(tr!(
+                    "DxfImportDialog",
+                    "The selected file does not contain any objects to import."
+                )));
+            }
+            Ok(data)
+        })();
+        match result {
+            Ok(data) => self.start_paste(cx, data, settings.placement),
             Err(e) => {
                 cx.error(e);
                 self.abort_command(cx);
@@ -1295,6 +1388,7 @@ impl State for SelectState {
             }
             BoardFsmInput::RightReleased(e) => self.right_released(cx, e.pos),
             BoardFsmInput::ContextMenu(action) => self.context_action(cx, *action),
+            BoardFsmInput::ImportDxf(settings) => self.import_dxf(cx, settings),
             _ => false,
         };
         // Upstream updates the features on selection and undo stack changes

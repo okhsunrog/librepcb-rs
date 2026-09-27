@@ -180,8 +180,31 @@ pub enum BoardFsmInput {
     RightReleased(PointerEvent),
     /// A context menu entry was chosen.
     ContextMenu(ContextAction),
+    /// Import a DXF file (select tool, upstream `processImportDxf()` with
+    /// the choices of the DXF import dialog).
+    ImportDxf(DxfImportSettings),
     /// A tool bar value was changed.
     ToolSetting(ToolSetting),
+}
+
+/// The choices of the DXF import dialog (upstream `DxfImportDialog`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DxfImportSettings {
+    /// The DXF file.
+    pub file: librepcb_core::fileio::FilePath,
+    /// Layer of the imported polygons.
+    pub layer: librepcb_core::types::Layer,
+    /// Line width of the imported polygons.
+    pub line_width: UnsignedLength,
+    /// Factor the coordinates are multiplied with.
+    pub scale_factor: f64,
+    /// Join tangent polylines to (closed) paths.
+    pub join_tangent_polylines: bool,
+    /// Import circles as (non-plated) holes instead of polygons.
+    pub circles_as_drills: bool,
+    /// Fixed placement offset; `None`: the items follow the cursor until
+    /// the next click (like pasting).
+    pub placement: Option<Point>,
 }
 
 /// Interface of the states (upstream `BoardEditorState`).
@@ -507,6 +530,12 @@ impl BoardEditorFsm {
     /// Requests the properties dialog of the selection.
     pub fn edit_properties(&mut self, ctx: &mut BoardContext<'_>) -> bool {
         self.process(ctx, BoardFsmInput::EditProperties)
+    }
+
+    /// Imports a DXF file (upstream `processImportDxf()`): its polygons
+    /// (and holes) are pasted.
+    pub fn import_dxf(&mut self, ctx: &mut BoardContext<'_>, settings: DxfImportSettings) -> bool {
+        self.process(ctx, BoardFsmInput::ImportDxf(settings))
     }
 
     /// A context menu entry was chosen.

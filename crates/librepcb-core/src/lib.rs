@@ -36,6 +36,7 @@ pub mod export;
 pub mod fileio;
 pub mod font;
 pub mod geometry;
+pub mod import;
 pub mod job;
 pub mod library;
 pub mod project;
