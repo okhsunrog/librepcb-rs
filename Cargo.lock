@@ -3475,6 +3475,8 @@ dependencies = [
 name = "librepcb-editor"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.2",
+ "libm",
  "librepcb-autoroute",
  "librepcb-core",
  "librepcb-i18n",

@@ -253,6 +253,22 @@ impl ProjectEditor {
         self.undo_stack.abort_group(&mut self.project)
     }
 
+    /// Rolls back the operations of the active group after the first `len`
+    /// ones (see [`UndoStack::active_group_len()`]). Interactive tools use
+    /// this for live previews: roll back the previous preview, apply the
+    /// next one, so the group only holds the final state when committed.
+    pub fn rollback_group_to(&mut self, len: usize) {
+        self.undo_stack.rollback_active_to(&mut self.project, len);
+    }
+
+    /// Rebuilds the air wires of the nets scheduled for rebuild on a board
+    /// (upstream `Board::triggerAirWiresRebuild()`), also while a group is
+    /// active (air wires are derived data: not recorded, rebuilt again
+    /// after an abort or undo since the mutations schedule their nets).
+    pub fn rebuild_air_wires(&mut self, board: librepcb_core::project::BoardId) -> Result<()> {
+        Ok(self.project.rebuild_air_wires(board)?)
+    }
+
     /// Undoes the last group; returns `false` if there was nothing to undo.
     pub fn undo(&mut self) -> Result<bool> {
         self.undo_stack.undo(&mut self.project)
