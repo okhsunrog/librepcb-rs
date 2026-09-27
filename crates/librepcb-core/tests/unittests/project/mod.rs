@@ -10,6 +10,7 @@ mod board;
 mod circuit_test;
 mod erc_test;
 mod json_export_test;
+mod output_job_runner_test;
 mod project_test;
 mod schematic_test;
 mod serde_test;

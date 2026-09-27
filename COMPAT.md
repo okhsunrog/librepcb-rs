@@ -579,3 +579,60 @@ Rendering only; no file is affected.
   upstream; a project without a directory on disk (in-memory file system)
   cannot export to relative paths (error instead of a path relative to an
   empty directory).
+
+## project (output job runner)
+
+- **Unsupported job types**: graphics (PDF/SVG/image), interactive HTML
+  BOM and 3D (STEP) jobs fail with "Output jobs of type '...' are not
+  supported yet by this LibrePCB version (librepcb-rs)." since the
+  painters, the HTML BOM generator and the STEP export are not ported yet.
+  Unknown job types fail with the upstream message. `buildPages()`
+  (preview of graphics jobs) is not ported.
+- The Qt signals (`jobStarted`, `aboutToWriteFile`, `aboutToRemoveFile`,
+  `warning`) are one observer callback (`OutputJobEvent`).
+- The application version and creation date written into the files are
+  passed in (`ExportInfo`), one date for the whole run (upstream takes the
+  current time for each file).
+- Archive jobs collect their input files in an in-memory transactional
+  file system; upstream opens a writable one in a random temporary
+  directory, which is left behind. The archive content is the same (of
+  several input files with the same name, the first written one wins like
+  upstream's `QMultiHash` iteration), but the ZIP entries are sorted (see
+  TransactionalFileSystem). The same applies to `*.lppz` output jobs.
+- A project without a directory on disk cannot run output jobs (the
+  output directory is relative to it).
+
+## CLI (crate librepcb-cli)
+
+The console output (messages, help texts, exit codes) is identical to
+upstream `librepcb-cli` 2.1.1 except for:
+
+- **Graphics exports** (`open-project --export-schematics`, `open-symbol
+  --export`, `open-package --export`, graphics output jobs) are not
+  supported yet: after the usual header lines, each export fails with
+  `  ERROR: Graphics export is not supported yet ...`. For unknown file
+  extensions, the upstream message is printed. The help texts list only
+  `pdf, svg, bmp, jpeg, jpg, png` as supported extensions (upstream: PDF,
+  SVG and all image formats of the Qt installation).
+- **STEP models**: behaves like an upstream build without OpenCascade:
+  `open-step` and `open-library --minify-step` fail with
+  "Attempted to work with STEP file, but LibrePCB was compiled without
+  OpenCascade." (the upstream CLI tests skip these cases). 3D output jobs
+  fail with the "not supported yet" message of the output job runner.
+- **DRC** (`open-project --drc`) is not available yet (the DRC is ported
+  separately); each board prints `    ERROR: The design rule check is not
+  supported yet ...`. Custom DRC settings (`--drc-settings`) are loaded and
+  validated like upstream.
+- **`--version`** prints `Implementation librepcb-rs (Rust, no Qt)`
+  instead of the Qt version line, `OpenCascade N/A`, and the Git revision
+  `unknown`; the application version is the crate version (also written
+  into exported files as generating software).
+- **`--verbose`** log messages use the `env_logger` format and the
+  messages of the Rust port (upstream: Qt's message handler format).
+- **Parser errors**: the command line is parsed with `clap`; the error
+  texts of `QCommandLineParser` are reproduced for unknown options,
+  missing and unexpected values. Several unknown options (e.g. `-abc`) are
+  reported one at a time (`Unknown option 'a'.`) instead of `Unknown
+  options: a, b, c.`. The parser strings of Qt (`Usage: {0}`, `Options:`,
+  `Arguments:`, the error texts) are not in LibrePCB's translation
+  catalogs, so they are always English (upstream: Qt's catalogs).
