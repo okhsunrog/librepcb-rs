@@ -61,8 +61,7 @@ impl Hasher {
 
 /// Finds the directory of interest in the extracted ZIP (e.g. to strip a
 /// root folder). Must return the passed directory or a subdirectory of it.
-pub type ZipDiscoveryCallback =
-    Box<dyn FnOnce(&FilePath) -> fileio::Result<FilePath> + Send + 'static>;
+pub type ZipDiscoveryCallback = Box<dyn FnOnce(&FilePath) -> Result<FilePath> + Send + 'static>;
 
 /// Called with the extraction directory after a successful extraction.
 pub type ZipCleanupCallback = Box<dyn FnOnce(&FilePath) + Send + 'static>;
