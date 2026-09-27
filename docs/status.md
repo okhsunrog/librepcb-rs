@@ -7,7 +7,7 @@ covers where things stand and how the work has been organized.
 ## Where we are
 
 Milestone M1 (headless `librepcb-cli`) is done (without 3D/STEP);
-M1.5 (MCP) is in progress. About 1100 tests pass.
+M1.5 (MCP) works end to end. About 1150 tests pass.
 
 Done, in `crates/librepcb-core` unless noted:
 
@@ -55,19 +55,21 @@ Done, in `crates/librepcb-core` unless noted:
 - **`crates/librepcb-i18n`, `tools/ts2po`, `lang/`:** translations from the
   upstream catalogs.
 
-## In progress / next steps
+## Next steps
 
-1. MCP phase 2 is done: 57 tools (write tools on `librepcb-editor` with
-   undo/redo/history, `connect` with automatic schematic wiring,
-   automatic symbol/device placement, `autoroute` with Freerouting or the
-   built-in router, DRC, output jobs); end-to-end design over stdio with
-   the official libraries, verified by `librepcb-cli`
-   (`LIBREPCB_TEST_LIBRARIES_DIR`). `jobs_run` skips job types which are
-   not ported yet (3D).
-2. Then M2 (viewer) per `roadmap.md`.
+MCP acceptance (done): an agent-style stdio session designed a
+two-transistor LED multivibrator from the official libraries — library
+install, part search, schematic with `connect`/`schematic_tidy`, board
+outline, connectivity-based placement, Freerouting, GND plane, ERC/DRC,
+Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
 
-Deliberately deferred: 3D/STEP and the
-Eagle/KiCad importers (M5).
+1. M2 viewer (Slint) on `librepcb-scene`, with live updates from the
+   change journal (watch an agent work).
+2. MCP: stdio MCP mode for Freerouting, subcircuit templates, design
+   intent file (see `mcp-research-konnect.md`), more end-to-end scenarios
+   (ICs with multiple gates, multi-page schematics, 4-layer boards).
+3. `Board::updateDrcMessageApprovals()`, STEP/3D (needs an OpenCascade
+   replacement), Eagle/KiCad importers (M5).
 
 ## How the work is organized
 
@@ -90,8 +92,13 @@ Eagle/KiCad importers (M5).
 
 Run `scripts/cloud-setup.sh` on a fresh machine. It sets up the pinned
 upstream checkout next to the repository and the official `librepcb-cli`
-behind Xvfb; after that, `cargo test --workspace` runs everything,
-including the upstream comparisons.
+behind Xvfb, and Freerouting 2.4.1 with Java 25; after that,
+`cargo test --workspace` runs everything, including the upstream
+comparisons. Set `USER` if the environment lacks it (a ported system info
+test needs it), and `LIBREPCB_TEST_LIBRARIES_DIR` to a directory with
+official `*.lplib` clones to run the real-library design tests. With
+several parallel agents, use `CARGO_INCREMENTAL=0` and shared target
+directories: the cloud disk allowance fills up quickly.
 
 ## Open items to remember
 
