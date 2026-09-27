@@ -471,7 +471,7 @@ without touching the same files:
 
 Shared files (`mod.rs` re-exports, the top-level `Mutation`/`Change` enums)
 already delegate to the per-area enums, so they need no edits. The
-round-trip test (`tests/project_roundtrip.rs`: open every project in
+round-trip test (`tests/unittests/compat/project_roundtrip.rs`: open every project in
 upstream `tests/data/projects`, save, every written file byte-identical)
 stays green as the `raw` passthroughs are replaced by real serialization.
 

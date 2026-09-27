@@ -87,7 +87,7 @@ Done, in `crates/librepcb-core` unless noted:
   M3a (editing in the tabs) is in place: the schematic and board tabs
   drive the `librepcb-editor` FSMs (tools, tool bars, overlays, context
   menus, clipboard with upstream MIME types, cross-probing, undo/redo;
-  `crates/librepcb-app/tests/editing.rs`). M3b (project dialogs) is
+  `crates/librepcb-app/tests/app/editing.rs`). M3b (project dialogs) is
   done: generic Slint form dialogs (`src/dialogs/`,
   `ui/dialogs/formdialog.slint`) for the properties of all schematic and
   board items the FSMs request (symbol, symbol text, net/bus label
@@ -97,8 +97,8 @@ Done, in `crates/librepcb-core` unless noted:
   pick&place generator, and the add component dialog
   (`ui/dialogs/addcomponentdialog.slint`: categories, search, symbol and
   footprint previews, symbol variant, device); each applies one undo
-  group. Tests: `tests/{dialogs,setup_dialogs,output_dialogs}.rs`
-  (headless) and `tests/dialog_screenshots.rs` (the dialogs in the
+  group. Tests: `tests/app/{dialogs,setup_dialogs,output_dialogs}.rs`
+  (headless) and `tests/app/dialog_screenshots.rs` (the dialogs in the
   headless application, screenshots in `$CARGO_TARGET_TMPDIR`).
 
 ## Next steps
@@ -147,6 +147,13 @@ test needs it), and `LIBREPCB_TEST_LIBRARIES_DIR` to a directory with
 official `*.lplib` clones to run the real-library design tests. With
 several parallel agents, use `CARGO_INCREMENTAL=0` and shared target
 directories: the cloud disk allowance fills up quickly.
+
+To keep the target directory small, the dev profile builds workspace crates
+with line tables only (backtraces keep file and line) and dependencies
+without debug info, and each crate has one integration test binary (see
+AGENTS.md). For full debug info in a local debugging session, build with
+`CARGO_PROFILE_DEV_DEBUG=full` (workspace crates), plus
+`--config 'profile.dev.package."*".debug="full"'` for the dependencies.
 
 ## Open items to remember
 

@@ -111,7 +111,7 @@ need new Slint dialogs (M3, batched per area) and a new 3D renderer (M5).
   `project_create` is adopted; the agent works on the project of the
   active tab; undo/redo/save buttons work for agent and UI edits; status
   bar indicator and a notification when an agent edits. Test:
-  `tests/live_mcp.rs` (rmcp HTTP client against the headless app).
+  `tests/app/live_mcp.rs` (rmcp HTTP client against the headless app).
 - M2d checks and outputs (**mostly done**): ERC (automatic after
   changes) and DRC (full or quick, worker thread with progress
   notification) in upstream's rule check panel: list, approve/unapprove
@@ -216,7 +216,7 @@ cargo run -p librepcb-app -- --workspace /tmp/ws --project X.lpp \
 
 `--tab home|schematic|board` and
 `--panel home|libraries|documents|layers|about|none`
-choose what is shown. The test `crates/librepcb-app/tests/screenshot.rs`
+choose what is shown. The test `crates/librepcb-app/tests/app/screenshot.rs`
 does the same with an upstream test project (copied to a temporary
 directory: opening a project locks its directory) and writes
 `app_home.png`, `app_board.png` and `app_schematic.png` to

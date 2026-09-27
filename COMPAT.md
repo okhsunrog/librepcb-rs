@@ -235,7 +235,7 @@ stated otherwise. Entries are grouped by module.
   with the same conversions as upstream's C++/FFI wrapper (`f32`
   millimeters, Y axis negated as floating point value, so zero becomes
   `-0`), so the HTML is byte-identical (verified against `librepcb-cli`
-  on all test projects, `tests/interactive_html_bom.rs`). `add_footprint()`
+  on all test projects, `tests/unittests/compat/interactive_html_bom.rs`). `add_footprint()`
   returns an error if a pad outline cannot be calculated (upstream's
   `noexcept` method would terminate the application).
 
