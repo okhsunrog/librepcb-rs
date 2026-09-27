@@ -5,15 +5,13 @@
 //! the main window. Screenshots are written to `$CARGO_TARGET_TMPDIR`
 //! (`dialog_*.png`).
 
-mod common;
-
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 
-use common::*;
+use crate::common::*;
 use librepcb_app::dialogs;
-use librepcb_app::screenshot::{self, Headless, write_png};
+use librepcb_app::screenshot::{Headless, write_png};
 use librepcb_app::tabs::PropertiesTarget;
 use librepcb_app::{App, InitialTab, startup, ui};
 use librepcb_core::fileio::{FilePath, file_utils};
@@ -50,7 +48,7 @@ fn schematic_tab_index(app: &App) -> i32 {
 
 #[test]
 fn dialogs_in_the_application() {
-    let headless = screenshot::install_platform(WIDTH, HEIGHT).unwrap();
+    crate::common::with_headless(WIDTH, HEIGHT, |headless| {
     let tmp = tempfile::tempdir().unwrap();
 
     // The test project (created and closed again) and a workspace with the
@@ -210,4 +208,5 @@ fn dialogs_in_the_application() {
     forms.invoke_form_button(-2);
     headless.settle(5);
     assert!(!forms.get_form_shown());
+    });
 }

@@ -1,13 +1,13 @@
 //! Renders the main window headless with an upstream test project and
 //! checks that the home tab, the board and the schematic show up.
 //!
-//! One test function only: Slint's platform can be installed once per
-//! process. The screenshots are written to `CARGO_TARGET_TMPDIR` for
-//! inspection.
+//! Runs on the UI thread of the test binary
+//! ([`with_headless()`](crate::common::with_headless)). The screenshots are
+//! written to `CARGO_TARGET_TMPDIR` for inspection.
 
 use std::path::{Path, PathBuf};
 
-use librepcb_app::screenshot::{self, write_png};
+use librepcb_app::screenshot::write_png;
 use librepcb_app::{App, InitialTab, startup, ui};
 use librepcb_core::project::Mutation;
 use librepcb_core::types::ElementName;
@@ -65,7 +65,7 @@ fn save(dir: &Path, name: &str, pixels: &[Rgb8Pixel]) {
 
 #[test]
 fn main_window_screenshots() {
-    let headless = screenshot::install_platform(WIDTH, HEIGHT).unwrap();
+    crate::common::with_headless(WIDTH, HEIGHT, |headless| {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = tmp.path().join("project");
     copy_dir(&upstream_project("Gerber Test"), &project_dir);
@@ -155,4 +155,5 @@ fn main_window_screenshots() {
     headless.settle(5);
     assert_eq!(data.get_current_tab().title, "Renamed");
     assert!(data.get_current_tab().features.undo == ui::FeatureState::Enabled);
+    });
 }

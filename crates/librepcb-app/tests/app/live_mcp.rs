@@ -5,15 +5,16 @@
 //! runs in the background, exports write their files, and the agent closes
 //! the project.
 //!
-//! One test function only: Slint's platform can be installed once per
-//! process. Screenshots are written to `CARGO_TARGET_TMPDIR`.
+//! Runs on the UI thread of the test binary
+//! ([`with_headless()`](crate::common::with_headless)). Screenshots are
+//! written to `CARGO_TARGET_TMPDIR`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use librepcb_app::screenshot::{self, Headless, write_png};
+use librepcb_app::screenshot::{Headless, write_png};
 use librepcb_app::tabs::Tab;
 use librepcb_app::{App, InitialTab, startup, ui};
 use librepcb_scene::BoardObject;
@@ -133,7 +134,7 @@ fn board_tab_index(app: &App) -> i32 {
 
 #[test]
 fn live_mcp_rule_checks_and_outputs() {
-    let headless = screenshot::install_platform(WIDTH, HEIGHT).unwrap();
+    crate::common::with_headless(WIDTH, HEIGHT, |headless| {
     let tmp = tempfile::tempdir().unwrap();
     let project_dir = tmp.path().join("project");
     copy_dir(&upstream_project("Gerber Test"), &project_dir);
@@ -320,6 +321,7 @@ fn live_mcp_rule_checks_and_outputs() {
     );
     assert!(app.state().borrow().projects().is_empty());
     assert_eq!(current_tab_type(&app), ui::TabType::Home);
+    });
 }
 
 fn walk(dir: &Path) -> Vec<PathBuf> {

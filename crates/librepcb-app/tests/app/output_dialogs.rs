@@ -3,11 +3,9 @@
 //! the resulting jobs run with the application's output job runner, and
 //! project changes stored as one undo step.
 
-mod common;
-
 use std::rc::Rc;
 
-use common::*;
+use crate::common::*;
 use librepcb_app::dialogs::output::{GraphicsExportDialog, GraphicsExportKind, OutputJobsDialog};
 use librepcb_app::dialogs::{
     Applied, ButtonResult, DialogContext, FieldEvent, FormDialog, ListAction,

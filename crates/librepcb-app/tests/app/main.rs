@@ -1,0 +1,12 @@
+//! Integration tests of the application, in one test binary (one link
+//! instead of one per file; see AGENTS.md). The tests on Slint's headless
+//! platform share one UI thread, see [`common::with_headless()`].
+
+mod common;
+mod dialog_screenshots;
+mod dialogs;
+mod editing;
+mod live_mcp;
+mod output_dialogs;
+mod screenshot;
+mod setup_dialogs;

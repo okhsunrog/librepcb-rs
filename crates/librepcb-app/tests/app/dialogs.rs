@@ -5,12 +5,10 @@
 //!
 //! No Slint platform is needed: the dialogs' forms are plain models.
 
-mod common;
-
 use std::collections::BTreeSet;
 use std::rc::Rc;
 
-use common::*;
+use crate::common::*;
 use librepcb_app::dialogs::{
     self, Applied, DialogContext, FieldEvent, FormDialog, ListAction, TabDialogResult,
 };
