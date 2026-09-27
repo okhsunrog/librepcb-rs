@@ -1,0 +1,80 @@
+# Lessons from Konnect (KiCad MCP server) for our MCP
+
+Research notes for roadmap milestone M1.5. Konnect lives at
+`/home/okhsunrog/kicad/Konnect` (Rust, ~226 tools in 21 toolsets). Paths
+below are relative to that repository.
+
+## Konnect in short
+
+- Hand-written MCP JSON-RPC over stdio and Streamable HTTP (no `rmcp`); skills,
+  agents and PreToolUse hooks are installed into the Claude config by
+  `konnect init`, not served as MCP prompts/resources.
+- Three backends chosen per operation: text-preserving S-expression edits of
+  `.kicad_sch` (KiCad has no schematic API), protobuf/NNG IPC to the PCB
+  editor, and `kicad-cli` subprocesses for ERC/DRC/export/render. Most of the
+  code is "write gate" logic (may the file be touched while KiCad owns it?)
+  and re-deriving connectivity from geometry.
+
+## Adopt (ranked)
+
+1. **Toolsets with a tiny starter kit** (`router/registry.rs`,
+   `router/meta_tools.rs`). Keep our surface small (< ~60 tools) and add
+   dynamic loading only if needed; some clients cache `tools/list`.
+2. **"Evidence, not echo" responses**: an `outcome` envelope
+   (`complete|partial|failed|uncertain`, retry safety) and gate verdicts where
+   a check that did not run can never read as a pass (`outcome.rs`,
+   `gates.rs`, `docs/RELIABILITY_CONTRACT.md`).
+3. **Structured error kinds** (`mcp/error.rs`): map `project::Error` variants
+   to stable kinds plus the upstream message.
+4. **Schema-enforced dispatch and drift tests**: generate input schemas from
+   the serde DTOs (`schemars`); test that every advertised parameter is read
+   and that skills only name existing tools
+   (`crates/konnect/tests/schema_parameter_usage.rs`, `asset_references.rs`).
+5. **Dry-run plan + apply with a revision token** (`tools/pcb_sync.rs`): our
+   `Project::revision()` is the token; write tools take
+   `expected_revision` and return the new one. Autorouter import, adding
+   devices from the library and large batches become plan/apply pairs.
+6. **Committed read-back**: write tools return the affected entities re-read
+   from the model plus the `Change` events, not the echoed arguments.
+7. **Observability tools**: recent calls ring buffer, per-tool stats, JSONL
+   log, `server_info` (`observability.rs`).
+8. **Visual feedback**: `render_schematic`/`render_board` returning MCP image
+   content from `librepcb-canvas`; pin the rasterizer if baselines are stored.
+9. **Skills and subagents**: a build agent (place → wire → annotate → save →
+   ERC → render and look → fix), a review agent, "one design owner at a
+   time", and an evidence hierarchy (requirements/datasheets > ERC/DRC >
+   connectivity > heuristics) (`assets/skills`, `assets/agents`).
+10. **Design preferences and free-text design rules** with explicit sources
+    (`tools/config.rs`); map fab constraints onto LibrePCB's own
+    `BoardDesignRules`/settings rather than a parallel format.
+11. **Subcircuit templates as data** (`tools/templates.rs`), later.
+12. **End-to-end stdio tests** that open, mutate, run ERC, export and diff
+    against `librepcb-cli` (`crates/konnect/tests/e2e_kicad.rs`).
+13. **FreeRouting through its own MCP/stdio mode** as an owned child process
+    with plan/apply import (`freerouting_mcp.rs`).
+
+## Avoid
+
+- Micro-tools mirroring file syntax (`add_wire`, `add_junction`, plus
+  `batch_*` duplicates); use intent-level, batch-native tools on top of
+  `Mutation`.
+- File-path arguments on every call and a stateless server; open once,
+  address by UUID.
+- Re-deriving connectivity from geometry; our netlist comes from the model.
+- Duplicate entry points and aliases for the same operation.
+- A backup that is not an undo (their `snapshot_project` is a PDF export);
+  expose real `undo`/`redo`/`history`/`save`.
+- Write-ahead transaction journals in the project directory; the in-memory
+  model plus `TransactionalFileSystem` makes them unnecessary.
+- Client-side hooks as the primary safety mechanism.
+
+## Hard for them because of KiCad, and our position
+
+- Live GUI vs saved file ambiguity: avoided if MCP runs inside the app on
+  the shared `Arc<RwLock<Project>>`; a standalone server must honor
+  `DirectoryLock` (which stores user/host/PID, unlike KiCad's lock files).
+- Formatting-preserving text edits: avoided, we have a canonical serializer.
+- ERC/DRC via subprocess and JSON parsing: avoided, they run in-process.
+- Invalid data reaching the editor: avoided, validation on every mutation.
+- Library search by walking library tables: still to solve with the SQLite
+  library index (M1.5).
