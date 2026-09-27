@@ -3056,6 +3056,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "librepcb-scene"
+version = "0.1.0"
+dependencies = [
+ "librepcb-canvas",
+ "librepcb-core",
+ "png",
+ "static_assertions",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "libseat"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
