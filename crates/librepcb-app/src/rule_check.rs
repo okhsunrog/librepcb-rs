@@ -66,6 +66,9 @@ const ERC_DELAY_INACTIVE: Duration = Duration::from_millis(1000);
 const ERC_ZOOM_MARGIN_MM: f64 = 20.0;
 const DRC_ZOOM_MARGIN_MM: f64 = 1.0;
 
+/// A modification of a notification, posted from a worker thread.
+type NotificationUpdate = Box<dyn FnOnce(&mut ui::NotificationData) + Send>;
+
 /// Which check of a project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckKind {
@@ -706,8 +709,7 @@ impl State {
                 let last_percent = AtomicU32::new(0);
                 let progress = |p: DrcProgress<'_>| {
                     let Some(id) = notification else { return };
-                    let update: Option<Box<dyn FnOnce(&mut ui::NotificationData) + Send>> = match p
-                    {
+                    let update: Option<NotificationUpdate> = match p {
                         DrcProgress::Percent(pc) => {
                             (last_percent.swap(pc, Ordering::Relaxed) != pc).then(|| {
                                 Box::new(move |d: &mut ui::NotificationData| {
