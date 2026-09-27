@@ -26,6 +26,7 @@ petgraph = "0.8.3"
 regex = "1.13.1"
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 spade = "2.15.1"
 static_assertions = "1.1.0"
 tempfile = "3.27.0"

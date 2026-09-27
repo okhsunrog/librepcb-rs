@@ -6,10 +6,8 @@
 //! order), user settings. Loading goes through the same validating
 //! insertion functions as editing, so the error messages are upstream's;
 //! the change journal is cleared afterwards.
-//!
-//! Differences to upstream:
-//! - The ERC approval cleanup after a file format migration is not ported
-//!   yet (needs the ERC), so obsolete approvals are kept.
+//! After a file format migration, the ERC is run and only the approvals of
+//! messages which still occur are kept (like upstream).
 
 mod board;
 mod circuit;
@@ -112,9 +110,11 @@ impl ProjectLoader {
         p.refs = RefIndex::build(&p);
 
         if self.migration_log.is_some() {
-            // TODO(erc): upstream runs the ERC here and keeps only the ERC
-            // approvals of messages which still occur, to clean up obsolete
-            // approvals (needs the port of `ElectricalRuleCheck`).
+            // Clean up obsolete ERC message approvals.
+            log::info!("Running ERC to clean up obsolete message approvals...");
+            let messages = super::erc::run_erc(&p);
+            let approvals = crate::rule_check::all_approvals(messages.iter().map(|m| m.message()));
+            p.erc_approvals.retain(|a| approvals.contains(a));
 
             // Make sure the files are formatted correctly. Also handle
             // possible errors during serialization now instead of later.

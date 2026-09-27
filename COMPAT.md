@@ -423,3 +423,35 @@ differ between platforms/implementations:
 - `BoardNetSegmentSplitter`: new junction UUIDs come from a caller provided
   generator, and the elements of a resulting segment may be listed in
   another order. Files are unaffected (elements are saved sorted by UUID).
+
+## project (ERC, attribute lookup, BOM, JSON export)
+
+- ERC (`project::erc`): where upstream iterates a `QHash`/`QSet` (nets
+  attached to a bus) or a registration list (net segments of a net: here
+  schematic page order, then segment UUID order; bus segments of a bus:
+  schematic UUID order, then segment UUID order; symbol pins of a
+  component signal: gate order), items are visited in a deterministic
+  order. This only affects the order of the messages and which of several
+  equivalent items a message location (highlighting) points to; the
+  messages and approvals (`circuit/erc.lp`) are identical. Symbols whose
+  pins cannot be computed from the project library are skipped (the loader
+  rejects such projects, upstream cannot represent them at all).
+- `ProjectAttributeLookup` borrows the project and the objects (upstream:
+  `QPointer`s which silently yield empty values after deletion). Built-in
+  keys whose library element is missing from the project library
+  (`COMPONENT`, `DEVICE`, `PACKAGE`, `FOOTPRINT`) resolve to an empty
+  string (upstream cannot represent that state). `PROJECT_DIRPATH` and
+  `PROJECT_FILEPATH` are empty for projects not on disk. `CREATED_DATE`,
+  `CREATED_TIME`, `DATE` and `TIME` are formatted with chrono in local
+  time (`%Y-%m-%d`, `%H:%M:%S`), the same text as Qt's `ISODate`.
+- `BomGenerator`: the value cleanup uses the `regex` crate with ASCII `\s`,
+  the same set as upstream's `QRegularExpression` without Unicode
+  properties; `QString::simplified()` is `split_whitespace()` (see
+  General).
+- `json_export`: the output is written by a port of `QJsonDocument`'s
+  indented format and of Qt 6's `QByteArray::number(d, 'g',
+  FloatingPointShortest)` (shortest round-trip digits, exponent form like
+  `1e-05` only where shorter). Older Qt versions may format numbers in
+  exponent form differently; lengths realistically exported (multiples of
+  1 nm between 0.001 mm and 1 m) are formatted identically. Keys are sorted
+  like `QJsonObject`.

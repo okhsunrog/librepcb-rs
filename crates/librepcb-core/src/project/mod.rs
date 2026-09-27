@@ -31,15 +31,22 @@
 //! - `mutation`, `change`, `ref_index`, `library`, `project`, `id`,
 //!   `error`: see the re-exports below.
 //!
-//! Not ported yet: `erc/` (electrical rule check), `board/drc/`, the
-//! export glue (`boardgerberexport`, `bomgenerator`, ...),
-//! `projectattributelookup`, `projectjsonexport`, `outputjobrunner`.
+//! - [`erc`]: the electrical rule check.
+//! - [`ProjectAttributeLookup`], [`BomGenerator`], [`json_export`]:
+//!   attribute lookup, BOM generation and the JSON export of projects.
+//!
+//! Not ported yet: `board/drc/`, the board export glue
+//! (`boardgerberexport`, ...), `outputjobrunner`.
 
+mod attribute_lookup;
 pub mod board;
+mod bom_generator;
 mod change;
 pub mod circuit;
+pub mod erc;
 mod error;
 mod id;
+pub mod json_export;
 mod library;
 pub mod loader;
 mod mutation;
@@ -48,7 +55,9 @@ mod project;
 mod ref_index;
 pub mod schematic;
 
+pub use attribute_lookup::ProjectAttributeLookup;
 pub use board::BoardChange;
+pub use bom_generator::BomGenerator;
 pub use change::{Change, ChangeLog, ChangesSince, DEFAULT_CHANGE_LOG_CAPACITY};
 pub use error::{EntityKind, Error, Result};
 pub use id::{
