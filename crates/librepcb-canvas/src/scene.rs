@@ -925,14 +925,14 @@ impl Scene {
             self.index.remove(&index_entry(bbox, id));
         }
         for slot in slots.into_iter().flatten() {
-            self.remove_from_group(id, slot);
+            self.remove_from_group(id, slot, bbox);
         }
         if !self.items[id].item.geometry.is_empty() {
             self.add_damage(bbox);
         }
     }
 
-    fn remove_from_group(&mut self, id: ItemId, slot: Slot) {
+    fn remove_from_group(&mut self, id: ItemId, slot: Slot, bbox: Rect) {
         let rev = self.rev;
         let Some(g) = self.groups.get_mut(slot.group) else {
             return;
@@ -963,8 +963,10 @@ impl Scene {
             }
             self.group_index.remove(&key);
             self.groups.remove(slot.group);
-        } else {
-            // Shrink the bounding box again.
+        } else if touches_border(bbox, g.bbox) {
+            // Shrink the bounding box again (it cannot shrink if the item
+            // was strictly inside, which keeps removals from large groups
+            // cheap).
             let bbox = g
                 .items
                 .iter()
@@ -974,4 +976,9 @@ impl Scene {
             self.groups[slot.group].bbox = bbox;
         }
     }
+}
+
+/// Whether `inner` (contained in `outer`) reaches the border of `outer`.
+fn touches_border(inner: Rect, outer: Rect) -> bool {
+    inner.x0 <= outer.x0 || inner.y0 <= outer.y0 || inner.x1 >= outer.x1 || inner.y1 >= outer.y1
 }

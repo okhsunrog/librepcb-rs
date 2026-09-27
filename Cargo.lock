@@ -3546,14 +3546,17 @@ name = "librepcb-scene"
 version = "0.1.0"
 dependencies = [
  "clipper",
+ "fastrand",
  "image",
  "librepcb-canvas",
  "librepcb-core",
+ "librepcb-editor",
  "librepcb-i18n",
  "log",
  "pdf-writer",
  "png",
  "static_assertions",
+ "tempfile",
  "thiserror 2.0.21",
  "vello_cpu",
 ]

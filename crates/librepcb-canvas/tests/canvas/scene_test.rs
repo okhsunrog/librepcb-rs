@@ -101,6 +101,22 @@ fn test_empty_groups_are_removed() {
 }
 
 #[test]
+fn test_group_bbox_shrinks_when_border_item_is_removed() {
+    let mut s = scene();
+    let a = s.insert(square(RED, 1.0, 1.0, 1.0));
+    let inner = s.insert(square(RED, 3.0, 3.0, 1.0));
+    s.insert(square(RED, 5.0, 5.0, 1.0));
+    let bbox = |s: &Scene| s.draw_groups().next().unwrap().bounding_box();
+    assert_eq!(bbox(&s), Rect::new(1.0, 1.0, 6.0, 6.0));
+    // An item strictly inside does not change the bounding box.
+    s.remove(inner);
+    assert_eq!(bbox(&s), Rect::new(1.0, 1.0, 6.0, 6.0));
+    // An item at the border does.
+    s.remove(a);
+    assert_eq!(bbox(&s), Rect::new(5.0, 5.0, 6.0, 6.0));
+}
+
+#[test]
 fn test_group_encoding_contains_all_items() {
     let mut s = scene();
     for i in 0..5 {

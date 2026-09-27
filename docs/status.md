@@ -50,6 +50,9 @@ Done, in `crates/librepcb-core` unless noted:
   symbols and footprints on `crates/librepcb-canvas`, headless PNG
   rendering, and the graphics export (PDF via `pdf-writer`, SVG,
   PNG/JPEG/BMP; upstream's page layout and realistic board rendering).
+  Schematic and board scenes are updated incrementally from the change
+  journal (`apply_changes()`, `SceneSync`), checked against fresh builds
+  after editor command sequences and seeded random edits.
 - **`crates/librepcb-mcp`:** MCP server (rmcp, stdio/HTTP), see
   `mcp-design.md`.
 - **`crates/librepcb-i18n`, `tools/ts2po`, `lang/`:** translations from the
