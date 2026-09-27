@@ -18,6 +18,7 @@
 //! - [`circuit`]: nets and net classes.
 //! - [`component`]: components, symbols and devices.
 //! - [`schematic`]: wires, net labels, removal of schematic items.
+//! - [`image`]: images of schematic pages (with their files).
 //! - [`bus`]: buses (drawing bus lines, bus labels, combining segments
 //!   and buses).
 //! - [`autoroute`]: routing of air wires with the built-in autorouter.
@@ -35,6 +36,7 @@ pub mod board;
 pub mod bus;
 pub mod circuit;
 pub mod component;
+pub mod image;
 pub mod library;
 pub mod placement;
 pub mod project;
@@ -54,6 +56,7 @@ pub use board::*;
 pub use bus::{AddBusLabel, BusAnchor, BusResult, DrawBus};
 pub use circuit::*;
 pub use component::*;
+pub use image::AddSchematicImage;
 pub use library::*;
 pub use placement::*;
 pub use project::*;

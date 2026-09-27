@@ -1398,10 +1398,7 @@ pub(crate) fn remove_schematic_items(
         changed = true;
     }
     for image in &selection.images {
-        tx.apply(sch(SchematicMutation::RemoveImage {
-            schematic,
-            image: *image,
-        }))?;
+        super::image::remove_schematic_image(tx, schematic, *image)?;
         changed = true;
     }
 

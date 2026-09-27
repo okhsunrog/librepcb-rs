@@ -517,7 +517,7 @@ impl SchematicTab {
             | SchematicRequest::TextProperties(_) => {
                 update.requests.push(dialog_not_available());
             }
-            SchematicRequest::ContextMenu { item, pos } => {
+            SchematicRequest::ContextMenu { item, pos, .. } => {
                 let entries = self.build_context_menu(item);
                 if !entries.is_empty() {
                     let screen = self.canvas.view().world_to_screen(point_to_world(pos));

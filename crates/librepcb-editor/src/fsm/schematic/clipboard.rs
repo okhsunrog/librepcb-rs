@@ -9,16 +9,15 @@
 //! `application/x-librepcb-clipboard.schematic; version=<app version>`.
 //!
 //! Differences to upstream: buses and bus segments are neither copied nor
-//! pasted (lines attached to bus junctions are left out); images are
-//! copied but not pasted (adding image files is not undoable yet).
+//! pasted (lines attached to bus junctions are left out).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use librepcb_core::attribute::AttributeList;
 use librepcb_core::fileio::{FileSystem, TransactionalDirectory};
 use librepcb_core::geometry::{
-    ImageList, Junction, JunctionList, NetLabel, NetLabelList, NetLine, NetLineAnchor, NetLineList,
-    Polygon, PolygonList, Text, TextList,
+    Image, ImageList, Junction, JunctionList, NetLabel, NetLabelList, NetLine, NetLineAnchor,
+    NetLineList, Polygon, PolygonList, Text, TextList,
 };
 use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::library::cmp::Component;
@@ -351,6 +350,7 @@ impl SchematicClipboardData {
             && self.net_segments.is_empty()
             && self.polygons.is_empty()
             && self.texts.is_empty()
+            && self.images.is_empty()
     }
 
     /// Builds the clipboard data of the selected items (upstream
@@ -776,6 +776,42 @@ fn paste(
             schematic,
             polygon: copy,
         }))?;
+    }
+    // Images: an existing file with the same content is reused, otherwise
+    // a new file is added (upstream `CmdPasteSchematicItems`).
+    for image in data.images.iter() {
+        let Some(content) = dir.read_if_exists(image.file_name().as_str())? else {
+            continue; // Skip images with missing file.
+        };
+        if content.is_empty() {
+            continue;
+        }
+        let existing =
+            crate::commands::image::find_existing_image_file(tx.project(), schematic, &content)?;
+        let file_name = match &existing {
+            Some(name) => name.clone(),
+            None => crate::commands::image::unused_image_file_name(
+                tx.project(),
+                schematic,
+                image.file_basename(),
+                image.file_extension(),
+            )?,
+        };
+        let copy = Image::new(
+            Uuid::new_random(),
+            file_name,
+            image.position() + offset,
+            image.rotation(),
+            image.width(),
+            image.height(),
+            image.border_width(),
+        );
+        pasted.push(SchematicItem::Image(copy.uuid()));
+        tx.run(crate::commands::AddSchematicImage {
+            schematic,
+            image: copy,
+            data: existing.is_none().then_some(content),
+        })?;
     }
     for text in data.texts.iter() {
         let copy = Text::new(

@@ -31,6 +31,7 @@
 //!   feature, symbol texts as separately selectable items.
 
 mod add_component;
+mod add_image;
 mod add_label;
 mod add_text;
 pub mod clipboard;
@@ -165,6 +166,8 @@ pub enum SchematicTool {
     Polygon,
     /// Add texts.
     Text,
+    /// Add images.
+    Image,
     /// Measure distances.
     Measure,
 }
@@ -250,9 +253,18 @@ pub enum SchematicRequest {
         item: SchematicItem,
         /// The position (world coordinates).
         pos: Point,
+        /// Polygons: whether vertices are at `pos` which can be removed
+        /// ("Remove Vertex", [`SchematicEditorFsm::remove_polygon_vertices()`]).
+        remove_vertex: Option<bool>,
+        /// Polygons: whether a line is at `pos` ("Add Vertex",
+        /// [`SchematicEditorFsm::add_polygon_vertex()`]).
+        add_vertex: bool,
     },
     /// Zoom to show all items (e.g. after adding a drawing frame).
     ZoomAll,
+    /// Open the image chooser dialog; the application calls
+    /// [`SchematicEditorFsm::add_image()`] with the chosen file.
+    ChooseImageFile,
     /// Show the menu of the bus members when a wire starts or ends at a bus
     /// (upstream `determineNetForBusMember()`); the application calls
     /// [`SchematicEditorFsm::choose_bus_member()`] with the choice ("Add
@@ -264,6 +276,27 @@ pub enum SchematicRequest {
         nets: Vec<BusMemberNet>,
     },
 }
+
+/// An image to add (upstream: the data, format and basename passed to
+/// `processAddImage()`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageData {
+    /// The file content.
+    pub data: Vec<u8>,
+    /// The format (file extension: `png`, `jpg` or `svg`).
+    pub format: String,
+    /// The base name for the new file (e.g. of the chosen file; empty:
+    /// `image`).
+    pub basename: String,
+}
+
+/// The MIME types of images the FSM pastes from the clipboard, with their
+/// format (upstream `ImageHelpers::getImageFromClipboard()`).
+pub const CLIPBOARD_IMAGE_TYPES: [(&str, &str); 3] = [
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/svg+xml", "svg"),
+];
 
 /// A net of the bus member menu, see [`SchematicRequest::BusMemberMenu`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -409,6 +442,7 @@ enum StateKind {
     AddComponent,
     DrawPolygon,
     AddText,
+    AddImage,
     Measure,
 }
 
@@ -493,6 +527,7 @@ struct States {
     add_component: add_component::AddComponentState,
     draw_polygon: draw_polygon::DrawPolygonState,
     add_text: add_text::AddTextState,
+    add_image: add_image::AddImageState,
     measure: measure::MeasureState,
 }
 
@@ -507,6 +542,7 @@ impl States {
             StateKind::AddComponent => &mut self.add_component,
             StateKind::DrawPolygon => &mut self.draw_polygon,
             StateKind::AddText => &mut self.add_text,
+            StateKind::AddImage => &mut self.add_image,
             StateKind::Measure => &mut self.measure,
         })
     }
@@ -669,6 +705,36 @@ impl SchematicEditorFsm {
         self.switch_to(ctx, StateKind::Measure)
     }
 
+    /// Adds an image (upstream `processAddImage()`): without data, the
+    /// image chooser is requested ([`SchematicRequest::ChooseImageFile`]);
+    /// with data, the image follows the cursor, the first click places it,
+    /// the second one sets its size.
+    pub fn add_image(&mut self, ctx: &mut SchematicContext<'_>, data: Option<ImageData>) -> bool {
+        let Some(data) = data else {
+            self.out.requests.push(SchematicRequest::ChooseImageFile);
+            return true;
+        };
+        let old = self.ensure_entered(ctx);
+        if !self.set_next_state(ctx, StateKind::AddImage) {
+            self.after_event(ctx);
+            return false;
+        }
+        let ok = {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states.add_image.start(&mut cx, data)
+        };
+        if !ok {
+            self.set_next_state(ctx, old);
+        }
+        self.after_event(ctx);
+        ok
+    }
+
     /// Requests the "add component" dialog (upstream
     /// `processAddComponent(searchTerm)`): emits
     /// [`SchematicRequest::AddComponentDialog`]; the application then calls
@@ -726,6 +792,53 @@ impl SchematicEditorFsm {
                 settings: &self.settings,
             };
             self.states.draw_wire.choose_bus_member(&mut cx, choice)
+        };
+        self.after_event(ctx);
+        handled
+    }
+
+    /// Removes the vertices of a polygon at `pos` (context menu "Remove
+    /// Vertex", upstream `removePolygonVertices()`).
+    pub fn remove_polygon_vertices(
+        &mut self,
+        ctx: &mut SchematicContext<'_>,
+        polygon: Uuid,
+        pos: Point,
+    ) -> bool {
+        let kind = self.ensure_entered(ctx);
+        let handled = kind == StateKind::Select && {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states
+                .select
+                .remove_polygon_vertices(&mut cx, polygon, pos)
+        };
+        self.after_event(ctx);
+        handled
+    }
+
+    /// Adds a vertex to the line of a polygon at `pos` which follows the
+    /// cursor until the left button is released (context menu "Add
+    /// Vertex", upstream `startAddingPolygonVertex()`).
+    pub fn add_polygon_vertex(
+        &mut self,
+        ctx: &mut SchematicContext<'_>,
+        polygon: Uuid,
+        pos: Point,
+    ) -> bool {
+        let kind = self.ensure_entered(ctx);
+        let handled = kind == StateKind::Select && {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states.select.add_polygon_vertex(&mut cx, polygon, pos)
         };
         self.after_event(ctx);
         handled
@@ -808,8 +921,22 @@ impl SchematicEditorFsm {
     }
 
     /// Pastes items from the clipboard; they follow the cursor until the
-    /// next click.
+    /// next click. Without schematic data, an image in the clipboard is
+    /// added (upstream `SchematicTab`: `ImageHelpers::getImageFromClipboard()`).
     pub fn paste(&mut self, ctx: &mut SchematicContext<'_>) -> bool {
+        let mime = clipboard::schematic_clipboard_mime_type(&self.settings.app_version);
+        if ctx.clipboard.get(&mime).is_none() {
+            let image = CLIPBOARD_IMAGE_TYPES.iter().find_map(|(mime, format)| {
+                ctx.clipboard.get(mime).map(|data| ImageData {
+                    data,
+                    format: (*format).to_owned(),
+                    basename: String::new(),
+                })
+            });
+            if let Some(image) = image {
+                return self.add_image(ctx, Some(image));
+            }
+        }
         dispatch!(self, ctx, |s, cx| s.paste(&mut cx))
     }
 

@@ -812,7 +812,9 @@ fn double_click_and_context_menu_requests() {
         std::mem::take(&mut h.requests),
         vec![SchematicRequest::ContextMenu {
             item: SchematicItem::Symbol(r1),
-            pos: Point::ORIGIN
+            pos: Point::ORIGIN,
+            remove_vertex: None,
+            add_vertex: false,
         }]
     );
     assert!(h.run(|fsm, ctx| fsm.edit_properties(ctx)));
@@ -1249,4 +1251,201 @@ fn symbol_texts_are_selectable() {
     let s = h.p().schematic(h.schematic).unwrap();
     assert!(!s.symbols()[&r1].texts().contains_key(&text_uuid));
     assert!(s.symbols().contains_key(&r1));
+}
+
+// --- Images and polygon vertices ---
+
+const SVG: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="red"/></svg>"#;
+
+impl Harness {
+    fn images(&self) -> Vec<librepcb_core::geometry::Image> {
+        self.p()
+            .schematic(self.schematic)
+            .unwrap()
+            .images()
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    fn image_file_exists(&self, name: &str) -> bool {
+        use librepcb_core::fileio::FileSystem;
+        let dir = self
+            .p()
+            .schematic(self.schematic)
+            .unwrap()
+            .directory_name()
+            .to_owned();
+        self.p()
+            .directory()
+            .file_exists(&format!("schematics/{dir}/{name}"))
+    }
+}
+
+#[test]
+fn add_resize_and_remove_image() {
+    use librepcb_editor::fsm::schematic::ImageData;
+    let mut h = Harness::new();
+    // Without data, the image chooser is requested.
+    h.run(|fsm, ctx| fsm.add_image(ctx, None));
+    assert_eq!(h.requests.pop(), Some(SchematicRequest::ChooseImageFile));
+    h.cursor = mm(30.48, 30.48);
+    assert!(h.run(|fsm, ctx| fsm.add_image(
+        ctx,
+        Some(ImageData {
+            data: SVG.as_bytes().to_vec(),
+            format: "svg".into(),
+            basename: "my logo".into(),
+        })
+    )));
+    assert_eq!(h.fsm.tool(), SchematicTool::Image);
+    assert!(h.editor.undo_stack().is_group_active());
+    assert_eq!(h.images().len(), 1);
+    assert_eq!(h.images()[0].file_name().as_str(), "my-logo.svg");
+    assert!(h.image_file_exists("my-logo.svg"));
+    // Initial size: 10 mm on the longer side, aspect ratio kept.
+    assert_eq!(h.images()[0].width().to_mm(), 10.0);
+    assert_eq!(h.images()[0].height().to_mm(), 5.0);
+    // Position, then size.
+    h.move_to(mm(5.08, 5.08));
+    assert_eq!(h.images()[0].position(), mm(5.08, 5.08));
+    h.press(mm(5.08, 5.08));
+    h.move_to(mm(25.4, 7.62));
+    assert_eq!(h.images()[0].width().to_mm(), 20.32);
+    assert_eq!(h.images()[0].height().to_mm(), 10.16);
+    h.press(mm(25.4, 7.62));
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(h.fsm.tool(), SchematicTool::Select);
+    assert_eq!(
+        h.editor.undo_stack().undo_text(),
+        Some("Add Schematic Image")
+    );
+    let image = h.images()[0].clone();
+
+    // Resize it with the handle at its top right corner.
+    h.run(|fsm, _| fsm.set_selection([SchematicItem::Image(image.uuid())]));
+    let handle = image.position() + mm(image.width().to_mm(), image.height().to_mm());
+    h.move_to(handle);
+    h.press(handle);
+    h.move_to(mm(15.24, 30.0));
+    h.release(mm(15.24, 30.0));
+    assert_eq!(h.images()[0].width().to_mm(), 10.16);
+    assert_eq!(h.images()[0].height().to_mm(), 5.08);
+    assert_eq!(h.images()[0].position(), image.position());
+    assert_eq!(h.editor.undo_stack().undo_text(), Some("Edit Image"));
+
+    // Copy & paste reuses the file; removing the last image removes it.
+    h.run(|fsm, _| fsm.set_selection([SchematicItem::Image(image.uuid())]));
+    assert!(h.run(|fsm, ctx| fsm.copy(ctx)));
+    assert!(h.run(|fsm, ctx| fsm.paste(ctx)));
+    h.move_to(mm(40.64, 40.64));
+    h.press(mm(40.64, 40.64));
+    assert_eq!(h.images().len(), 2);
+    assert!(
+        h.images()
+            .iter()
+            .all(|i| i.file_name().as_str() == "my-logo.svg")
+    );
+    assert!(h.run(|fsm, ctx| fsm.select_all(ctx)));
+    let images: Vec<SchematicItem> = h
+        .images()
+        .iter()
+        .map(|i| SchematicItem::Image(i.uuid()))
+        .collect();
+    h.run(|fsm, _| fsm.set_selection(images));
+    assert!(h.run(|fsm, ctx| fsm.remove(ctx)));
+    assert!(h.images().is_empty());
+    assert!(!h.image_file_exists("my-logo.svg"));
+    h.undo();
+    assert_eq!(h.images().len(), 2);
+    assert!(h.image_file_exists("my-logo.svg"));
+
+    // Pasting image data from the clipboard adds an image (reusing the
+    // existing file with the same content).
+    h.clipboard = MemoryClipboard::new();
+    h.clipboard.set("image/svg+xml", SVG.as_bytes().to_vec());
+    assert!(h.run(|fsm, ctx| fsm.paste(ctx)));
+    assert_eq!(h.fsm.tool(), SchematicTool::Image);
+    assert_eq!(h.images().len(), 3);
+    assert!(
+        h.images()
+            .iter()
+            .all(|i| i.file_name().as_str() == "my-logo.svg")
+    );
+    h.run(|fsm, ctx| fsm.abort(ctx));
+    assert_eq!(h.images().len(), 2);
+
+    // Saving and reopening keeps the image file.
+    h.editor.save().unwrap();
+}
+
+#[test]
+fn move_add_and_remove_polygon_vertices() {
+    use librepcb_core::geometry::{Path, Polygon, Vertex};
+    use librepcb_core::project::{Mutation, SchematicMutation};
+    use librepcb_core::types::{Layer, UnsignedLength};
+    let mut h = Harness::new();
+    let path = Path::new(vec![
+        Vertex::at(mm(30.48, 0.0)),
+        Vertex::at(mm(40.64, 0.0)),
+        Vertex::at(mm(40.64, 10.16)),
+        Vertex::at(mm(30.48, 10.16)),
+        Vertex::at(mm(30.48, 0.0)),
+    ]);
+    let polygon = Polygon::new(
+        Uuid::new_random(),
+        Layer::SCHEMATIC_GUIDE,
+        UnsignedLength::new(Length::new(200_000)).unwrap(),
+        false,
+        false,
+        path,
+    );
+    let uuid = polygon.uuid();
+    let schematic = h.schematic;
+    h.editor
+        .execute(ApplyMutations {
+            text: None,
+            mutations: vec![Mutation::Schematic(SchematicMutation::AddPolygon {
+                schematic,
+                polygon,
+            })],
+        })
+        .unwrap();
+    h.sync.sync(h.editor.project(), &mut h.scene).unwrap();
+    let poly = |h: &Harness| {
+        h.p().schematic(h.schematic).unwrap().polygons()[&uuid]
+            .path()
+            .clone()
+    };
+    // Select the polygon, then drag its vertex at (40.64, 10.16).
+    h.run(|fsm, _| fsm.set_selection([SchematicItem::Polygon(uuid)]));
+    h.move_to(mm(40.64, 10.16));
+    h.press(mm(40.64, 10.16));
+    h.move_to(mm(45.72, 12.7));
+    assert!(h.editor.undo_stack().is_group_active());
+    h.release(mm(45.72, 12.7));
+    assert_eq!(poly(&h).vertices()[2].pos, mm(45.72, 12.7));
+    assert_eq!(poly(&h).vertices()[1].pos, mm(40.64, 0.0));
+    assert_eq!(h.editor.undo_stack().undo_text(), Some("Edit polygon"));
+
+    // Right click on the vertex offers to remove it.
+    h.run(|fsm, ctx| fsm.right_released(ctx, PointerEvent::new(mm(45.72, 12.7))));
+    assert!(h.requests.iter().any(|r| matches!(
+        r,
+        SchematicRequest::ContextMenu {
+            remove_vertex: Some(true),
+            ..
+        }
+    )));
+    assert!(h.run(|fsm, ctx| fsm.remove_polygon_vertices(ctx, uuid, mm(45.72, 12.7))));
+    assert_eq!(poly(&h).vertices().len(), 4);
+    assert!(poly(&h).is_closed());
+
+    // Add a vertex on the bottom line and move it.
+    assert!(h.run(|fsm, ctx| fsm.add_polygon_vertex(ctx, uuid, mm(35.56, 0.0))));
+    h.move_to(mm(35.56, -2.54));
+    h.release(mm(35.56, -2.54));
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(poly(&h).vertices().len(), 5);
+    assert_eq!(poly(&h).vertices()[1].pos, mm(35.56, -2.54));
 }

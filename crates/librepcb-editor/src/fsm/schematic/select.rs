@@ -1,10 +1,12 @@
 //! Port of libs/librepcb/editor/project/schematic/fsm/schematiceditorstate_select.{h,cpp}.
 //!
-//! Not ported: moving polygon vertices, resizing images, the context menu
-//! itself (requested from the application), cross-probing.
+//! Not ported: the context menu itself (requested from the application),
+//! cross-probing.
 
-use librepcb_core::project::SymbolId;
-use librepcb_core::types::{Angle, Orientation, Point};
+use librepcb_core::geometry::{Image, Path, Polygon, Vertex};
+use librepcb_core::project::{Mutation, SchematicMutation, SymbolId};
+use librepcb_core::types::{Angle, Length, Orientation, Point, PositiveLength, Uuid};
+use librepcb_core::utils::toolbox;
 use librepcb_i18n::tr;
 
 use super::clipboard::{
@@ -25,6 +27,22 @@ enum SubState {
     Selecting,
     Moving,
     Pasting,
+    MovingPolygonVertices,
+    ResizingImage,
+}
+
+/// Moving vertices of a polygon (upstream `mCmdPolygonEdit`).
+#[derive(Debug, Clone)]
+struct VertexEdit {
+    polygon: Polygon,
+    vertices: Vec<usize>,
+}
+
+/// Resizing an image (upstream `mCmdImageEdit`).
+#[derive(Debug, Clone)]
+struct ImageResize {
+    image: Image,
+    aspect_ratio: f64,
 }
 
 /// The select state.
@@ -36,6 +54,41 @@ pub(crate) struct SelectState {
     /// Length of the undo group before the drag preview (pasting: after
     /// the pasted items).
     base_len: usize,
+    vertex_edit: Option<VertexEdit>,
+    image_resize: Option<ImageResize>,
+}
+
+/// The vertex handle radius of images: 20 pixels (upstream
+/// `ImageGraphicsItem`), i.e. four times the hit tolerance.
+const IMAGE_HANDLE_TOLERANCE_FACTOR: i64 = 4;
+
+/// Indices of the vertices of `path` nearest to `pos` within `tolerance`
+/// (upstream `PolygonGraphicsItem::getVertexIndicesAtPosition()`).
+pub(crate) fn vertices_at(path: &Path, pos: Point, tolerance: Length) -> Vec<usize> {
+    let distances: Vec<(usize, Length)> = path
+        .vertices()
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (i, (v.pos - pos).length().get()))
+        .filter(|(_, d)| *d <= tolerance)
+        .collect();
+    let Some(min) = distances.iter().map(|(_, d)| *d).min() else {
+        return Vec::new();
+    };
+    distances
+        .into_iter()
+        .filter(|(_, d)| *d == min)
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// The index of the vertex after the line of `path` at `pos` (upstream
+/// `getLineIndexAtPosition()`).
+pub(crate) fn line_index_at(path: &Path, pos: Point, tolerance: Length) -> Option<usize> {
+    path.vertices().windows(2).enumerate().find_map(|(i, w)| {
+        let (d, _) = toolbox::shortest_distance_between_point_and_line(pos, w[0].pos, w[1].pos);
+        (*d <= tolerance).then_some(i + 1)
+    })
 }
 
 impl SelectState {
@@ -44,6 +97,190 @@ impl SelectState {
             Some(s) => SelectionQuery::new(&cx.out.selection, s),
             None => SelectionQuery::default(),
         }
+    }
+
+    /// Finds vertices of a selected polygon at `pos` (upstream
+    /// `findPolygonVerticesAtPosition()`).
+    fn find_polygon_vertices(cx: &Cx<'_, '_>, pos: Point) -> Option<VertexEdit> {
+        let s = cx.sch()?;
+        let tolerance = cx.ctx.view.tolerance();
+        s.polygons()
+            .iter()
+            .filter(|(id, _)| cx.out.selection.contains(&SchematicItem::Polygon(**id)))
+            .find_map(|(_, polygon)| {
+                let vertices = vertices_at(polygon.path(), pos, tolerance);
+                (!vertices.is_empty()).then(|| VertexEdit {
+                    polygon: polygon.clone(),
+                    vertices,
+                })
+            })
+    }
+
+    /// Finds the resize handle of a selected image at `pos` (upstream
+    /// `findImageHandleAtPosition()`).
+    fn find_image_handle(cx: &Cx<'_, '_>, pos: Point) -> Option<ImageResize> {
+        let s = cx.sch()?;
+        let tolerance = cx.ctx.view.tolerance() * IMAGE_HANDLE_TOLERANCE_FACTOR;
+        s.images()
+            .iter()
+            .filter(|(id, _)| cx.out.selection.contains(&SchematicItem::Image(**id)))
+            .find_map(|(_, image)| {
+                let rel = pos.rotated(-image.rotation(), image.position()) - image.position();
+                let corner = Point::new(image.width().get(), image.height().get());
+                ((corner - rel).length().get() <= tolerance).then(|| ImageResize {
+                    image: image.clone(),
+                    aspect_ratio: image.width().to_mm() / image.height().to_mm(),
+                })
+            })
+    }
+
+    /// Moves the vertices being edited to `pos` (upstream: mouse move in
+    /// `MOVING_POLYGON_VERTICES`).
+    fn move_vertices(&mut self, cx: &mut Cx<'_, '_>, pos: Point) {
+        let Some(edit) = &self.vertex_edit else {
+            return;
+        };
+        let mut vertices: Vec<Vertex> = edit.polygon.path().vertices().to_vec();
+        for i in &edit.vertices {
+            if let Some(v) = vertices.get_mut(*i) {
+                v.pos = pos.mapped_to_grid(cx.grid());
+            }
+        }
+        let mut polygon = edit.polygon.clone();
+        polygon.set_path(Path::new(vertices));
+        cx.ctx.editor.rollback_group_to(0);
+        if let Err(e) = cx.ctx.editor.execute(crate::commands::ApplyMutations {
+            text: None,
+            mutations: vec![Mutation::Schematic(SchematicMutation::UpdatePolygon {
+                schematic: cx.schematic,
+                polygon,
+            })],
+        }) {
+            log::warn!("Failed to move the polygon vertices: {e}");
+        }
+    }
+
+    /// Resizes the image being edited (upstream: mouse move in
+    /// `RESIZING_IMAGE`; the aspect ratio is kept).
+    fn resize_image(&mut self, cx: &mut Cx<'_, '_>, e: PointerEvent) {
+        let Some(resize) = &self.image_resize else {
+            return;
+        };
+        let mut pos = e.pos;
+        if !e.modifiers.shift {
+            pos = pos.mapped_to_grid(cx.grid());
+        }
+        let image = &resize.image;
+        let rel = pos.rotated(-image.rotation(), image.position()) - image.position();
+        let width = rel.x;
+        let Ok(height) = Length::from_mm(width.to_mm() / resize.aspect_ratio) else {
+            return;
+        };
+        let (Ok(width), Ok(height)) = (PositiveLength::new(width), PositiveLength::new(height))
+        else {
+            return;
+        };
+        let mut image = image.clone();
+        image.set_width(width);
+        image.set_height(height);
+        cx.ctx.editor.rollback_group_to(0);
+        if let Err(e) = cx.ctx.editor.execute(crate::commands::ApplyMutations {
+            text: None,
+            mutations: vec![Mutation::Schematic(SchematicMutation::UpdateImage {
+                schematic: cx.schematic,
+                image,
+            })],
+        }) {
+            log::warn!("Failed to resize the image: {e}");
+        }
+    }
+
+    /// Removes the vertices of a polygon at `pos` (upstream
+    /// `removePolygonVertices()`, context menu "Remove Vertex").
+    pub fn remove_polygon_vertices(
+        &mut self,
+        cx: &mut Cx<'_, '_>,
+        polygon: Uuid,
+        pos: Point,
+    ) -> bool {
+        if self.sub != SubState::Idle {
+            return false;
+        }
+        let Some(original) = cx.sch().and_then(|s| s.polygons().get(&polygon)).cloned() else {
+            return false;
+        };
+        let remove = vertices_at(original.path(), pos, cx.ctx.view.tolerance());
+        if remove.is_empty() {
+            return false;
+        }
+        let path = original.path();
+        let mut new_path = Path::new(
+            path.vertices()
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| !remove.contains(i))
+                .map(|(_, v)| *v)
+                .collect(),
+        );
+        if path.is_closed() && new_path.vertices().len() > 2 {
+            new_path.close();
+        }
+        if new_path.is_closed() && new_path.vertices().len() == 3 {
+            new_path.vertices_mut().pop(); // Avoid overlapping lines.
+        }
+        if new_path.vertices().len() < 2 {
+            return false; // Do not allow to create invalid polygons!
+        }
+        let mut polygon = original;
+        polygon.set_path(new_path);
+        match cx.ctx.editor.execute(crate::commands::ApplyMutations {
+            text: Some(tr!("CmdPolygonEdit", "Edit polygon")),
+            mutations: vec![Mutation::Schematic(SchematicMutation::UpdatePolygon {
+                schematic: cx.schematic,
+                polygon,
+            })],
+        }) {
+            Ok(()) => true,
+            Err(e) => {
+                cx.error(e);
+                false
+            }
+        }
+    }
+
+    /// Inserts a vertex into the line of a polygon at `pos` which then
+    /// follows the cursor until the left button is released (upstream
+    /// `startAddingPolygonVertex()`, context menu "Add Vertex").
+    pub fn add_polygon_vertex(&mut self, cx: &mut Cx<'_, '_>, polygon: Uuid, pos: Point) -> bool {
+        if self.sub != SubState::Idle {
+            return false;
+        }
+        let Some(original) = cx.sch().and_then(|s| s.polygons().get(&polygon)).cloned() else {
+            return false;
+        };
+        let Some(index) = line_index_at(original.path(), pos, cx.ctx.view.tolerance()) else {
+            return false;
+        };
+        let mut vertices = original.path().vertices().to_vec();
+        let angle = vertices[index - 1].angle;
+        vertices.insert(index, Vertex::new(pos.mapped_to_grid(cx.grid()), angle));
+        let mut polygon = original;
+        polygon.set_path(Path::new(vertices));
+        if let Err(e) = cx
+            .ctx
+            .editor
+            .begin_group(tr!("CmdPolygonEdit", "Edit polygon"))
+        {
+            cx.error(e);
+            return false;
+        }
+        self.vertex_edit = Some(VertexEdit {
+            polygon,
+            vertices: vec![index],
+        });
+        self.sub = SubState::MovingPolygonVertices;
+        self.move_vertices(cx, pos);
+        true
     }
 
     /// Applies the current drag state as preview inside the open group.
@@ -417,9 +654,12 @@ impl SelectState {
                 }
                 cx.out.view.info_box = info_text(cx, &q);
             }
-            SubState::Selecting => {}
+            SubState::Selecting | SubState::MovingPolygonVertices | SubState::ResizingImage => {}
         }
-        if self.sub != SubState::Selecting {
+        if !matches!(
+            self.sub,
+            SubState::Selecting | SubState::MovingPolygonVertices | SubState::ResizingImage
+        ) {
             cx.out.view.features = f;
         }
     }
@@ -532,14 +772,21 @@ impl State for SelectState {
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        if matches!(self.sub, SubState::Pasting | SubState::Moving)
-            && cx.ctx.editor.undo_stack().is_group_active()
+        if matches!(
+            self.sub,
+            SubState::Pasting
+                | SubState::Moving
+                | SubState::MovingPolygonVertices
+                | SubState::ResizingImage
+        ) && cx.ctx.editor.undo_stack().is_group_active()
             && let Err(e) = cx.ctx.editor.abort_group()
         {
             cx.error(e);
             return false;
         }
         self.drag = None;
+        self.vertex_edit = None;
+        self.image_resize = None;
         self.sub = SubState::Idle;
         // Avoid propagating the selection to other tools.
         cx.out.selection.clear();
@@ -656,6 +903,15 @@ impl State for SelectState {
                 self.sub = SubState::Idle;
                 true
             }
+            SubState::MovingPolygonVertices | SubState::ResizingImage => {
+                if let Err(e) = cx.ctx.editor.abort_group() {
+                    cx.error(e);
+                }
+                self.vertex_edit = None;
+                self.image_resize = None;
+                self.sub = SubState::Idle;
+                true
+            }
             _ => false,
         }
     }
@@ -694,6 +950,14 @@ impl State for SelectState {
                 }
                 true
             }
+            SubState::MovingPolygonVertices => {
+                self.move_vertices(cx, e.pos);
+                true
+            }
+            SubState::ResizingImage => {
+                self.resize_image(cx, e);
+                true
+            }
             SubState::Idle => {
                 let items = find_items_at(cx, e.pos, FindFlags::ALL.near(), &[]);
                 cx.out.hovered = items.first().copied();
@@ -705,6 +969,28 @@ impl State for SelectState {
     fn left_pressed(&mut self, cx: &mut Cx<'_, '_>, e: PointerEvent) -> bool {
         match self.sub {
             SubState::Idle => {
+                if let Some(edit) = Self::find_polygon_vertices(cx, e.pos) {
+                    if let Err(err) = cx
+                        .ctx
+                        .editor
+                        .begin_group(tr!("CmdPolygonEdit", "Edit polygon"))
+                    {
+                        cx.error(err);
+                        return false;
+                    }
+                    self.vertex_edit = Some(edit);
+                    self.sub = SubState::MovingPolygonVertices;
+                    return true;
+                }
+                if let Some(resize) = Self::find_image_handle(cx, e.pos) {
+                    if let Err(err) = cx.ctx.editor.begin_group(tr!("CmdImageEdit", "Edit Image")) {
+                        cx.error(err);
+                        return false;
+                    }
+                    self.image_resize = Some(resize);
+                    self.sub = SubState::ResizingImage;
+                    return true;
+                }
                 let items = find_items_at(cx, e.pos, FindFlags::ALL.near(), &[]);
                 if items.is_empty() {
                     // No items under the cursor: start a selection rectangle.
@@ -756,6 +1042,15 @@ impl State for SelectState {
             }
             SubState::Moving => {
                 self.finish_drag(cx, e.pos);
+                false
+            }
+            SubState::MovingPolygonVertices | SubState::ResizingImage => {
+                if let Err(err) = cx.ctx.editor.commit_group() {
+                    cx.error(err);
+                }
+                self.vertex_edit = None;
+                self.image_resize = None;
+                self.sub = SubState::Idle;
                 false
             }
             _ => false,
@@ -811,9 +1106,30 @@ impl State for SelectState {
                 | SchematicItem::Text(_)
                 | SchematicItem::SymbolText(..)
         ) {
-            cx.out
-                .requests
-                .push(SchematicRequest::ContextMenu { item, pos: e.pos });
+            let (remove_vertex, add_vertex) = match item {
+                SchematicItem::Polygon(id) => {
+                    let tolerance = cx.ctx.view.tolerance();
+                    match cx.sch().and_then(|s| s.polygons().get(&id)) {
+                        Some(polygon) => {
+                            let path = polygon.path();
+                            let vertices = vertices_at(path, e.pos, tolerance);
+                            (
+                                (!vertices.is_empty())
+                                    .then(|| path.vertices().len() - vertices.len() >= 2),
+                                line_index_at(path, e.pos, tolerance).is_some(),
+                            )
+                        }
+                        None => (None, false),
+                    }
+                }
+                _ => (None, false),
+            };
+            cx.out.requests.push(SchematicRequest::ContextMenu {
+                item,
+                pos: e.pos,
+                remove_vertex,
+                add_vertex,
+            });
             return true;
         }
         false
@@ -822,6 +1138,7 @@ impl State for SelectState {
     fn update(&mut self, cx: &mut Cx<'_, '_>) {
         cx.out.view.cursor = match self.sub {
             SubState::Moving | SubState::Pasting => Some(CursorShape::ClosedHand),
+            SubState::MovingPolygonVertices | SubState::ResizingImage => Some(CursorShape::SizeAll),
             _ => None,
         };
         self.update_features(cx);
