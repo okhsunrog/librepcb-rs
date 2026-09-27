@@ -201,6 +201,7 @@ impl State {
                         self.project_changed_by_tab(&project);
                     }
                     Applied::Tab(result) => self.form_dialog_tab_result(tab, result),
+                    Applied::RunJobs { title, jobs } => self.run_jobs(&project, title, jobs),
                 }
                 if !close {
                     self.refresh_form_dialog(false);
@@ -231,6 +232,10 @@ impl State {
                 self.project_changed_by_tab(&project);
             }
             Ok(ButtonResult::Close) => self.close_form_dialog(),
+            Ok(ButtonResult::RunJobs { title, jobs }) => {
+                self.refresh_form_dialog(true);
+                self.run_jobs(&project, title, jobs);
+            }
             Err(message) => {
                 if let Some(w) = self.window() {
                     w.global::<ui::Dialogs>().set_form_error(message.into());

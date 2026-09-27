@@ -37,6 +37,7 @@ pub mod attributes;
 pub mod board;
 pub mod form;
 pub mod geometry;
+pub mod output;
 pub mod schematic;
 pub mod setup;
 
@@ -110,6 +111,13 @@ pub enum Applied {
     /// A value for the tab which opened the dialog (e.g. the line width
     /// for the FSM).
     Tab(TabDialogResult),
+    /// Run output jobs (in a worker thread, reported in notifications).
+    RunJobs {
+        /// Title of the notifications.
+        title: String,
+        /// The jobs.
+        jobs: Vec<librepcb_core::job::OutputJob>,
+    },
 }
 
 /// Results of dialogs which answer a request of a tab's FSM.
@@ -163,6 +171,13 @@ pub enum ButtonResult {
     Modified,
     /// Close the dialog.
     Close,
+    /// Run output jobs; keep the dialog open.
+    RunJobs {
+        /// Title of the notifications.
+        title: String,
+        /// The jobs.
+        jobs: Vec<librepcb_core::job::OutputJob>,
+    },
 }
 
 /// A dialog described by a form.

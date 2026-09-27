@@ -173,15 +173,27 @@ impl State {
             Tab::Board2d(t) => (Rc::clone(t.project()), Some(t.board())),
             Tab::Home(_) => return false,
         };
+        use crate::dialogs::output::{GraphicsExportDialog, GraphicsExportKind as K};
+        let unit = t.length_unit().unwrap_or(librepcb_core::types::LengthUnit::Millimeters);
+        let graphics = match (action, board) {
+            (ui::TabAction::ExportPdf, None) => Some(K::SchematicPdf),
+            (ui::TabAction::ExportPdf, Some(b)) => Some(K::BoardPdf(b)),
+            (ui::TabAction::ExportImage, None) => Some(K::SchematicImage),
+            (ui::TabAction::ExportImage, Some(b)) => Some(K::BoardImage(b)),
+            _ => None,
+        };
+        if let Some(kind) = graphics {
+            let dialog = GraphicsExportDialog::new(&project, kind, unit);
+            self.show_form_dialog(project, Box::new(dialog));
+            return true;
+        }
         match (action, board) {
-            (ui::TabAction::ExportPdf, None) => self.export_graphics(&project, None),
-            (ui::TabAction::ExportPdf, Some(b)) => self.export_graphics(&project, Some(b)),
             (ui::TabAction::ExportFabricationData, Some(b)) => self.export_fabrication(&project, b),
             (ui::TabAction::ExportPickPlace, Some(b)) => self.export_pick_place(&project, b),
             (ui::TabAction::ExportD356Netlist, Some(b)) => self.export_netlist(&project, b),
             (ui::TabAction::BillOfMaterials, b) => self.export_bom(&project, b),
             (
-                ui::TabAction::Print | ui::TabAction::ExportImage | ui::TabAction::ExportSpecctra,
+                ui::TabAction::Print | ui::TabAction::ExportSpecctra,
                 _,
             ) => {
                 self.not_implemented(&format!("{action:?}"));
@@ -201,7 +213,11 @@ impl State {
         match action {
             ui::ProjectAction::BillOfMaterials => self.export_bom(project, None),
             ui::ProjectAction::ExportLppz => self.export_lppz(project),
-            ui::ProjectAction::OpenOutputJobs => self.run_all_output_jobs(project),
+            ui::ProjectAction::OpenOutputJobs => {
+                let unit = crate::dialogs::default_unit(project);
+                let dialog = crate::dialogs::output::OutputJobsDialog::new(project, unit);
+                self.show_form_dialog(Rc::clone(project), Box::new(dialog));
+            }
             _ => return false,
         }
         true
@@ -357,6 +373,22 @@ impl State {
                     return Err("The project has no output jobs.".to_owned());
                 }
                 let (files, warnings) = run_output_jobs(open, &jobs, true, progress)?;
+                for w in &warnings {
+                    log::warn!("{w}");
+                }
+                Ok(files)
+            }),
+        );
+    }
+
+    /// Runs output jobs (e.g. of the output jobs or graphics export
+    /// dialog) in a worker thread.
+    pub fn run_jobs(&mut self, project: &Rc<AppProject>, title: String, jobs: Vec<OutputJob>) {
+        self.run_export(
+            project,
+            title,
+            Box::new(move |open, progress| {
+                let (files, warnings) = run_output_jobs(open, &jobs, false, progress)?;
                 for w in &warnings {
                     log::warn!("{w}");
                 }
