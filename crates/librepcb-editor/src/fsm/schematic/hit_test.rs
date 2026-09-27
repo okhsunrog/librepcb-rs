@@ -4,9 +4,9 @@
 //!
 //! The grab areas come from the view ([`SchematicView::items_at()`], asked
 //! with the exact position, the near tolerance and the grid distance),
-//! the priorities and distances from the model. Junctions are tested on
-//! the model with upstream's 1.2 mm square grab area (upstream:
-//! `SGI_NetPoint` bounding rect), visible or not.
+//! the priorities and distances from the model. Net and bus junctions are
+//! tested on the model with upstream's 1.2 mm square grab area (upstream:
+//! `SGI_NetPoint`/`SGI_BusJunction` bounding rect), visible or not.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -136,6 +136,18 @@ pub(crate) fn find_items_at(
         .max(tolerance * 2)
         .max(Length::ZERO);
     let mut junction_hits: BTreeMap<SchematicItem, Length> = BTreeMap::new();
+    if flags.bus_junctions {
+        for (seg_id, seg) in s.bus_segments() {
+            for j in seg.junctions().values() {
+                let d = distance_to_square(pos, j.position(), JUNCTION_GRAB_RADIUS);
+                if d <= max_distance {
+                    let item = SchematicItem::BusJunction(*seg_id, j.uuid());
+                    candidates.insert(item);
+                    junction_hits.insert(item, d);
+                }
+            }
+        }
+    }
     if flags.net_points {
         for (seg_id, seg) in s.net_segments() {
             for j in seg.junctions().values() {

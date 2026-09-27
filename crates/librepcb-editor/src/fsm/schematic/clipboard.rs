@@ -8,8 +8,9 @@
 //! (`cmp/<uuid>/`, `sym/<uuid>/`) and the image files, under the MIME type
 //! `application/x-librepcb-clipboard.schematic; version=<app version>`.
 //!
-//! Differences to upstream: buses and bus segments are neither copied nor
-//! pasted (lines attached to bus junctions are left out).
+//! Differences to upstream: when pasting, net lines at bus junctions of
+//! a bus segment which was split while copying are attached to the right
+//! part (upstream keeps only the junctions of the last part).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -22,20 +23,22 @@ use librepcb_core::geometry::{
 use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::library::cmp::Component;
 use librepcb_core::library::sym::Symbol;
+use librepcb_core::project::circuit::Bus;
 use librepcb_core::project::circuit::{
     AssemblyVariantList, ComponentAssemblyOptionList, ComponentInstance,
 };
 use librepcb_core::project::schematic::{
-    Schematic, SchematicNetSegment, SchematicNetSegmentSplitter, SchematicSymbol,
+    Schematic, SchematicBusSegment, SchematicNetSegment, SchematicNetSegmentSplitter,
+    SchematicSymbol,
 };
 use librepcb_core::project::{
-    AssemblyVariantId, ComponentInstanceId, Mutation, NetSegmentId, NetSegmentRef, Project,
-    SchematicId, SchematicMutation, SymbolId,
+    AssemblyVariantId, BusId, BusSegmentId, ComponentInstanceId, Mutation, NetSegmentId,
+    NetSegmentRef, Project, SchematicId, SchematicMutation, SymbolId,
 };
 use librepcb_core::serialization::{
     self, DeserializeObject, List, Mode, SExpression, SerializeObject,
 };
-use librepcb_core::types::{Angle, CircuitIdentifier, Point, Uuid};
+use librepcb_core::types::{Angle, BusName, CircuitIdentifier, Point, UnsignedLength, Uuid};
 use librepcb_core::utils::toolbox;
 use librepcb_i18n::tr;
 
@@ -204,6 +207,94 @@ impl DeserializeObject for ClipboardNetSegment {
     }
 }
 
+/// A bus of copied bus segments (upstream `SchematicClipboardData::Bus`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClipboardBus {
+    /// UUID of the original bus.
+    pub uuid: Uuid,
+    /// The name.
+    pub name: BusName,
+    /// Whether the net names are prefixed with the bus name.
+    pub prefix_net_names: bool,
+    /// The maximum trace length difference.
+    pub max_trace_length_difference: Option<UnsignedLength>,
+}
+
+impl SerializeObject for ClipboardBus {
+    fn serialize(&self, root: &mut List) {
+        root.append_value(&self.uuid);
+        root.ensure_line_break();
+        root.append_child("name", &self.name);
+        root.append_child("prefix_nets", &self.prefix_net_names);
+        let diff = match self.max_trace_length_difference {
+            Some(v) => SExpression::token(v.to_string()),
+            None => SExpression::token("none"),
+        };
+        root.append_child("max_trace_length_difference", &diff);
+        root.ensure_line_break();
+    }
+}
+
+impl DeserializeObject for ClipboardBus {
+    fn deserialize(node: &SExpression) -> serialization::Result<Self> {
+        let diff = node.required_child("max_trace_length_difference/@0")?;
+        let max_trace_length_difference = if diff.value()? == "none" {
+            None
+        } else {
+            Some(serialization::FromSExpression::from_sexpression(diff)?)
+        };
+        Ok(Self {
+            uuid: node.child_value("@0")?,
+            name: node.child_value("name/@0")?,
+            prefix_net_names: node.child_value("prefix_nets/@0")?,
+            max_trace_length_difference,
+        })
+    }
+}
+
+/// A copied (split) bus segment (upstream
+/// `SchematicClipboardData::BusSegment`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClipboardBusSegment {
+    /// UUID of the original bus segment (referenced by net lines).
+    pub uuid: Uuid,
+    /// UUID of the original bus.
+    pub bus: Uuid,
+    /// The junctions.
+    pub junctions: JunctionList,
+    /// The lines.
+    pub lines: NetLineList,
+    /// The labels.
+    pub labels: NetLabelList,
+}
+
+impl SerializeObject for ClipboardBusSegment {
+    fn serialize(&self, root: &mut List) {
+        root.append_value(&self.uuid);
+        root.ensure_line_break();
+        root.append_child("bus", &self.bus);
+        root.ensure_line_break();
+        self.junctions.serialize(root);
+        root.ensure_line_break();
+        self.lines.serialize(root);
+        root.ensure_line_break();
+        self.labels.serialize(root);
+        root.ensure_line_break();
+    }
+}
+
+impl DeserializeObject for ClipboardBusSegment {
+    fn deserialize(node: &SExpression) -> serialization::Result<Self> {
+        Ok(Self {
+            uuid: node.child_value("@0")?,
+            bus: node.child_value("bus/@0")?,
+            junctions: JunctionList::deserialize(node)?,
+            lines: NetLineList::deserialize(node)?,
+            labels: NetLabelList::deserialize(node)?,
+        })
+    }
+}
+
 /// Schematic items on the clipboard (upstream `SchematicClipboardData`).
 #[derive(Debug)]
 pub struct SchematicClipboardData {
@@ -213,10 +304,14 @@ pub struct SchematicClipboardData {
     pub cursor_pos: Point,
     /// The assembly variants of the source project.
     pub assembly_variants: AssemblyVariantList,
+    /// The buses of the copied bus segments.
+    pub buses: Vec<ClipboardBus>,
     /// The components of the copied symbols.
     pub components: Vec<ClipboardComponent>,
     /// The symbols.
     pub symbols: Vec<ClipboardSymbol>,
+    /// The bus segments.
+    pub bus_segments: Vec<ClipboardBusSegment>,
     /// The net segments.
     pub net_segments: Vec<ClipboardNetSegment>,
     /// The polygons.
@@ -240,8 +335,10 @@ impl SchematicClipboardData {
             schematic,
             cursor_pos,
             assembly_variants,
+            buses: Vec::new(),
             components: Vec::new(),
             symbols: Vec::new(),
+            bus_segments: Vec::new(),
             net_segments: Vec::new(),
             polygons: PolygonList::new(),
             texts: TextList::new(),
@@ -271,7 +368,10 @@ impl SchematicClipboardData {
         root.ensure_line_break();
         self.assembly_variants.serialize(&mut root);
         root.ensure_line_break();
-        // No buses.
+        for b in &self.buses {
+            root.ensure_line_break();
+            b.serialize(root.append_list("bus"));
+        }
         root.ensure_line_break();
         for c in &self.components {
             root.ensure_line_break();
@@ -285,7 +385,10 @@ impl SchematicClipboardData {
         }
         root.ensure_line_break();
         root.ensure_line_break();
-        // No bus segments.
+        for s in &self.bus_segments {
+            root.ensure_line_break();
+            s.serialize(root.append_list("bussegment"));
+        }
         root.ensure_line_break();
         for s in &self.net_segments {
             root.ensure_line_break();
@@ -325,6 +428,14 @@ impl SchematicClipboardData {
             schematic: root.child_value("schematic/@0")?,
             cursor_pos: Point::deserialize(root.required_child("cursor_position")?)?,
             assembly_variants,
+            buses: parse_all("bus")
+                .into_iter()
+                .map(ClipboardBus::deserialize)
+                .collect::<serialization::Result<_>>()?,
+            bus_segments: parse_all("bussegment")
+                .into_iter()
+                .map(ClipboardBusSegment::deserialize)
+                .collect::<serialization::Result<_>>()?,
             components: parse_all("component")
                 .into_iter()
                 .map(ClipboardComponent::deserialize)
@@ -347,6 +458,7 @@ impl SchematicClipboardData {
     /// Whether there is nothing to paste.
     pub fn is_empty(&self) -> bool {
         self.symbols.is_empty()
+            && self.bus_segments.is_empty()
             && self.net_segments.is_empty()
             && self.polygons.is_empty()
             && self.texts.is_empty()
@@ -367,6 +479,7 @@ impl SchematicClipboardData {
             p.circuit().assembly_variants().clone(),
         )?;
         let mut query = query.clone();
+        query.add_junctions_of_bus_lines(s, false);
         query.add_net_points_of_net_lines(s, false);
         let ctx = p.view();
         let mut dir = data.dir();
@@ -412,6 +525,63 @@ impl SchematicClipboardData {
             });
         }
 
+        // Bus segments (split into cohesive parts).
+        let mut bus_items: BTreeMap<
+            BusSegmentId,
+            (BTreeSet<Uuid>, BTreeSet<Uuid>, BTreeSet<Uuid>),
+        > = BTreeMap::new();
+        for (seg, j) in &query.bus_junctions {
+            bus_items.entry(*seg).or_default().0.insert(*j);
+        }
+        for (seg, l) in &query.bus_lines {
+            bus_items.entry(*seg).or_default().1.insert(*l);
+        }
+        for (seg, l) in &query.bus_labels {
+            bus_items.entry(*seg).or_default().2.insert(*l);
+        }
+        for (seg_id, (junctions, lines, labels)) in &bus_items {
+            let Some(seg) = s.bus_segments().get(seg_id) else {
+                continue;
+            };
+            let bus = p
+                .circuit()
+                .bus(seg.bus())
+                .ok_or_else(|| Error::not_found("Bus", seg.bus()))?;
+            if !data.buses.iter().any(|b| b.uuid == bus.uuid()) {
+                data.buses.push(ClipboardBus {
+                    uuid: bus.uuid(),
+                    name: bus.name().clone(),
+                    prefix_net_names: bus.prefix_net_names(),
+                    max_trace_length_difference: bus.max_trace_length_difference(),
+                });
+            }
+            let mut splitter = SchematicNetSegmentSplitter::new();
+            for j in junctions {
+                if let Some(junction) = seg.junctions().get(j) {
+                    splitter.add_junction(junction.clone());
+                }
+            }
+            for l in lines {
+                if let Some(line) = seg.lines().get(l) {
+                    splitter.add_net_line(line.clone());
+                }
+            }
+            for l in labels {
+                if let Some(label) = seg.labels().get(l) {
+                    splitter.add_net_label(label.clone());
+                }
+            }
+            for part in splitter.split() {
+                data.bus_segments.push(ClipboardBusSegment {
+                    uuid: seg.uuid(),
+                    bus: bus.uuid(),
+                    junctions: part.junctions.into(),
+                    lines: part.lines.into(),
+                    labels: part.labels.into(),
+                });
+            }
+        }
+
         // Net segments (split into cohesive parts).
         for (seg_id, items) in query.net_segment_items() {
             let Some(seg) = s.net_segments().get(&seg_id) else {
@@ -433,8 +603,8 @@ impl SchematicClipboardData {
                     junction,
                 };
                 if let Some(pos) = s.net_line_anchor_position(seg_id, anchor, ctx) {
-                    // Buses are not copied: replace by junctions.
-                    splitter.add_fixed_anchor(anchor, pos, true);
+                    let copied = query.bus_junctions.contains(&(bus_segment, junction));
+                    splitter.add_fixed_anchor(anchor, pos, !copied);
                 }
             }
             for j in &items.net_points {
@@ -635,6 +805,78 @@ fn paste(
         tx.apply(sch(SchematicMutation::AddSymbol { schematic, symbol }))?;
     }
 
+    // Bus segments: parts with labels keep their bus (by name), others get
+    // a new bus with an automatic name.
+    let mut bus_junction_map: BTreeMap<(Uuid, Uuid), (Uuid, Uuid)> = BTreeMap::new();
+    for seg in &data.bus_segments {
+        let bus_obj = data
+            .buses
+            .iter()
+            .find(|b| b.uuid == seg.bus)
+            .ok_or_else(|| Error::not_found("Bus", seg.bus))?;
+        let existing = (!seg.labels.is_empty())
+            .then(|| tx.project().circuit().bus_by_name(bus_obj.name.as_str()))
+            .flatten()
+            .map(|(id, _)| id);
+        let bus = match existing {
+            Some(bus) => bus,
+            None if !seg.labels.is_empty() => {
+                let bus = Bus::new(
+                    Uuid::new_random(),
+                    bus_obj.name.clone(),
+                    false,
+                    bus_obj.prefix_net_names,
+                    bus_obj.max_trace_length_difference,
+                );
+                let id = BusId(bus.uuid());
+                tx.apply(Mutation::AddBus(bus))?;
+                id
+            }
+            None => crate::commands::bus::add_bus(tx, None)?,
+        };
+        let mut segment = SchematicBusSegment::new(Uuid::new_random(), bus);
+        let mut junction_map: BTreeMap<Uuid, Uuid> = BTreeMap::new();
+        for junction in seg.junctions.iter() {
+            let copy = Junction::new(Uuid::new_random(), junction.position() + offset);
+            junction_map.insert(junction.uuid(), copy.uuid());
+            bus_junction_map.insert((seg.uuid, junction.uuid()), (segment.uuid(), copy.uuid()));
+            segment.insert_junction(copy);
+        }
+        for line in seg.lines.iter() {
+            let map = |a: NetLineAnchor| match a {
+                NetLineAnchor::Junction(j) => {
+                    junction_map.get(&j).map(|n| NetLineAnchor::Junction(*n))
+                }
+                _ => None,
+            };
+            let (Some(p1), Some(p2)) = (map(line.p1()), map(line.p2())) else {
+                return Err(Error::InvalidArgument(
+                    "Invalid bus line in the clipboard data.".to_owned(),
+                ));
+            };
+            segment.insert_line(NetLine::new(Uuid::new_random(), line.width(), p1, p2));
+        }
+        for label in seg.labels.iter() {
+            segment.insert_label(NetLabel::new(
+                Uuid::new_random(),
+                label.position() + offset,
+                label.rotation(),
+                label.mirrored(),
+            ));
+        }
+        let id = segment.id();
+        for j in segment.junctions().keys() {
+            pasted.push(SchematicItem::BusJunction(id, *j));
+        }
+        for l in segment.lines().keys() {
+            pasted.push(SchematicItem::BusLine(id, *l));
+        }
+        for l in segment.labels().keys() {
+            pasted.push(SchematicItem::BusLabel(id, *l));
+        }
+        tx.apply(sch(SchematicMutation::AddBusSegment { schematic, segment }))?;
+    }
+
     // Net segments.
     for seg in &data.net_segments {
         let class = default_net_class(tx)?;
@@ -682,7 +924,17 @@ fn paste(
                             pin,
                         };
                     }
-                    NetLineAnchor::BusJunction { .. } => valid = false,
+                    NetLineAnchor::BusJunction { segment, junction } => {
+                        match bus_junction_map.get(&(segment, junction)) {
+                            Some((new_segment, new_junction)) => {
+                                *anchor = NetLineAnchor::BusJunction {
+                                    segment: *new_segment,
+                                    junction: *new_junction,
+                                }
+                            }
+                            None => valid = false,
+                        }
+                    }
                 }
             }
             if valid {

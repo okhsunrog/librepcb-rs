@@ -927,11 +927,18 @@ impl State for SelectState {
                 if let Some(s) = cx.sch() {
                     let (x0, x1) = (self.start_pos.x.min(e.pos.x), self.start_pos.x.max(e.pos.x));
                     let (y0, y1) = (self.start_pos.y.min(e.pos.y), self.start_pos.y.max(e.pos.y));
+                    let inside = |p: Point| p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
                     for (seg_id, seg) in s.net_segments() {
                         for j in seg.junctions().values() {
-                            let p = j.position();
-                            if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 {
+                            if inside(j.position()) {
                                 selection.insert(SchematicItem::NetPoint(*seg_id, j.uuid()));
+                            }
+                        }
+                    }
+                    for (seg_id, seg) in s.bus_segments() {
+                        for j in seg.junctions().values() {
+                            if inside(j.position()) {
+                                selection.insert(SchematicItem::BusJunction(*seg_id, j.uuid()));
                             }
                         }
                     }

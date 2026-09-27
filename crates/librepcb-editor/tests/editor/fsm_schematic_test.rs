@@ -1495,3 +1495,55 @@ fn find_symbols_and_nets() {
     assert!(result.zoom_rect.is_none());
     assert!(h.fsm.selection().is_empty());
 }
+
+#[test]
+fn copy_paste_bus_with_attached_wire() {
+    let mut h = Harness::new();
+    let r1_2 = h.pins("R1")[1].1;
+    let bus_a = Point::new(r1_2.x, mm(0.0, 10.16).y);
+    h.draw_bus(bus_a, bus_a + mm(10.16, 0.0));
+    assert!(h.run(|fsm, ctx| fsm.draw_wire(ctx)));
+    h.move_to(bus_a);
+    h.press_mod(bus_a, Modifiers::CONTROL);
+    h.move_to(r1_2);
+    h.press(r1_2);
+    assert!(h.run(|fsm, ctx| fsm.select_tool(ctx)));
+    assert!(h.run(|fsm, ctx| fsm.select_all(ctx)));
+    h.cursor = Point::ORIGIN;
+    assert!(h.run(|fsm, ctx| fsm.copy(ctx)));
+    let mime = librepcb_editor::fsm::schematic::clipboard::schematic_clipboard_mime_type(
+        &SchematicEditorSettings::default().app_version,
+    );
+    let data = SchematicClipboardData::from_zip(&h.clipboard.get(&mime).unwrap()).unwrap();
+    assert_eq!(data.buses.len(), 1);
+    assert_eq!(data.bus_segments.len(), 1);
+    assert_eq!(data.bus_segments[0].lines.len(), 1);
+    assert!(
+        data.net_segments
+            .iter()
+            .flat_map(|s| s.lines.iter())
+            .any(|l| matches!(l.p1(), NetLineAnchor::BusJunction { .. })
+                || matches!(l.p2(), NetLineAnchor::BusJunction { .. }))
+    );
+    assert!(h.run(|fsm, ctx| fsm.paste(ctx)));
+    h.move_to(mm(0.0, 30.48));
+    h.press(mm(0.0, 30.48));
+    assert!(!h.editor.undo_stack().is_group_active());
+    let segs = h.bus_segments();
+    assert_eq!(segs.len(), 2);
+    // Without label, the pasted segment got a new bus.
+    assert_eq!(h.p().circuit().buses().len(), 2);
+    let pasted = segs
+        .iter()
+        .find(|s| {
+            s.junctions()
+                .values()
+                .any(|j| j.position() == bus_a + mm(0.0, 30.48))
+        })
+        .expect("pasted bus segment");
+    let s = h.p().schematic(h.schematic).unwrap();
+    assert!(
+        !s.attached_net_segments(pasted.id()).is_empty(),
+        "the pasted wire is attached to the pasted bus"
+    );
+}
