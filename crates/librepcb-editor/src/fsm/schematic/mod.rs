@@ -362,6 +362,30 @@ impl ComponentChoice {
     }
 }
 
+/// The objects of the selection to highlight in the other editors
+/// (upstream `fsmCrossProbe()` of `processSelection()`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CrossProbe {
+    /// Nets of selected net lines and labels.
+    pub nets: BTreeSet<NetSignalId>,
+    /// Components of selected symbols.
+    pub components: BTreeSet<ComponentInstanceId>,
+    /// Component signals of selected pins.
+    pub component_signals: BTreeSet<librepcb_core::project::ComponentSignalRef>,
+    /// Buses of selected bus lines and labels.
+    pub buses: BTreeSet<BusId>,
+}
+
+impl CrossProbe {
+    /// Whether nothing is to be highlighted.
+    pub fn is_empty(&self) -> bool {
+        self.nets.is_empty()
+            && self.components.is_empty()
+            && self.component_signals.is_empty()
+            && self.buses.is_empty()
+    }
+}
+
 /// The outputs of the FSM, shared by all states.
 #[derive(Debug, Default)]
 pub(crate) struct Output {
@@ -376,6 +400,8 @@ pub(crate) struct Output {
     pub leave_requested: bool,
     /// The last pointer position.
     pub last_pos: Option<Point>,
+    /// The objects to cross-probe.
+    pub cross_probe: CrossProbe,
 }
 
 /// What a state gets in its handlers.
@@ -656,6 +682,12 @@ impl SchematicEditorFsm {
                 .selection
                 .retain(|item| selection::item_exists(item, s));
         }
+    }
+
+    /// The objects of the selection to highlight in the other editors
+    /// (cross-probing; updated in the select tool).
+    pub fn cross_probe(&self) -> &CrossProbe {
+        &self.out.cross_probe
     }
 
     /// The item under the cursor in the select state (for highlighting).
@@ -1193,6 +1225,7 @@ impl SchematicEditorFsm {
         self.out.view.info_box.clear();
         self.out.view.features = Default::default();
         self.out.hovered = None;
+        self.out.cross_probe = CrossProbe::default();
         true
     }
 

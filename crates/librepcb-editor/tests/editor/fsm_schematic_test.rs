@@ -399,10 +399,32 @@ fn select_and_move_symbol_wires_follow() {
 fn rotate_mirror_and_move_selection() {
     let mut h = Harness::new();
     let r1 = h.symbol("R1");
+    // Name, value and MPN are shown for components placed on a board.
+    let board = h
+        .editor
+        .execute(AddBoard::new(ElementName::new("Board").unwrap()))
+        .unwrap()
+        .board;
+    h.editor
+        .execute(AddDevice {
+            component: "R1".into(),
+            board: Some(board),
+            device: None,
+            footprint: None,
+            position: Point::ORIGIN,
+            rotation: Angle::DEG0,
+            mirrored: false,
+        })
+        .unwrap();
+    h.sync.sync(h.editor.project(), &mut h.scene).unwrap();
     h.click(Point::ORIGIN);
     assert!(h.fsm.selection().contains(&SchematicItem::Symbol(r1)));
     assert!(h.fsm.view_state().features.rotate);
-    assert!(h.fsm.view_state().info_box.contains("R1"));
+    let info = h.fsm.view_state().info_box.clone();
+    assert!(info.contains("Name:") && info.contains("R1"), "{info}");
+    assert!(info.contains("MPN"), "{info}");
+    let r1_cmp = h.p().schematic(h.schematic).unwrap().symbols()[&r1].component();
+    assert!(h.fsm.cross_probe().components.contains(&r1_cmp));
     h.run(|fsm, ctx| fsm.rotate(ctx, Angle::DEG90));
     let sym = |h: &Harness| h.p().schematic(h.schematic).unwrap().symbols()[&r1].clone();
     assert_eq!(sym(&h).rotation(), Angle::DEG90);
@@ -1476,7 +1498,8 @@ fn find_symbols_and_nets() {
         h.fsm.selection().iter().copied().collect::<Vec<_>>(),
         vec![SchematicItem::Symbol(r2)]
     );
-    assert!(h.fsm.view_state().info_box.contains("R2"));
+    let r2_cmp = h.p().schematic(h.schematic).unwrap().symbols()[&r2].component();
+    assert!(h.fsm.cross_probe().components.contains(&r2_cmp));
 
     h.fsm.set_find_term("VCC");
     let result = h.run(|fsm, ctx| fsm.find_next(ctx));

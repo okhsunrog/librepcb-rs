@@ -4,7 +4,7 @@
 //! cross-probing.
 
 use librepcb_core::geometry::{Image, Path, Polygon, Vertex};
-use librepcb_core::project::{Mutation, SchematicMutation, SymbolId};
+use librepcb_core::project::{BusId, Mutation, NetSignalId, SchematicMutation, SymbolId};
 use librepcb_core::types::{Angle, Length, Orientation, Point, PositiveLength, Uuid};
 use librepcb_core::utils::toolbox;
 use librepcb_i18n::tr;
@@ -16,7 +16,7 @@ use super::drag::DragSelection;
 use super::hit_test::{FindFlags, find_items_at};
 use super::selection::{SelectionQuery, all_items, item_exists};
 use super::simplify::SimplifySchematicSegments;
-use super::{Cx, SchematicItem, SchematicRequest, State};
+use super::{CrossProbe, Cx, SchematicItem, SchematicRequest, State};
 use crate::commands::{RemoveSchematicItems, SchematicSelection};
 use crate::fsm::{CursorShape, Features, PointerEvent};
 
@@ -652,7 +652,9 @@ impl SelectState {
                 {
                     f.properties = true;
                 }
-                cx.out.view.info_box = info_text(cx, &q);
+                let (text, probe) = info_text(cx, &q);
+                cx.out.view.info_box = text;
+                cx.out.cross_probe = probe;
             }
             SubState::Selecting | SubState::MovingPolygonVertices | SubState::ResizingImage => {}
         }
@@ -665,29 +667,46 @@ impl SelectState {
     }
 }
 
-/// Builds the info box text of the selection (upstream
-/// `processSelection()`, without MPN and cross-probing).
-fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> String {
+/// Builds the info box text of the selection and the objects to cross-probe
+/// (upstream `processSelection()`).
+fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> (String, CrossProbe) {
+    let mut probe = CrossProbe::default();
     if q.count() == 0 {
-        return String::new();
+        return (String::new(), probe);
     }
     let p = cx.project();
     let Some(s) = cx.sch() else {
-        return String::new();
+        return (String::new(), probe);
     };
     let ctx = p.view();
     let mut key_values: Vec<(String, String)> = Vec::new();
-    let mut net: Option<Option<librepcb_core::project::NetSignalId>> = None;
+    let mut net: Option<Option<NetSignalId>> = None;
     let mut multiple_nets = false;
-    let mut add_net = |n: Option<librepcb_core::project::NetSignalId>| {
+    let mut add_net = |n: Option<NetSignalId>| {
         if net.is_some_and(|x| x != n) {
             multiple_nets = true;
         } else {
             net = Some(n);
         }
     };
+    let mut bus: Option<BusId> = None;
+    let mut multiple_buses = false;
+    let mut add_bus = |b: BusId| {
+        if bus.is_some_and(|x| x != b) {
+            multiple_buses = true;
+        } else {
+            bus = Some(b);
+        }
+    };
+    for id in &q.symbols {
+        if let Some(sym) = s.symbols().get(id) {
+            probe.components.insert(sym.component());
+        }
+    }
     for (seg, _) in q.net_labels.iter().chain(&q.net_lines) {
-        add_net(Some(s.net_segments()[seg].net()));
+        let n = s.net_segments()[seg].net();
+        add_net(Some(n));
+        probe.nets.insert(n);
     }
     let pin_view = |(symbol, pin): &(SymbolId, librepcb_core::types::Uuid)| {
         s.symbols()
@@ -697,31 +716,61 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> String {
     for pin in &q.pins {
         if let Some(view) = pin_view(pin) {
             add_net(view.net());
+            probe.component_signals.insert(view.signal());
         }
     }
+    for (seg, _) in q.bus_labels.iter().chain(&q.bus_lines) {
+        let b = s.bus_segments()[seg].bus();
+        add_bus(b);
+        probe.buses.insert(b);
+    }
+
+    let primary_device = |c: &librepcb_core::project::circuit::ComponentInstance| {
+        p.boards().iter().find_map(|b| b.device(c.id()))
+    };
     if q.symbols.len() == 1
         && let Some(symbol) = q.symbols.iter().next().and_then(|id| s.symbols().get(id))
         && let Ok(resolved) = symbol.resolve(ctx)
+        && let Some(device) = primary_device(resolved.component)
         && !resolved.lib_component.schematic_only()
     {
+        let cmp = resolved.component;
+        let part = device.parts(cmp, None).into_iter().next();
+        let lookup = librepcb_core::project::ProjectAttributeLookup::for_symbol(
+            p,
+            s,
+            symbol,
+            Some(device),
+            part.as_ref(),
+            None,
+        );
+        let value = lookup
+            .substitute(cmp.value())
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mpn = cmp
+            .assembly_options()
+            .first()
+            .and_then(|ao| ao.parts().first())
+            .map_or_else(|| "\u{2716}".to_owned(), |part| part.mpn().to_string());
         key_values.push((
             tr!("SchematicEditorState_Select", "Name"),
-            resolved.component.name().to_string(),
+            cmp.name().to_string(),
         ));
-        key_values.push((
-            tr!("SchematicEditorState_Select", "Value"),
-            resolved
-                .component
-                .value()
-                .split_whitespace()
-                .collect::<Vec<_>>()
-                .join(" "),
-        ));
+        let value_key = tr!("SchematicEditorState_Select", "Value");
+        let mpn_key = tr!("SchematicEditorState_Select", "MPN");
+        if value == mpn {
+            key_values.push((format!("{value_key}/{mpn_key}"), value));
+        } else {
+            key_values.push((value_key, value));
+            key_values.push((mpn_key, mpn));
+        }
     }
     if let (Some(n), false) = (net, multiple_nets) {
         let name = n
             .and_then(|id| p.circuit().net_signal(id))
-            .map_or_else(|| "✖".to_owned(), |x| x.name().to_string());
+            .map_or_else(|| "\u{2716}".to_owned(), |x| x.name().to_string());
         key_values.push((tr!("SchematicEditorState_Select", "Net"), name));
         if let Some(signal) = n.and_then(|id| p.circuit().net_signal(id))
             && p.circuit().net_classes().len() > 1
@@ -733,9 +782,18 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> String {
             ));
         }
     }
+    if let (Some(b), false) = (bus, multiple_buses)
+        && let Some(bus) = p.circuit().bus(b)
+    {
+        key_values.push((
+            tr!("SchematicEditorState_Select", "Bus"),
+            bus.name().to_string(),
+        ));
+    }
     if q.pins.len() == 1
         && let Some(view) = q.pins.iter().next().and_then(pin_view)
     {
+        let signal = view.signal();
         key_values.push((
             tr!("SchematicEditorState_Select", "Signal"),
             view.lib_signal().name().to_string(),
@@ -744,6 +802,50 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> String {
             tr!("SchematicEditorState_Select", "Pin"),
             view.name().to_string(),
         ));
+        // Pad names of the signal on the primary device.
+        let mut pads: Vec<String> = Vec::new();
+        if let Some(cmp) = p.circuit().component_instance(signal.component)
+            && let Some(device) = primary_device(cmp)
+            && let Ok(views) = device.pads(p.library(), p.circuit())
+        {
+            for pad in views {
+                if pad.component_signal() == Some(signal)
+                    && let Some(pkg_pad) = pad.package_pad()
+                {
+                    pads.push(pkg_pad.name().to_string());
+                }
+            }
+        }
+        pads.sort_by(|a, b| toolbox::compare_numeric(a, b));
+        pads.dedup();
+        key_values.push((tr!("SchematicEditorState_Select", "Pad(s)"), pads.join(",")));
+        // Forced net name mismatch.
+        let forced = p
+            .circuit()
+            .component_instance(signal.component)
+            .and_then(|c| {
+                let lib = p.library().component(&c.lib_component())?;
+                let sig = lib.signals().by_uuid(&signal.signal)?;
+                sig.is_net_signal_name_forced().then(|| {
+                    librepcb_core::project::ProjectAttributeLookup::for_component(p, c, None, None)
+                        .substitute(sig.forced_net_name())
+                })
+            })
+            .unwrap_or_default();
+        if let Some(net) = view.net().and_then(|id| p.circuit().net_signal(id))
+            && !forced.is_empty()
+            && net.name().as_str() != forced
+        {
+            key_values.push((
+                String::new(),
+                tr!(
+                    "SchematicEditorState_Select",
+                    "Wire net '{0}' does not match forced net '{1}'!",
+                    net.name(),
+                    forced
+                ),
+            ));
+        }
     }
     key_values.retain(|(_, v)| !v.is_empty());
     let max_len = key_values
@@ -751,7 +853,7 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> String {
         .map(|(k, _)| k.chars().count())
         .max()
         .unwrap_or(0);
-    key_values
+    let text = key_values
         .iter()
         .map(|(k, v)| {
             if k.is_empty() {
@@ -761,7 +863,8 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> String {
             }
         })
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+    (text, probe)
 }
 
 impl State for SelectState {
