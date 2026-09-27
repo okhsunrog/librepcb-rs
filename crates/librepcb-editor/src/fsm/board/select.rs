@@ -493,7 +493,7 @@ impl SelectState {
                 .iter()
                 .enumerate()
                 .filter(|(i, _)| !remove.contains(i))
-                .map(|(_, v)| v.clone())
+                .map(|(_, v)| *v)
                 .collect(),
         );
         if matches!(outline, OutlineItem::Zone(_)) {

@@ -370,10 +370,10 @@ impl DrawTraceState {
                     segment = Some(s);
                     anchor = Some(TraceAnchor::Pad(u));
                     let smt = pad.pad().smt_layer();
-                    if !pad.pad().is_tht() || (is_fixed && !pad.pad().is_on_layer(layer)) {
-                        if copper.contains(&smt) {
-                            layer = smt;
-                        }
+                    if (!pad.pad().is_tht() || (is_fixed && !pad.pad().is_on_layer(layer)))
+                        && copper.contains(&smt)
+                    {
+                        layer = smt;
                     }
                 }
                 Some(BoardItemRef::Trace(s, t)) => {

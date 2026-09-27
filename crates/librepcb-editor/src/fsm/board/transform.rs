@@ -738,7 +738,7 @@ pub fn flip_mutations(
         let mut seen: Vec<librepcb_core::geometry::Vertex> = Vec::new();
         for v in vertices {
             if !seen.contains(v) {
-                seen.push(v.clone());
+                seen.push(*v);
             }
         }
         seen.into_iter().map(|v| v.pos).collect()

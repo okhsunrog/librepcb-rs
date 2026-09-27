@@ -103,7 +103,7 @@ impl ViaSettings {
 
     /// A via with these settings.
     pub fn via(&self, uuid: Uuid, pos: Point) -> Result<Via> {
-        Ok(Via::new(
+        Via::new(
             uuid,
             Layer::TOP_COPPER,
             Layer::BOT_COPPER,
@@ -112,7 +112,7 @@ impl ViaSettings {
             self.size,
             MaskConfig::Off,
         )
-        .map_err(|e| crate::error::Error::InvalidArgument(e.to_string()))?)
+        .map_err(|e| crate::error::Error::InvalidArgument(e.to_string()))
     }
 
     /// Stores the drill as board default (upstream

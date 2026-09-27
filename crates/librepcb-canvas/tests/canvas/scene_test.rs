@@ -297,7 +297,7 @@ fn test_update_after_extend() {
             ((*seed >> 33) % 4000) as f64 / 100.0
         };
         let (x, y) = (next(), next());
-        let (w, h) = (next() / 10.0, if id % 3 == 0 { 0.0 } else { next() / 10.0 });
+        let (w, h) = (next() / 10.0, if id.is_multiple_of(3) { 0.0 } else { next() / 10.0 });
         Item::new(
             GREEN,
             Rect::new(x, y, x + w, y + h).to_path(0.1),

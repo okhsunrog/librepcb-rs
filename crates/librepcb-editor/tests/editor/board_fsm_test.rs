@@ -110,10 +110,7 @@ struct Harness {
 
 impl Harness {
     fn new(dir: tempfile::TempDir, mut editor: ProjectEditor, board: BoardId) -> Self {
-        editor
-            .update_derived_data(|p| p.rebuild_air_wires(board))
-            .unwrap()
-            .unwrap();
+        editor.rebuild_air_wires(board).unwrap();
         let scene = BoardScene::build(
             editor.project(),
             board,
@@ -471,10 +468,7 @@ fn draw_trace_pad_to_pad() {
     // Undo removes the trace (and the air wire comes back).
     assert!(h.editor.undo().unwrap());
     assert!(h.traces().is_empty());
-    h.editor
-        .update_derived_data(|p| p.rebuild_air_wires(h.board))
-        .unwrap()
-        .unwrap();
+    h.editor.rebuild_air_wires(h.board).unwrap();
     assert_eq!(h.air_wire_count(mid), 1);
     assert!(h.editor.redo().unwrap());
     assert!(!h.traces().is_empty());
