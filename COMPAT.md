@@ -628,13 +628,11 @@ Rendering only; no file is affected.
   (upstream: new junction and label UUIDs). Files differ only in these
   (random) UUIDs.
 - **Forced net names** of component signals (e.g. `{{VALUE}}` of supply
-  symbols) are not applied by the wiring commands and after removals yet
-  (needs the project attribute lookup); upstream renames or merges nets to
-  the forced name. The agent-level `net` parameters of the wiring commands
-  cover the same need explicitly.
-- **Automatic trace width**: the net class default or the design rules
-  default; upstream prefers the median width of the traces already at the
-  start anchor.
+  symbols) are applied like upstream by the wiring commands and to the
+  segments re-added after removals, but only if the substituted name is a
+  valid net name (upstream collects the raw strings, and the wiring tool
+  shows a message box for invalid ones; we log a warning). An explicit
+  `net` parameter of a wiring command takes precedence over a forced name.
 - **Removing traces as a side effect** (disconnecting component signals,
   replacing devices, changing the net of a schematic segment) does not
   remove unused project library elements; upstream's nested
@@ -645,8 +643,14 @@ Rendering only; no file is affected.
   outline of `AddPlane` uses the vertices of the board outline polygons
   (arc bulges are ignored); upstream uses the bounding rectangle including
   arcs.
-- **Adding a via** creates a separate net segment; upstream's add-via tool
-  also merges it with traces/junctions of the same net under the cursor.
+- **Adding a via** connects it to the traces and junctions of its net at
+  its position like upstream's add-via tool (hit test: the trace width
+  resp. the widest trace at a junction instead of the graphics items'
+  shapes), but builds the combined segment in one step: split traces are
+  replaced by two traces to the via (upstream first adds a split junction,
+  then replaces it), the element UUIDs of the combined segments are kept.
+- **Autorouter** (`Autoroute`): no upstream counterpart (upstream only
+  exports Specctra DSN); see the `commands::autoroute` module docs.
 - **`create_project()`** copies the stroke fonts from a given directory
   (upstream: the application resources directory), because the core's
   `Project::create()` does not know the application resources yet.

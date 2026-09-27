@@ -3029,6 +3029,7 @@ dependencies = [
 name = "librepcb-editor"
 version = "0.1.0"
 dependencies = [
+ "librepcb-autoroute",
  "librepcb-core",
  "librepcb-i18n",
  "log",

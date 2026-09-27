@@ -42,6 +42,14 @@ pub mod lib {
     pub fn c0805() -> Uuid {
         uuid("c139e505-592b-46ba-bdf2-acb7383ea0cd")
     }
+    /// Component "Supply VCC" (forced net name `{{VALUE}}`).
+    pub fn supply_vcc() -> Uuid {
+        uuid("58c3c6cd-11eb-4557-aa3f-d3e05874afde")
+    }
+    /// Component "Supply GND" (forced net name `{{VALUE}}`).
+    pub fn supply_gnd() -> Uuid {
+        uuid("8076f6be-bfab-4fc1-9772-5d54465dd7e1")
+    }
 }
 
 /// Returns a library element source over the upstream "Populated Library".
@@ -138,12 +146,21 @@ pub fn mm(x: f64, y: f64) -> Point {
 /// project directory. Returns `None` if the CLI is not available,
 /// otherwise the exit status and the output.
 pub fn run_cli_erc(dir: &Path) -> Option<(bool, String)> {
+    run_cli(dir, &["--erc"])
+}
+
+/// Runs the official `librepcb-cli open-project <args>` on a copy of the
+/// project directory (the copy is kept in a temporary directory which is
+/// removed afterwards). Returns `None` if the CLI is not available,
+/// otherwise the exit status and the output.
+pub fn run_cli(dir: &Path, args: &[&str]) -> Option<(bool, String)> {
     let cli = std::env::var_os("LIBREPCB_CLI").unwrap_or_else(|| "librepcb-cli".into());
     let copy = tempfile::tempdir().expect("temp dir");
     copy_dir(dir, copy.path());
     let output = std::process::Command::new(cli)
+        .env("LIBREPCB_SUPPRESS_DEPRECATION_WARNINGS", "1")
         .arg("open-project")
-        .arg("--erc")
+        .args(args)
         .arg(copy.path().join("test.lpp"))
         .output()
         .ok()?;

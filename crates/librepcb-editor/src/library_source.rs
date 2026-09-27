@@ -1,10 +1,10 @@
 //! Where library elements come from when they are added to a project
 //! library (upstream: `WorkspaceLibraryDb::getLatest<T>()`).
 //!
-//! [`LibraryElementSource`] is the interface the workspace library database
-//! will implement; [`DirectoryLibrarySource`] is a simple implementation
-//! over a list of element directories or library (`*.lplib`) directories,
-//! e.g. for tests and the standalone MCP server.
+//! [`LibraryElementSource`] is implemented by the workspace library
+//! database ([`LibraryDb`]) and by [`DirectoryLibrarySource`], a simple
+//! implementation over a list of element directories or library
+//! (`*.lplib`) directories, e.g. for tests and the standalone MCP server.
 
 use std::collections::BTreeMap;
 
@@ -17,6 +17,7 @@ use librepcb_core::library::sym::Symbol;
 use librepcb_core::project::LibraryElementKind;
 use librepcb_core::serialization::{Mode, SExpression};
 use librepcb_core::types::{Uuid, Version};
+use librepcb_core::workspace::{ElementKind, LibraryDb};
 
 use crate::error::{Error, Result};
 
@@ -147,5 +148,26 @@ impl LibraryElementSource for DirectoryLibrarySource {
         self.elements
             .get(&(kind, *uuid))
             .map(|(_, dir)| dir.clone())
+    }
+}
+
+/// The workspace library database (upstream `WorkspaceLibraryDb`): the
+/// latest version of an element in all workspace libraries. Database
+/// errors are logged and reported as "unknown element".
+impl LibraryElementSource for LibraryDb {
+    fn element_directory(&self, kind: LibraryElementKind, uuid: &Uuid) -> Option<FilePath> {
+        let kind = match kind {
+            LibraryElementKind::Symbol => ElementKind::Symbol,
+            LibraryElementKind::Package => ElementKind::Package,
+            LibraryElementKind::Component => ElementKind::Component,
+            LibraryElementKind::Device => ElementKind::Device,
+        };
+        match self.element_dir(kind, *uuid) {
+            Ok(dir) => dir,
+            Err(e) => {
+                log::error!("Failed to query the workspace library database: {e}");
+                None
+            }
+        }
     }
 }

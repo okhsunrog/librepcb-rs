@@ -18,9 +18,11 @@
 //! - [`circuit`]: nets and net classes.
 //! - [`component`]: components, symbols and devices.
 //! - [`schematic`]: wires, net labels, removal of schematic items.
+//! - [`autoroute`]: routing of air wires with the built-in autorouter.
 //! - [`board`]: traces, vias, planes, outlines, other board items, board
 //!   settings, removal of board items.
 
+pub mod autoroute;
 pub mod board;
 pub mod circuit;
 pub mod component;
@@ -34,6 +36,7 @@ use librepcb_core::project::{ComponentInstanceId, Mutation, NetSignalId};
 use crate::editor::{Command, Transaction};
 use crate::error::Result;
 
+pub use autoroute::*;
 pub use board::*;
 pub use circuit::*;
 pub use component::*;

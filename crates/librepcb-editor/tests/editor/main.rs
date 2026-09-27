@@ -1,6 +1,9 @@
 //! Tests of the editor crate (one integration test binary).
 
+mod autoroute_test;
+mod connect_test;
 mod helpers;
+mod real_library_test;
 mod serde_test;
 mod undo_stack_test;
 mod workflow_test;
