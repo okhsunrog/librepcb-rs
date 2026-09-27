@@ -45,10 +45,13 @@ need new Slint dialogs (M3, batched per area) and a new 3D renderer (M5).
    compiling directly from the upstream checkout (the app would depend on
    an external checkout at build time and could not diverge).
 2. **Crate layout:**
-   - `crates/librepcb-app` (bin `librepcb`): `build.rs` with `slint-build`,
-     the backend (`app/`: application, window, section, tab types), tabs
-     (`tabs/`: home, schematic, board 2D, library tabs later), panels, and
-     glue to the canvas.
+   - `crates/librepcb-app` (bin `librepcb`): the backend (`app.rs`:
+     application and main window, `section.rs`, `tabs/`: home, schematic,
+     board 2D, library tabs later), models, panels, and glue to the canvas.
+     The `.slint` files in `crates/librepcb-app/ui/` are compiled by the
+     separate crate `librepcb-app-ui` (`ui/Cargo.toml`, `build.rs` with
+     `slint-build`): the generated code is tens of MB of Rust, so keeping
+     it apart means backend changes do not recompile it.
    - Scene building stays in `librepcb-scene` (already used by render and
      graphics export); it gains **incremental updates**: apply
      `project::Change` events to a built scene (update/insert/remove the
@@ -134,7 +137,8 @@ cargo run -p librepcb-app -- --workspace /tmp/ws --project X.lpp \
     --tab board --panel layers --screenshot out.png --size 1400x900
 ```
 
-`--tab home|schematic|board` and `--panel home|documents|layers|about|none`
+`--tab home|schematic|board` and
+`--panel home|libraries|documents|layers|about|none`
 choose what is shown. The test `crates/librepcb-app/tests/screenshot.rs`
 does the same with an upstream test project (copied to a temporary
 directory: opening a project locks its directory) and writes
