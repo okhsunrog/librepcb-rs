@@ -92,11 +92,13 @@ impl SelectState {
         let drag = self.drag.take();
         if let Some(drag) = drag {
             let segments = drag.modified_segments().clone();
-            if drag.has_changes() && !segments.is_empty() {
+            let bus_segments = drag.modified_bus_segments().clone();
+            if drag.has_changes() && !(segments.is_empty() && bus_segments.is_empty()) {
                 let len = cx.ctx.editor.active_group_len().unwrap_or(0);
                 if let Err(e) = cx.ctx.editor.execute(SimplifySchematicSegments {
                     schematic: cx.schematic,
                     segments,
+                    bus_segments,
                 }) {
                     log::error!("Failed to simplify schematic segments: {e}");
                     cx.ctx.editor.rollback_group_to(len);
@@ -126,6 +128,7 @@ impl SelectState {
         }
         let mutations = drag.mutations(cx.project());
         let segments = drag.modified_segments().clone();
+        let bus_segments = drag.modified_bus_segments().clone();
         let editor = &mut cx.ctx.editor;
         let result = editor
             .begin_group(tr!(
@@ -140,11 +143,12 @@ impl SelectState {
             });
         match result {
             Ok(()) => {
-                if !segments.is_empty() {
+                if !(segments.is_empty() && bus_segments.is_empty()) {
                     let len = editor.active_group_len().unwrap_or(0);
                     if let Err(e) = editor.execute(SimplifySchematicSegments {
                         schematic: cx.schematic,
                         segments,
+                        bus_segments,
                     }) {
                         log::error!("Failed to simplify schematic segments: {e}");
                         editor.rollback_group_to(len);
@@ -186,29 +190,78 @@ impl SelectState {
         self.one_shot(cx, |d| d.mirror(orientation, false, grid))
     }
 
-    /// Removes the selected items (upstream `removeSelectedItems()`).
+    /// Removes the selected items (upstream `removeSelectedItems()`), then
+    /// simplifies the modified net and bus segments (separate undo step).
     fn remove_selected(&mut self, cx: &mut Cx<'_, '_>) -> bool {
         let q = Self::query(cx);
         let selection = SchematicSelection {
             symbols: q.symbols.iter().copied().collect(),
             net_lines: q.net_lines.iter().copied().collect(),
             net_labels: q.net_labels.iter().copied().collect(),
-            symbol_texts: Vec::new(),
+            bus_lines: q.bus_lines.iter().copied().collect(),
+            bus_labels: q.bus_labels.iter().copied().collect(),
+            symbol_texts: q
+                .symbol_texts
+                .iter()
+                .filter(|(sym, _)| !q.symbols.contains(sym))
+                .copied()
+                .collect(),
             polygons: q.polygons.iter().copied().collect(),
             texts: q.texts.iter().copied().collect(),
             images: q.images.iter().copied().collect(),
         };
         cx.out.selection.clear();
+        let before = cx
+            .sch()
+            .map(|s| (s.net_segments().clone(), s.bus_segments().clone()));
         match cx.ctx.editor.execute(RemoveSchematicItems {
             schematic: cx.schematic,
             selection,
         }) {
-            Ok(_) => true,
+            Ok(_) => {
+                let modified = match (before, cx.sch()) {
+                    (Some((nets, buses)), Some(s)) => {
+                        let segments: std::collections::BTreeSet<_> = s
+                            .net_segments()
+                            .iter()
+                            .filter(|(id, seg)| nets.get(id) != Some(*seg))
+                            .map(|(id, _)| *id)
+                            .collect();
+                        let bus_segments: std::collections::BTreeSet<_> = s
+                            .bus_segments()
+                            .iter()
+                            .filter(|(id, seg)| buses.get(id) != Some(*seg))
+                            .map(|(id, _)| *id)
+                            .collect();
+                        Some((segments, bus_segments))
+                    }
+                    _ => None,
+                };
+                if let Some((segments, bus_segments)) = modified
+                    && !(segments.is_empty() && bus_segments.is_empty())
+                    && let Err(e) = cx.ctx.editor.execute(SimplifySchematicSegments {
+                        schematic: cx.schematic,
+                        segments,
+                        bus_segments,
+                    })
+                {
+                    log::error!("Failed to simplify schematic segments: {e}");
+                }
+                true
+            }
             Err(e) => {
                 cx.error(e);
                 false
             }
         }
+    }
+
+    /// Whether an item counts as selected (texts of a selected symbol are
+    /// selected with it, like upstream).
+    fn is_selected(cx: &Cx<'_, '_>, item: &SchematicItem) -> bool {
+        cx.out.selection.contains(item)
+            || matches!(item, SchematicItem::SymbolText(sym, _)
+                if cx.out.selection.contains(&SchematicItem::Symbol(*sym)))
     }
 
     /// Copies the selection to the clipboard (upstream
@@ -294,8 +347,10 @@ impl SelectState {
         let request = match item {
             SchematicItem::Symbol(id) => SchematicRequest::SymbolProperties(id),
             SchematicItem::NetLabel(seg, l) => SchematicRequest::NetLabelProperties(seg, l),
+            SchematicItem::BusLabel(seg, l) => SchematicRequest::BusLabelProperties(seg, l),
             SchematicItem::Polygon(id) => SchematicRequest::PolygonProperties(id),
             SchematicItem::Text(id) => SchematicRequest::TextProperties(id),
+            SchematicItem::SymbolText(sym, id) => SchematicRequest::SymbolTextProperties(sym, id),
             _ => return false,
         };
         cx.out.requests.push(request);
@@ -317,13 +372,7 @@ impl SelectState {
                 f.paste = cx.ctx.clipboard.get(&mime).is_some();
                 let q = Self::query(cx);
                 let grid = cx.grid();
-                if !q.symbols.is_empty()
-                    || !q.net_lines.is_empty()
-                    || !q.net_labels.is_empty()
-                    || !q.polygons.is_empty()
-                    || !q.texts.is_empty()
-                    || !q.images.is_empty()
-                {
+                if q.has_modifiable_items() {
                     f.cut = true;
                     f.copy = true;
                     f.remove = true;
@@ -345,13 +394,24 @@ impl SelectState {
                         || q.polygons
                             .iter()
                             .any(|id| !s.polygons()[id].path().is_on_grid(grid))
+                        || q.bus_junctions
+                            .iter()
+                            .any(|(seg, j)| off(s.bus_segments()[seg].junctions()[j].position()))
+                        || q.bus_labels
+                            .iter()
+                            .any(|(seg, l)| off(s.bus_segments()[seg].labels()[l].position()))
                         || q.texts.iter().any(|id| off(s.texts()[id].position()))
+                        || q.symbol_texts
+                            .iter()
+                            .any(|(sym, t)| off(s.symbols()[sym].texts()[t].position()))
                         || q.images.iter().any(|id| off(s.images()[id].position()));
                 }
                 if !q.symbols.is_empty()
                     || !q.net_labels.is_empty()
+                    || !q.bus_labels.is_empty()
                     || !q.polygons.is_empty()
                     || !q.texts.is_empty()
+                    || !q.symbol_texts.is_empty()
                 {
                     f.properties = true;
                 }
@@ -565,8 +625,18 @@ impl State for SelectState {
                     .iter()
                     .map(|(s, l)| SchematicItem::NetLabel(*s, *l)),
             )
+            .chain(
+                q.bus_labels
+                    .iter()
+                    .map(|(s, l)| SchematicItem::BusLabel(*s, *l)),
+            )
             .chain(q.polygons.iter().map(|id| SchematicItem::Polygon(*id)))
             .chain(q.texts.iter().map(|id| SchematicItem::Text(*id)))
+            .chain(
+                q.symbol_texts
+                    .iter()
+                    .map(|(s, t)| SchematicItem::SymbolText(*s, *t)),
+            )
             .next();
         item.is_some_and(|item| Self::open_properties(cx, item))
     }
@@ -646,7 +716,7 @@ impl State for SelectState {
                 let selected = items
                     .iter()
                     .rev()
-                    .find(|i| cx.out.selection.contains(*i))
+                    .find(|i| Self::is_selected(cx, i))
                     .copied();
                 if e.modifiers.control {
                     // Toggle the selection when CTRL is pressed.
@@ -702,7 +772,7 @@ impl State for SelectState {
         }
         let items = find_items_at(cx, e.pos, FindFlags::ALL.near(), &[]);
         for item in items {
-            if cx.out.selection.contains(&item) && Self::open_properties(cx, item) {
+            if Self::is_selected(cx, &item) && Self::open_properties(cx, item) {
                 return true;
             }
         }
@@ -723,7 +793,7 @@ impl State for SelectState {
         let selected = items
             .iter()
             .rev()
-            .find(|i| cx.out.selection.contains(*i))
+            .find(|i| Self::is_selected(cx, i))
             .copied();
         let item = match selected {
             Some(item) => item,
@@ -739,6 +809,7 @@ impl State for SelectState {
                 | SchematicItem::NetLabel(..)
                 | SchematicItem::Polygon(_)
                 | SchematicItem::Text(_)
+                | SchematicItem::SymbolText(..)
         ) {
             cx.out
                 .requests

@@ -452,7 +452,10 @@ impl SchematicTab {
                     let item = schematic_item(object);
                     let selected = item.is_some_and(|i| selection.contains(&i))
                         || match item {
-                            Some(SchematicItem::SymbolPin(sym, _)) => symbols.contains(&sym),
+                            Some(
+                                SchematicItem::SymbolPin(sym, _)
+                                | SchematicItem::SymbolText(sym, _),
+                            ) => symbols.contains(&sym),
                             _ => false,
                         };
                     let probed = !self.probe.is_empty()

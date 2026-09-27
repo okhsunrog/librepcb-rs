@@ -251,6 +251,7 @@ impl DrawWireState {
             if let Err(e) = cx.ctx.editor.execute(SimplifySchematicSegments {
                 schematic: cx.schematic,
                 segments,
+                bus_segments: Default::default(),
             }) {
                 log::error!("Failed to simplify net segments: {e}");
             }

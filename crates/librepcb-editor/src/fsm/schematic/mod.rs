@@ -68,6 +68,8 @@ pub enum SchematicItem {
     Symbol(SymbolId),
     /// A pin of a symbol (library pin UUID).
     SymbolPin(SymbolId, Uuid),
+    /// A text of a symbol (e.g. its name or value), selectable on its own.
+    SymbolText(SymbolId, Uuid),
     /// A junction of a net segment (upstream `SI_NetPoint`).
     NetPoint(NetSegmentId, Uuid),
     /// A net line.
@@ -221,6 +223,11 @@ pub enum SchematicRequest {
     SymbolProperties(SymbolId),
     /// Open the rename dialog of the net segment of a net label.
     NetLabelProperties(NetSegmentId, Uuid),
+    /// Open the rename dialog of the bus segment of a bus label (upstream
+    /// `RenameBusSegmentDialog`).
+    BusLabelProperties(BusSegmentId, Uuid),
+    /// Open the properties dialog of a text of a symbol.
+    SymbolTextProperties(SymbolId, Uuid),
     /// Open the properties dialog of a polygon.
     PolygonProperties(Uuid),
     /// Open the properties dialog of a text.

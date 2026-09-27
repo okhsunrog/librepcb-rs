@@ -16,10 +16,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use librepcb_core::geometry::{Junction, NetLabel, NetLine, NetLineAnchor};
-use librepcb_core::project::schematic::{SchematicNetSegment, SchematicNetSegmentSplitter};
+use librepcb_core::project::schematic::{
+    SchematicBusSegment, SchematicNetSegment, SchematicNetSegmentSplitter,
+};
 use librepcb_core::project::{
-    ComponentSignalRef, Mutation, NetSegmentId, NetSegmentRef, NetSignalId, Project,
-    ProjectAttributeLookup, SchematicId, SchematicMutation, SymbolId, SymbolRef,
+    BusSegmentId, BusSegmentRef, ComponentSignalRef, Mutation, NetSegmentId, NetSegmentRef,
+    NetSignalId, Project, ProjectAttributeLookup, SchematicId, SchematicMutation, SymbolId,
+    SymbolRef,
 };
 use librepcb_core::types::{Angle, CircuitIdentifier, Length, Point, UnsignedLength, Uuid};
 use librepcb_core::utils::toolbox;
@@ -134,6 +137,23 @@ pub enum WireAnchor {
         /// The position (projected onto the line).
         position: Point,
     },
+    /// A junction of a bus segment (the wire becomes a bus member).
+    BusJunction {
+        /// The bus segment.
+        segment: BusSegmentId,
+        /// The junction.
+        junction: Uuid,
+    },
+    /// A bus line, split at the point nearest to `position` (upstream:
+    /// clicking on a bus line).
+    BusLine {
+        /// The bus segment.
+        segment: BusSegmentId,
+        /// The line.
+        line: Uuid,
+        /// The position (projected onto the line).
+        position: Point,
+    },
     /// A new, unconnected junction.
     Point(Point),
 }
@@ -157,6 +177,9 @@ impl End {
             WireAnchor::SymbolPin { symbol, .. } => Some(symbol_schematic(p, *symbol)?),
             WireAnchor::Junction { segment, .. } | WireAnchor::Line { segment, .. } => {
                 Some(segment_schematic(p, *segment)?)
+            }
+            WireAnchor::BusJunction { segment, .. } | WireAnchor::BusLine { segment, .. } => {
+                Some(super::bus::bus_segment_schematic(p, *segment)?)
             }
             WireAnchor::Point(_) => None,
         })
@@ -255,6 +278,42 @@ impl End {
                     anchor: Some(j),
                     position: split,
                     segment: Some(*segment),
+                    pin: None,
+                })
+            }
+            WireAnchor::BusJunction { segment, junction } => {
+                let position = s
+                    .bus_segments()
+                    .get(segment)
+                    .ok_or(Error::DifferentSchematics)?
+                    .junctions()
+                    .get(junction)
+                    .ok_or_else(|| Error::not_found("Bus junction", junction))?
+                    .position();
+                Ok(End {
+                    anchor: Some(NetLineAnchor::BusJunction {
+                        segment: segment.0,
+                        junction: *junction,
+                    }),
+                    position,
+                    segment: None,
+                    pin: None,
+                })
+            }
+            WireAnchor::BusLine {
+                segment,
+                line,
+                position,
+            } => {
+                let (junction, position) =
+                    super::bus::split_bus_line(tx, schematic, *segment, *line, *position)?;
+                Ok(End {
+                    anchor: Some(NetLineAnchor::BusJunction {
+                        segment: segment.0,
+                        junction,
+                    }),
+                    position,
+                    segment: None,
                     pin: None,
                 })
             }
@@ -903,6 +962,14 @@ pub struct SchematicSelection {
     /// Net labels as (segment, label).
     #[serde(default)]
     pub net_labels: Vec<(NetSegmentId, Uuid)>,
+    /// Bus lines as (bus segment, line); junctions whose lines are all
+    /// removed are removed too (net lines attached to them end at new net
+    /// junctions).
+    #[serde(default)]
+    pub bus_lines: Vec<(BusSegmentId, Uuid)>,
+    /// Bus labels as (bus segment, label).
+    #[serde(default)]
+    pub bus_labels: Vec<(BusSegmentId, Uuid)>,
     /// Texts of symbols as (symbol, text).
     #[serde(default)]
     pub symbol_texts: Vec<(SymbolId, Uuid)>,
@@ -970,7 +1037,50 @@ pub(crate) fn remove_schematic_items(
             }
         }
     }
-    let affected: BTreeSet<NetSegmentId> = lines.keys().chain(labels.keys()).copied().collect();
+
+    // Bus items (upstream `addSelectedBusLines()`, `addSelectedBusLabels()`
+    // and `addJunctionsOfBusLines(true)`).
+    let mut bus_lines: BTreeMap<BusSegmentId, BTreeSet<Uuid>> = BTreeMap::new();
+    let mut bus_labels: BTreeMap<BusSegmentId, BTreeSet<Uuid>> = BTreeMap::new();
+    for (segment, line) in &selection.bus_lines {
+        let seg = s
+            .bus_segments()
+            .get(segment)
+            .ok_or_else(|| Error::not_found("Bus segment", segment))?;
+        if !seg.lines().contains_key(line) {
+            return Err(Error::not_found("Bus line", line));
+        }
+        bus_lines.entry(*segment).or_default().insert(*line);
+    }
+    for (segment, label) in &selection.bus_labels {
+        let seg = s
+            .bus_segments()
+            .get(segment)
+            .ok_or_else(|| Error::not_found("Bus segment", segment))?;
+        if !seg.labels().contains_key(label) {
+            return Err(Error::not_found("Bus label", label));
+        }
+        bus_labels.entry(*segment).or_default().insert(*label);
+    }
+    let mut bus_junctions: BTreeSet<(BusSegmentId, Uuid)> = BTreeSet::new();
+    for (segment, removed) in &bus_lines {
+        let seg = &s.bus_segments()[segment];
+        for line in removed {
+            for anchor in [seg.lines()[line].p1(), seg.lines()[line].p2()] {
+                if let NetLineAnchor::Junction(j) = anchor
+                    && seg.lines_at(j).all(|l| removed.contains(&l.uuid()))
+                {
+                    bus_junctions.insert((*segment, j));
+                }
+            }
+        }
+    }
+    let affected_buses: BTreeSet<BusSegmentId> =
+        bus_lines.keys().chain(bus_labels.keys()).copied().collect();
+    let mut affected: BTreeSet<NetSegmentId> = lines.keys().chain(labels.keys()).copied().collect();
+    for bus in &affected_buses {
+        affected.extend(s.attached_net_segments(*bus));
+    }
 
     // Split the affected segments (upstream `removeNetSegmentItems()`).
     struct Remaining {
@@ -1004,7 +1114,8 @@ pub(crate) fn remove_schematic_items(
                 junction,
             };
             if let Some(pos) = s.net_line_anchor_position(*id, anchor, ctx) {
-                splitter.add_fixed_anchor(anchor, pos, false);
+                let replace = bus_junctions.contains(&(bus_segment, junction));
+                splitter.add_fixed_anchor(anchor, pos, replace);
             }
         }
         for junction in segment.junctions().values() {
@@ -1066,6 +1177,39 @@ pub(crate) fn remove_schematic_items(
         });
     }
 
+    // Split the affected bus segments (upstream `removeBusSegmentItems()`).
+    struct BusPlan {
+        segment: SchematicBusSegment,
+        remaining: Vec<librepcb_core::project::schematic::SplitSegment>,
+    }
+    let mut bus_plans = Vec::new();
+    for id in &affected_buses {
+        let segment = &s.bus_segments()[id];
+        let none = BTreeSet::new();
+        let removed_lines = bus_lines.get(id).unwrap_or(&none);
+        let removed_labels = bus_labels.get(id).unwrap_or(&none);
+        let mut splitter = SchematicNetSegmentSplitter::new();
+        for junction in segment.junctions().values() {
+            if !bus_junctions.contains(&(*id, junction.uuid())) {
+                splitter.add_junction(junction.clone());
+            }
+        }
+        for line in segment.lines().values() {
+            if !removed_lines.contains(&line.uuid()) {
+                splitter.add_net_line(line.clone());
+            }
+        }
+        for label in segment.labels().values() {
+            if !removed_labels.contains(&label.uuid()) {
+                splitter.add_net_label(label.clone());
+            }
+        }
+        bus_plans.push(BusPlan {
+            segment: segment.clone(),
+            remaining: splitter.split(),
+        });
+    }
+
     let mut changed = false;
     let mut remaining = Vec::new();
     for plan in plans {
@@ -1078,6 +1222,79 @@ pub(crate) fn remove_schematic_items(
         }
         remaining.extend(plan.remaining);
         changed = true;
+    }
+
+    // Re-add the remaining parts of the bus segments; parts without labels
+    // get new buses (with the properties of the old bus). Bus junctions
+    // keep their UUIDs; `bus_junction_map` maps them to their new segment.
+    let mut bus_junction_map: BTreeMap<(Uuid, Uuid), Uuid> = BTreeMap::new();
+    for plan in bus_plans {
+        let old_id = plan.segment.id();
+        tx.apply(sch(SchematicMutation::RemoveBusSegment(BusSegmentRef {
+            schematic,
+            segment: old_id,
+        })))?;
+        changed = true;
+        let old_bus = tx
+            .project()
+            .circuit()
+            .bus(plan.segment.bus())
+            .cloned()
+            .ok_or_else(|| Error::not_found("Bus", plan.segment.bus()))?;
+        let mut new_segments = Vec::new();
+        for part in plan.remaining {
+            let mut segment = SchematicBusSegment::new(Uuid::new_random(), plan.segment.bus());
+            for junction in part.junctions {
+                bus_junction_map.insert((old_id.0, junction.uuid()), segment.uuid());
+                segment.insert_junction(junction);
+            }
+            for line in part.lines {
+                segment.insert_line(line);
+            }
+            for label in part.labels {
+                segment.insert_label(label);
+            }
+            new_segments.push(segment);
+        }
+        for mut segment in new_segments {
+            if segment.labels().is_empty() {
+                let bus = super::bus::add_bus(tx, None)?;
+                let mut new_bus = tx
+                    .project()
+                    .circuit()
+                    .bus(bus)
+                    .cloned()
+                    .ok_or_else(|| Error::not_found("Bus", bus))?;
+                new_bus.set_prefix_net_names(old_bus.prefix_net_names());
+                new_bus.set_max_trace_length_difference(old_bus.max_trace_length_difference());
+                tx.apply(Mutation::UpdateBus(new_bus))?;
+                let mut s2 = SchematicBusSegment::new(segment.uuid(), bus);
+                for j in segment.junctions().values() {
+                    s2.insert_junction(j.clone());
+                }
+                for l in segment.lines().values() {
+                    s2.insert_line(l.clone());
+                }
+                segment = s2;
+            }
+            tx.apply(sch(SchematicMutation::AddBusSegment { schematic, segment }))?;
+        }
+    }
+    // Net lines at kept bus junctions end at the junctions' new segments.
+    for part in &mut remaining {
+        for line in &mut part.segment.lines {
+            let map = |a: NetLineAnchor| match a {
+                NetLineAnchor::BusJunction { segment, junction } => bus_junction_map
+                    .get(&(segment, junction))
+                    .map_or(a, |new| NetLineAnchor::BusJunction {
+                        segment: *new,
+                        junction,
+                    }),
+                other => other,
+            };
+            let (p1, p2) = (map(line.p1()), map(line.p2()));
+            line.set_anchors(p1, p2);
+        }
     }
 
     // Add the remaining parts as new segments (upstream
