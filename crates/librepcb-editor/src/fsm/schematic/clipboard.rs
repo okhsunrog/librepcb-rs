@@ -564,10 +564,9 @@ impl SchematicClipboardData {
         }
 
         // Bus segments (split into cohesive parts).
-        let mut bus_items: BTreeMap<
-            BusSegmentId,
-            (BTreeSet<Uuid>, BTreeSet<Uuid>, BTreeSet<Uuid>),
-        > = BTreeMap::new();
+        // Selected junctions, lines and labels per bus segment.
+        type BusItems = (BTreeSet<Uuid>, BTreeSet<Uuid>, BTreeSet<Uuid>);
+        let mut bus_items: BTreeMap<BusSegmentId, BusItems> = BTreeMap::new();
         for (seg, j) in &query.bus_junctions {
             bus_items.entry(*seg).or_default().0.insert(*j);
         }

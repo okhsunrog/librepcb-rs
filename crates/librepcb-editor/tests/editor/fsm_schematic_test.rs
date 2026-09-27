@@ -1034,7 +1034,7 @@ fn draw_bus_with_chosen_bus_adds_label_and_combines() {
                 .circuit()
                 .buses()
                 .iter()
-                .find(|(_, b)| b.name().to_string() == "DATA")
+                .find(|(_, b)| b.name().as_str() == "DATA")
                 .unwrap()
                 .0
         })
