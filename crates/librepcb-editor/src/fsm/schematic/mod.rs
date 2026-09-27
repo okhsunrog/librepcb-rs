@@ -197,6 +197,10 @@ pub struct SchematicToolData {
     pub value: String,
     /// Suggestions for [`value`](Self::value).
     pub value_suggestions: Vec<String>,
+    /// The first component attribute referenced by the value (add
+    /// component; upstream `getValueAttribute*()`), editable in the tool
+    /// bar (value and unit).
+    pub value_attribute: Option<librepcb_core::attribute::Attribute>,
 }
 
 impl Default for SchematicToolData {
@@ -212,6 +216,7 @@ impl Default for SchematicToolData {
             filled: false,
             value: String::new(),
             value_suggestions: Vec::new(),
+            value_attribute: None,
         }
     }
 }
@@ -1138,6 +1143,46 @@ impl SchematicEditorFsm {
         let kind = self.ensure_entered(ctx);
         self.out.tool_data.value = value.into();
         self.properties_changed(ctx, kind);
+    }
+
+    /// Sets the value of the value attribute (add component, upstream
+    /// `setValueAttributeValue()`).
+    pub fn set_value_attribute_value(&mut self, ctx: &mut SchematicContext<'_>, value: &str) {
+        let kind = self.ensure_entered(ctx);
+        if kind == StateKind::AddComponent {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states
+                .add_component
+                .value_attribute_value_changed(&mut cx, value);
+        }
+        self.after_event(ctx);
+    }
+
+    /// Sets the unit of the value attribute (add component, upstream
+    /// `setValueAttributeUnit()`).
+    pub fn set_value_attribute_unit(
+        &mut self,
+        ctx: &mut SchematicContext<'_>,
+        unit: Option<&'static librepcb_core::attribute::AttributeUnit>,
+    ) {
+        let kind = self.ensure_entered(ctx);
+        if kind == StateKind::AddComponent {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states
+                .add_component
+                .value_attribute_unit_changed(&mut cx, unit);
+        }
+        self.after_event(ctx);
     }
 
     fn properties_changed(&mut self, ctx: &mut SchematicContext<'_>, kind: StateKind) {
