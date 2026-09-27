@@ -11,8 +11,13 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Implementation, ServerCapabilities, ServerConfig};
+use rmcp::model::{
+    CallToolRequestParams, CallToolResponse, CallToolResult, Implementation, JsonObject,
+    ServerCapabilities, ServerConfig,
+};
+use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 
 use crate::error::{ToolError, ToolResult};
@@ -36,7 +41,7 @@ use crate::tools::project::{
 };
 use crate::tools::schematic_edit::{
     ComponentAddArgs, ComponentRemoveArgs, ComponentUpdateArgs, ConnectArgs, DisconnectArgs,
-    NetClassSetArgs, NetRenameArgs, SchematicAddArgs, SymbolMoveArgs,
+    NetClassSetArgs, NetRenameArgs, SchematicAddArgs, SchematicTidyArgs, SymbolMoveArgs,
 };
 use crate::tools::write::UndoArgs;
 use crate::tools::{
@@ -49,13 +54,16 @@ pub const INSTRUCTIONS: &str = "LibrePCB MCP server: design schematics and PCBs 
 the files open in upstream LibrePCB. One workspace (libraries) and one project are open at a \
 time.\n\
 Workflow: workspace_open/workspace_create -> library_install (e.g. [\"LibrePCB Base\"]) or \
-library_rescan -> library_search (find parts) -> project_create -> component_add (part = name or \
-device/component UUID; placed automatically) -> connect (net + pins, e.g. net \"VCC\", pins \
-[\"J1.1\",\"R1.1\"]; supply symbols like GND/VCC force their net name) -> erc_run -> \
+library_rescan -> library_search (find parts; multi-word queries like \"resistor 0805\" work) -> \
+project_create -> component_add (part = name or device/component UUID; placed automatically) -> \
+connect (net + pins, e.g. net \"VCC\", pins [\"J1.1\",\"R1.1\"]; supply symbols like GND/VCC \
+force their net name and unconnected ones of the same name are attached automatically) -> \
+schematic_tidy (re-arranges the page by connectivity for readability) -> erc_run -> \
 board_set_outline (width/height mm) -> device_auto_place (or device_place) -> autoroute -> \
 plane_add (net \"GND\", bottom) -> drc_run -> export_fabrication / jobs_run -> project_save.\n\
-Addressing: designators (\"R1\"), pins \"R1.1\" (pad name) or \"U1.VCC\" (signal name), net \
-names, schematic/board names or indices; UUIDs work everywhere. Units: millimeters and degrees \
+Addressing: designators (\"R1\"), pins \"R1.1\" (pad name) or \"U1.VCC\" (signal name) or a \
+designator alone for single-pin parts (\"GND1\"), net names, schematic/board names or indices; \
+UUIDs work everywhere. Unknown arguments are rejected (invalid_argument). Units: millimeters and degrees \
 (y upwards). Read tools: project_summary, component_get, netlist, schematic_get, board_get, \
 unrouted, render (PNG to look at the design).\n\
 Every write is one undo step \"AI: <tool>\" (undo/redo/history) and returns the re-read \
@@ -63,6 +71,9 @@ entities, the change events and the new revision; pass expected_revision to avoi
 updates. Results: {outcome: complete|partial|failed, revision, result, warnings}; errors have a \
 stable kind (not_found, invalid_argument, conflict, stale_revision, no_project, no_workspace, \
 io, network, not_available, internal). Nothing is written to disk before project_save.";
+
+/// Message prefix of rmcp's argument deserialization errors.
+const DESERIALIZE_ERROR_PREFIX: &str = "failed to deserialize parameters:";
 
 /// The LibrePCB MCP server (cheap to clone; clones share the session).
 #[derive(Clone)]
@@ -104,6 +115,56 @@ impl LibrePcbMcp {
             .into_iter()
             .map(|t| t.name.into_owned())
             .collect()
+    }
+
+    /// Checks the argument names of a call of `tool` against its input
+    /// schema: unknown arguments fail with `invalid_argument` (naming the
+    /// unknown key and listing the valid ones) instead of being silently
+    /// ignored. Unknown tools pass (the router reports them).
+    pub fn check_arguments(&self, tool: &str, arguments: Option<&JsonObject>) -> ToolResult<()> {
+        let (Some(tool), Some(arguments)) = (self.tool_router.get(tool), arguments) else {
+            return Ok(());
+        };
+        let properties = tool
+            .input_schema
+            .get("properties")
+            .and_then(|p| p.as_object());
+        let is_valid = |key: &str| properties.is_some_and(|p| p.contains_key(key));
+        let unknown: Vec<&str> = arguments
+            .keys()
+            .map(String::as_str)
+            .filter(|k| !is_valid(k))
+            .collect();
+        if unknown.is_empty() {
+            return Ok(());
+        }
+        let valid: Vec<&str> = properties
+            .map(|p| p.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        Err(ToolError::invalid(format!(
+            "Unknown argument{} {} for tool {}; valid arguments: {}.",
+            if unknown.len() > 1 { "s" } else { "" },
+            unknown
+                .iter()
+                .map(|k| format!("\"{k}\""))
+                .collect::<Vec<_>>()
+                .join(", "),
+            tool.name,
+            if valid.is_empty() {
+                "none".to_owned()
+            } else {
+                valid.join(", ")
+            }
+        )))
+    }
+
+    /// The revision of the open project, if any.
+    fn current_revision(&self) -> Option<u64> {
+        self.session
+            .lock()
+            .project
+            .as_ref()
+            .map(|p| p.project().revision())
     }
 
     /// Runs `f` on the session in a blocking thread.
@@ -268,7 +329,8 @@ impl LibrePcbMcp {
     #[tool(
         description = "Install official libraries from api.librepcb.org into the workspace \
                        (with dependencies) and rescan; without names, list the available \
-                       libraries."
+                       libraries. Falls back to a git clone of the library repository if the \
+                       ZIP download fails (result: method zip|git)."
     )]
     async fn library_install(
         &self,
@@ -290,8 +352,9 @@ impl LibrePcbMcp {
     #[tool(
         description = "Search library elements (components, devices, packages, symbols) by \
                        keyword or part number in the workspace libraries and the project \
-                       library. Devices are components with a footprint (what component_add \
-                       needs for the board)."
+                       library: whole-string matches first, then elements containing all words \
+                       (e.g. \"resistor 0805\"). Devices are components with a footprint (what \
+                       component_add needs for the board)."
     )]
     async fn library_search(
         &self,
@@ -381,8 +444,10 @@ impl LibrePcbMcp {
     #[tool(
         description = "Connect pins to a net (created or merged as needed) and draw the \
                        schematic: nearby pins are wired, distant pins get a stub wire with a \
-                       net label. Pins: \"R1.1\" (pad) or \"U1.VCC\" (signal). Call once per \
-                       net with all its pins."
+                       net label placed clear of other items. Pins: \"R1.1\" (pad), \"U1.VCC\" \
+                       (signal) or \"GND1\" (single-pin part). Unconnected supply symbols \
+                       whose net name equals the net are attached (placed next to a pin). \
+                       Call once per net with all its pins."
     )]
     async fn connect(
         &self,
@@ -460,6 +525,21 @@ impl LibrePcbMcp {
             .await
     }
 
+    #[tool(
+        description = "Re-arrange a schematic page for readability: places the symbols by \
+                       connectivity (connected parts next to each other, room for labels), \
+                       supply symbols next to their pins, and draws all nets again (direct \
+                       wires where short, else net labels). Nets and boards are unchanged. \
+                       Run it after connecting all nets."
+    )]
+    async fn schematic_tidy(
+        &self,
+        Parameters(args): Parameters<SchematicTidyArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::schematic_tidy(s, args))
+            .await
+    }
+
     // --- Board -----------------------------------------------------------------
 
     #[tool(
@@ -507,8 +587,10 @@ impl LibrePcbMcp {
 
     #[tool(
         description = "Place all unplaced devices (or the given ones) inside the board \
-                       outline, packed in rows without overlapping footprints, keeping \
-                       spacing (mm) and the board edge clearance."
+                       outline by connectivity (connected devices close together, short air \
+                       wires, connectors at the board edge, spread over the board), without \
+                       overlapping footprints, keeping spacing (mm) and the board edge \
+                       clearance. Deterministic."
     )]
     async fn device_auto_place(
         &self,
@@ -726,7 +808,7 @@ impl LibrePcbMcp {
 
     #[tool(
         description = "Render a schematic page or a board side as PNG image, to look at the \
-                       design."
+                       design (target defaults to board if board or side is given)."
     )]
     async fn render(
         &self,
@@ -763,6 +845,39 @@ impl LibrePcbMcp {
 
 #[tool_handler]
 impl ServerHandler for LibrePcbMcp {
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, McpError> {
+        // Argument errors are tool errors with kind `invalid_argument` (in
+        // the result envelope), not protocol errors.
+        let name = request.name.clone();
+        if let Err(e) = self.check_arguments(&name, request.arguments.as_ref()) {
+            return Ok(error_result(&e, self.current_revision()).into());
+        }
+        let context = ToolCallContext::new(self, request, context);
+        let response = self.tool_router.call(context).await?;
+        // rmcp reports argument deserialization failures as plain error
+        // results; give them the envelope with `invalid_argument`.
+        if let CallToolResponse::Complete(result) = &response
+            && result.is_error == Some(true)
+            && result.structured_content.is_none()
+            && let Some(message) = result
+                .content
+                .first()
+                .and_then(|c| c.as_text())
+                .and_then(|t| t.text.strip_prefix(DESERIALIZE_ERROR_PREFIX))
+        {
+            let e = ToolError::invalid(format!(
+                "Invalid arguments for tool {name}: {}",
+                message.trim()
+            ));
+            return Ok(error_result(&e, self.current_revision()).into());
+        }
+        Ok(response)
+    }
+
     fn get_info(&self) -> ServerConfig {
         ServerConfig::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new(

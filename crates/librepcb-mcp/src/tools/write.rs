@@ -110,6 +110,7 @@ pub fn write<T>(
 
 /// Arguments of `undo` / `redo`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UndoArgs {
     /// Number of steps (default 1).
     #[serde(default)]

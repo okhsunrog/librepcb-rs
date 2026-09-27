@@ -24,6 +24,7 @@ pub use crate::tools::write::check_revision;
 
 /// Arguments of `workspace_open` / `workspace_create`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct WorkspacePathArgs {
     /// Workspace directory (absolute, or relative to the server's working
     /// directory).
@@ -32,6 +33,7 @@ pub struct WorkspacePathArgs {
 
 /// Arguments of `project_create`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectCreateArgs {
     /// Project name (also used for the `*.lpp` file name).
     pub name: String,
@@ -63,6 +65,7 @@ fn default_true() -> bool {
 
 /// Arguments of `project_open`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectOpenArgs {
     /// The `*.lpp` project file, or the project directory.
     pub path: String,
@@ -70,6 +73,7 @@ pub struct ProjectOpenArgs {
 
 /// Arguments of `project_save`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectSaveArgs {
     /// Fail with `stale_revision` if the project revision differs.
     #[serde(default)]
@@ -78,6 +82,7 @@ pub struct ProjectSaveArgs {
 
 /// Arguments of `project_close`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectCloseArgs {
     /// Close even if there are unsaved changes (they are lost).
     #[serde(default)]
@@ -122,6 +127,7 @@ pub fn server_info(session: &Session) -> ToolResult<ToolOutput> {
             "units": { "length": "mm", "angle": "deg" },
             "workspace": workspace,
             "project": project,
+            // `null`: the resources embedded into the binary are used.
             "resources_dir": session.resources_dir.as_ref().map(|p| p.to_native()),
         }),
     )
@@ -221,7 +227,7 @@ fn create_project_files(
     dir: &FilePath,
     file_name: &str,
 ) -> ToolResult<CreatedProject> {
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
     let mut handler = |_: &FilePath, _: librepcb_core::fileio::LockStatus, _: &str| Ok(false);
     let fs = Arc::new(TransactionalFileSystem::open(
         dir,
@@ -232,26 +238,12 @@ fn create_project_files(
     let mut root = TransactionalDirectory::new(Arc::clone(&fs), "");
 
     // Stroke fonts (upstream `Project::create()` copies the application's
-    // fontobene fonts into the project).
-    match &session.resources_dir {
-        Some(res) => {
-            let fonts = res.path_to("fontobene");
-            let entries = std::fs::read_dir(fonts.as_path())
-                .map_err(|e| ToolError::new(ErrorKind::Io, e.to_string()))?;
-            for entry in entries.flatten() {
-                let file = entry.file_name().to_string_lossy().into_owned();
-                if file.ends_with(".bene") {
-                    let content = std::fs::read(entry.path())
-                        .map_err(|e| ToolError::new(ErrorKind::Io, e.to_string()))?;
-                    root.write(&format!("resources/fontobene/{file}"), &content)?;
-                }
-            }
-        }
-        None => warnings.push(
-            "No application resources found (set LIBREPCB_SHARE to the share/librepcb \
-             directory): the project has no stroke fonts, texts are not rendered."
-                .to_owned(),
-        ),
+    // fontobene fonts into the project): from the resources directory, else
+    // the fonts embedded into the binary.
+    let (fonts, _) = librepcb_scene::resources::stroke_font_files()
+        .map_err(|e| ToolError::new(ErrorKind::Io, e.to_string()))?;
+    for (file, content) in fonts {
+        root.write(&format!("resources/fontobene/{file}"), &content)?;
     }
 
     let mut project = Project::create(root, file_name, Uuid::new_random)?;

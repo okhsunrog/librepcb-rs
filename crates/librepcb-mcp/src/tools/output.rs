@@ -32,6 +32,7 @@ use crate::views;
 
 /// Arguments of `erc_run`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ErcArgs {
     /// Also list approved (ignored) messages (default false).
     #[serde(default)]
@@ -40,6 +41,7 @@ pub struct ErcArgs {
 
 /// Arguments of `export_fabrication`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExportFabricationArgs {
     /// Board name, index or UUID (default: first board).
     #[serde(default)]
@@ -52,6 +54,7 @@ pub struct ExportFabricationArgs {
 
 /// Arguments of `export_bom`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExportBomArgs {
     /// Board name, index or UUID: BOM of the devices on this board;
     /// default: generic BOM of all components.
@@ -80,6 +83,7 @@ pub enum SideArg {
 
 /// Arguments of `export_pick_place`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExportPickPlaceArgs {
     /// Board name, index or UUID (default: first board).
     #[serde(default)]
@@ -97,6 +101,7 @@ pub struct ExportPickPlaceArgs {
 
 /// Arguments of `export_netlist`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExportNetlistArgs {
     /// Board name, index or UUID (default: first board).
     #[serde(default)]
@@ -119,10 +124,12 @@ pub enum RenderTarget {
 
 /// Arguments of `render`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RenderArgs {
-    /// "schematic" (default) or "board".
+    /// "schematic" or "board" (default: "board" if `board` or `side` is
+    /// given, else "schematic").
     #[serde(default)]
-    pub target: RenderTarget,
+    pub target: Option<RenderTarget>,
     /// Schematic page name, index or UUID (default: first page).
     #[serde(default)]
     pub schematic: Option<String>,
@@ -422,7 +429,14 @@ pub fn render(session: &Session, args: RenderArgs) -> ToolResult<ToolOutput> {
         size: RenderSize::Fit { width, height },
         ..RenderOptions::default()
     };
-    let (png, what) = match args.target {
+    let target = args
+        .target
+        .unwrap_or(if args.board.is_some() || args.side.is_some() {
+            RenderTarget::Board
+        } else {
+            RenderTarget::Schematic
+        });
+    let (png, what) = match target {
         RenderTarget::Schematic => {
             let (index, id, s) = resolve::schematic(p, args.schematic.as_deref())?;
             (
@@ -459,6 +473,7 @@ pub fn render(session: &Session, args: RenderArgs) -> ToolResult<ToolOutput> {
 
 /// Arguments of `drc_run`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DrcArgs {
     /// Board name, index or UUID (default: first board).
     #[serde(default)]
@@ -558,6 +573,7 @@ pub fn drc_run(session: &mut Session, args: DrcArgs) -> ToolResult<ToolOutput> {
 
 /// Arguments of `jobs_run`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct JobsRunArgs {
     /// Names or UUIDs of the output jobs to run (default: all).
     #[serde(default)]

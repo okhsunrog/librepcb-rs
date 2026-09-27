@@ -13,8 +13,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use librepcb_core::geometry::{NetLabel, NetLineAnchor};
 use librepcb_core::project::{
-    ComponentSignalRef, Mutation, NetSegmentId, NetSegmentRef, NetSignalId, Project, SchematicId,
-    SchematicMutation, SymbolId,
+    ComponentInstanceId, ComponentSignalRef, Mutation, NetSegmentId, NetSegmentRef, NetSignalId,
+    Project, SchematicId, SchematicMutation, SymbolId,
 };
 use librepcb_core::types::{
     Angle, CircuitIdentifier, Length, Point, PositiveLength, UnsignedLength, Uuid,
@@ -25,7 +25,10 @@ use super::circuit::{
     add_net, combine_net_signals, default_net_class, remove_unused_nets, set_component_signal_net,
 };
 use super::component::MoveSymbol;
-use super::placement::{Rect, placed_symbol_rect, schematic_obstacles};
+use super::placement::{
+    Rect, is_frame, net_label_direction, net_label_length, net_label_rect, placed_symbol_rect,
+    schematic_obstacles,
+};
 use super::resolve;
 use super::schematic::{
     DEFAULT_STUB_LENGTH, SchematicSelection, WireAnchor, WireMode, draw_wire, forced_net_name,
@@ -97,22 +100,28 @@ fn manhattan(a: Point, b: Point) -> Length {
     (a.x - b.x).abs() + (a.y - b.y).abs()
 }
 
-/// Draws a stub wire from a pin and puts a net label at its end.
+/// Draws a stub wire from a pin and puts a net label at its end (its text
+/// runs back along the stub, like upstream's labels sit on their wire). The
+/// stub is as long as the label and leaves the pin straight or with a short
+/// jog sideways, whichever variant first keeps the label and the wire clear
+/// of symbols, texts, other labels, wires and pins (see
+/// [`label_stub_route()`]).
 fn stub_with_label(
     tx: &mut Transaction<'_>,
     pin: &PlacedPin,
     net: &CircuitIdentifier,
 ) -> Result<()> {
-    let end = pin.stub_end();
+    let (corners, end) = label_stub_route(tx.project(), pin, net.as_str().chars().count())?;
     let wire = draw_wire(
         tx,
         Some(pin.schematic),
         &pin.anchor(),
         &WireAnchor::Point(end),
-        &[],
+        &corners,
         Some(net),
     )?;
-    let (rotation, mirrored) = net_label_orientation(end, pin.position);
+    let before_end = corners.last().copied().unwrap_or(pin.position);
+    let (rotation, mirrored) = net_label_orientation(end, before_end);
     tx.apply(Mutation::Schematic(SchematicMutation::AddNetLabel {
         segment: NetSegmentRef {
             schematic: pin.schematic,
@@ -120,6 +129,147 @@ fn stub_with_label(
         },
         label: NetLabel::new(Uuid::new_random(), end, rotation, mirrored),
     }))
+}
+
+/// Things a new wire or net label must keep clear of on a schematic page.
+struct Clearance {
+    /// Symbols (with texts, frames excluded) and net labels.
+    rects: Vec<Rect>,
+    /// Existing net lines.
+    lines: Vec<(Point, Point)>,
+    /// Symbol pins and junctions.
+    points: Vec<Point>,
+}
+
+impl Clearance {
+    fn new(p: &Project, schematic: SchematicId) -> Result<Self> {
+        let s = p
+            .schematic(schematic)
+            .ok_or_else(|| Error::not_found("Schematic", schematic))?;
+        let mut rects = Vec::new();
+        let mut points = Vec::new();
+        for (id, sym) in s.symbols() {
+            if !is_frame(p, schematic, *id)? {
+                rects.push(placed_symbol_rect(p, schematic, *id, true)?);
+            }
+            points.extend(sym.pins(p.view())?.iter().map(|pin| pin.position()));
+        }
+        let mut lines = Vec::new();
+        for (id, segment) in s.net_segments() {
+            points.extend(segment.junctions().values().map(|j| j.position()));
+            for line in segment.lines().values() {
+                let ends =
+                    [line.p1(), line.p2()].map(|x| s.net_line_anchor_position(*id, x, p.view()));
+                if let [Some(p1), Some(p2)] = ends {
+                    lines.push((p1, p2));
+                }
+            }
+            let chars = p
+                .circuit()
+                .net_signal(segment.net())
+                .map_or(8, |n| n.name().as_str().chars().count());
+            for l in segment.labels().values() {
+                let direction = net_label_direction(l.rotation(), l.mirrored());
+                rects.push(net_label_rect(l.position(), direction, chars));
+            }
+        }
+        Ok(Self {
+            rects,
+            lines,
+            points,
+        })
+    }
+
+    /// Whether a wire along `path` (starting at a pin) and a label of
+    /// `chars` characters at its end, running back along the last segment
+    /// in `direction`, are clear.
+    fn is_clear(&self, path: &[Point], direction: (i64, i64), chars: usize) -> bool {
+        let Some(end) = path.last().copied() else {
+            return false;
+        };
+        let start = path[0];
+        let label = net_label_rect(end, direction, chars);
+        let label_clear = !self.rects.iter().any(|r| r.intersects(&label))
+            && !self.points.iter().any(|x| {
+                label.min.x <= x.x && x.x <= label.max.x && label.min.y <= x.y && x.y <= label.max.y
+            })
+            && !self
+                .lines
+                .iter()
+                .any(|(a, b)| segment_crosses_rect(*a, *b, &label));
+        label_clear
+            && path.windows(2).all(|w| {
+                let (a, b) = (w[0], w[1]);
+                !self.rects.iter().any(|r| segment_crosses_rect(a, b, r))
+                    && !self
+                        .points
+                        .iter()
+                        .any(|x| *x != start && point_on_segment(*x, a, b))
+                    && !self
+                        .lines
+                        .iter()
+                        .any(|l| segments_overlap((a, b), *l) || segments_cross((a, b), *l))
+            })
+    }
+}
+
+/// Whether a horizontal and a vertical segment cross (at a point which is
+/// not an end of both).
+fn segments_cross(a: (Point, Point), b: (Point, Point)) -> bool {
+    let cross = |h: (Point, Point), v: (Point, Point)| {
+        let (hx0, hx1) = (h.0.x.min(h.1.x), h.0.x.max(h.1.x));
+        let (vy0, vy1) = (v.0.y.min(v.1.y), v.0.y.max(v.1.y));
+        let x = v.0.x;
+        let y = h.0.y;
+        hx0 <= x && x <= hx1 && vy0 <= y && y <= vy1 && {
+            let at = Point::new(x, y);
+            !((at == h.0 || at == h.1) && (at == v.0 || at == v.1))
+        }
+    };
+    let horizontal = |s: (Point, Point)| s.0.y == s.1.y && s.0.x != s.1.x;
+    let vertical = |s: (Point, Point)| s.0.x == s.1.x && s.0.y != s.1.y;
+    (horizontal(a) && vertical(b) && cross(a, b)) || (vertical(a) && horizontal(b) && cross(b, a))
+}
+
+/// Returns the corner points and the end of a stub wire with a net label
+/// for `pin` (see [`stub_with_label()`]): the first clear variant of a
+/// straight stub (as long as the label, or 2.54 mm longer), or a stub with
+/// a jog of 2.54 to 7.62 mm to either side; the straight stub if none is
+/// clear.
+fn label_stub_route(p: &Project, pin: &PlacedPin, chars: usize) -> Result<(Vec<Point>, Point)> {
+    let clearance = Clearance::new(p, pin.schematic)?;
+    let out = pin.stub_end();
+    let direction = (
+        (out.x - pin.position.x).to_nm().signum(),
+        (out.y - pin.position.y).to_nm().signum(),
+    );
+    let (dx, dy) = direction;
+    let back = (-dx, -dy);
+    let g = DEFAULT_STUB_LENGTH;
+    // Label length plus some wire, in grid units.
+    let needed = (net_label_length(chars) + Length::new(1_000_000)).to_nm();
+    let label_units = ((needed + g.to_nm() - 1) / g.to_nm()).max(1);
+    let at = |from: Point, (x, y): (i64, i64), n: i64| {
+        Point::new(from.x + g * x * n, from.y + g * y * n)
+    };
+    let perpendicular = (-dy, dx);
+    let mut candidates: Vec<Vec<Point>> = vec![
+        vec![pin.position, at(pin.position, direction, label_units)],
+        vec![pin.position, at(pin.position, direction, label_units + 1)],
+    ];
+    for k in [1, -1, 2, -2, 3, -3] {
+        let c1 = at(pin.position, direction, 1);
+        let c2 = at(c1, perpendicular, k);
+        let end = at(c2, direction, label_units);
+        candidates.push(vec![pin.position, c1, c2, end]);
+    }
+    for path in &candidates {
+        if clearance.is_clear(path, back, chars) {
+            let end = path[path.len() - 1];
+            return Ok((path[1..path.len() - 1].to_vec(), end));
+        }
+    }
+    Ok((Vec::new(), candidates[0][1]))
 }
 
 /// Connects component signals to one net (created if needed, other nets
@@ -157,6 +307,10 @@ pub struct ConnectedNet {
     pub labels: usize,
     /// Nets which were merged into the net.
     pub merged_nets: Vec<String>,
+    /// Unconnected supply symbols (designators) which were attached to the
+    /// net because their forced net name is the net name.
+    #[serde(default)]
+    pub attached_supplies: Vec<String>,
     /// Hints about what could not be done as requested.
     pub warnings: Vec<String>,
 }
@@ -261,6 +415,27 @@ impl Command for ConnectNet {
             .ok_or_else(|| Error::not_found("Net", target))?
             .name()
             .clone();
+
+        // Unconnected supply symbols of this net name (e.g. a "GND" symbol
+        // when connecting net "GND") are attached too; they are moved next
+        // to the nearest pin below.
+        let p = tx.project();
+        let mut supplies: Vec<(String, ComponentSignalRef)> = p
+            .circuit()
+            .component_instances()
+            .keys()
+            .filter_map(|id| {
+                let (signal, name) = supply_signal(p, *id)?;
+                let unconnected = current_net(p, &signal).is_none();
+                (name == net_name && unconnected && !signals.contains(&signal))
+                    .then(|| (resolve::component_name(p, *id), signal))
+            })
+            .collect();
+        supplies.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, signal) in supplies {
+            signals.push(signal);
+            result.attached_supplies.push(name);
+        }
 
         // Placed pins per schematic.
         let mut pages: BTreeMap<SchematicId, Vec<PlacedPin>> = BTreeMap::new();
@@ -520,8 +695,8 @@ fn segments_overlap(a: (Point, Point), b: (Point, Point)) -> bool {
 
 /// Returns the corner points of a clean wire from `a` to `b` (straight or
 /// with one corner, preferring to leave `a` in its pin direction), or
-/// `None` if every variant passes through a symbol body, over another pin
-/// or junction, or along an existing wire.
+/// `None` if every variant passes through a symbol body or text, over
+/// another pin or junction, or along or across an existing wire.
 fn clean_route(
     p: &Project,
     schematic: SchematicId,
@@ -534,7 +709,9 @@ fn clean_route(
     let mut bodies = Vec::new();
     let mut points = Vec::new();
     for (id, sym) in s.symbols() {
-        bodies.push(placed_symbol_rect(p, schematic, *id, false)?);
+        if !is_frame(p, schematic, *id)? {
+            bodies.push(placed_symbol_rect(p, schematic, *id, true)?);
+        }
         for pin in sym.pins(p.view())? {
             points.push(pin.position());
         }
@@ -571,7 +748,9 @@ fn clean_route(
                 && !points
                     .iter()
                     .any(|x| *x != a.position && *x != b.position && point_on_segment(*x, p1, p2))
-                && !lines.iter().any(|l| segments_overlap((p1, p2), *l))
+                && !lines
+                    .iter()
+                    .any(|l| segments_overlap((p1, p2), *l) || segments_cross((p1, p2), *l))
         });
         if clean {
             return Ok(Some(corners));
@@ -580,34 +759,30 @@ fn clean_route(
     Ok(None)
 }
 
-/// Whether a component signal belongs to a supply symbol: a
+/// Returns the signal and forced net name of a supply symbol component: a
 /// schematic-only component with a single signal forcing its net name.
-fn is_supply_pin(p: &Project, pin: &PlacedPin) -> bool {
-    let Some(sym) = p
-        .schematic(pin.schematic)
-        .and_then(|s| s.symbols().get(&pin.symbol))
-    else {
-        return false;
-    };
-    let Some(component) = p.circuit().component_instance(sym.component()) else {
-        return false;
-    };
-    let Some(lib) = p.library().component(&component.lib_component()) else {
-        return false;
-    };
+pub(crate) fn supply_signal(
+    p: &Project,
+    component: ComponentInstanceId,
+) -> Option<(ComponentSignalRef, CircuitIdentifier)> {
+    let instance = p.circuit().component_instance(component)?;
+    let lib = p.library().component(&instance.lib_component())?;
     if !lib.schematic_only() || lib.signals().len() != 1 {
-        return false;
+        return None;
     }
-    lib.signals().iter().next().is_some_and(|signal| {
-        forced_net_name(
-            p,
-            ComponentSignalRef {
-                component: sym.component(),
-                signal: signal.uuid(),
-            },
-        )
-        .is_some()
-    })
+    let signal = ComponentSignalRef {
+        component,
+        signal: lib.signals().iter().next()?.uuid(),
+    };
+    Some((signal, forced_net_name(p, signal)?))
+}
+
+/// Whether a placed pin belongs to a supply symbol (see
+/// [`supply_signal()`]).
+fn is_supply_pin(p: &Project, pin: &PlacedPin) -> bool {
+    p.schematic(pin.schematic)
+        .and_then(|s| s.symbols().get(&pin.symbol))
+        .is_some_and(|sym| supply_signal(p, sym.component()).is_some())
 }
 
 /// Moves unwired supply symbols of `pins` next to the nearest other
@@ -657,7 +832,7 @@ fn snap_supply_symbols(
         let delta = new_position - sym.position();
         let rect = placed_symbol_rect(p, schematic, supply.symbol, true)?.translated(delta);
         let exclude: BTreeSet<SymbolId> = [supply.symbol].into();
-        let free = !schematic_obstacles(p, schematic, &exclude)?
+        let free = !schematic_obstacles(p, schematic, &exclude, false)?
             .iter()
             .any(|o| o.intersects(&rect));
         if !free {

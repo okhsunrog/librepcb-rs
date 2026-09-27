@@ -25,7 +25,9 @@
 //! ```
 //!
 //! Then ask e.g. "open ~/LibrePCB-Workspace/projects/foo/foo.lpp and run
-//! the ERC". Install the official libraries once with the
+//! the ERC". The stroke fonts new projects need are embedded into the
+//! binary (a `share/librepcb` directory in `LIBREPCB_SHARE` or next to the
+//! executable is used instead if present). Install the official libraries once with the
 //! `library_install` tool (`libraries: ["LibrePCB Base"]`), or copy
 //! libraries to `<workspace>/data/libraries/local/` and call
 //! `library_rescan`. For other clients, configure the command
@@ -44,6 +46,9 @@
 //! - Addressing ([`resolve`]): designators (`"R1"`), pins (`"R1.1"` by pad
 //!   name or `"U1.VCC"` by signal name), net names, schematic/board names
 //!   or indices; UUIDs are accepted everywhere.
+//! - Arguments are checked against the tool's input schema: unknown
+//!   arguments (also in nested objects) fail with `invalid_argument`
+//!   naming the key and the valid ones.
 //! - Every result is the envelope `{outcome, revision, result, warnings}`
 //!   as `structuredContent` plus a short text ([`outcome`]); errors have a
 //!   stable kind ([`error::ErrorKind`]).
@@ -66,7 +71,7 @@
 //! `component_get`, `component_add`, `component_remove`,
 //! `component_update`, `symbol_move`, `connect`, `disconnect`,
 //! `net_rename`, `net_class_set`, `net_list`, `netlist`, `schematic_list`,
-//! `schematic_get`, `schematic_add`. Board: `board_get`, `board_add`,
+//! `schematic_get`, `schematic_add`, `schematic_tidy`. Board: `board_get`, `board_add`,
 //! `board_set_outline`, `device_place`, `device_auto_place`, `trace_add`,
 //! `via_add`, `trace_remove`, `plane_add`, `design_rules_set`,
 //! `planes_rebuild`, `unrouted`, `autoroute` (Freerouting if installed,

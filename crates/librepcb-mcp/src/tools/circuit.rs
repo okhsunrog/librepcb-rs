@@ -19,6 +19,7 @@ use crate::views;
 
 /// Arguments of `component_get`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ComponentGetArgs {
     /// Designator (e.g. "R1") or UUID of the component.
     pub component: String,
@@ -26,6 +27,7 @@ pub struct ComponentGetArgs {
 
 /// Arguments of `net_list`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NetListArgs {
     /// Only this net (name or UUID); default all nets.
     #[serde(default)]

@@ -31,6 +31,7 @@ use librepcb_editor::commands::ApplyMutations;
 
 /// Arguments of `mutation_apply`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MutationApplyArgs {
     /// The mutation in the core serde JSON form (externally tagged enum,
     /// e.g. `{"SetComponentSignalNet": {"signal": {"component": "<uuid>",
@@ -43,6 +44,7 @@ pub struct MutationApplyArgs {
 
 /// Arguments of `mutation_schema`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MutationSchemaArgs {
     /// Return the prefilled update mutation of this entity: a designator,
     /// net name, or UUID of a component, net, net class, schematic,

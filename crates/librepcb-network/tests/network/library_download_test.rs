@@ -9,8 +9,9 @@ use std::sync::atomic::AtomicBool;
 use librepcb_core::fileio::{FilePath, TransactionalFileSystem, file_utils};
 use librepcb_core::workspace::{ElementKind, ScanOutcome, SearchQuery, Workspace};
 use librepcb_network::{
-    ApiEndpoint, ClientInfo, Error, LibraryDownload, NetworkAccessManager, Url, fetch_library_list,
-    install_official_libraries, installed_library_dirs, select_libraries,
+    ApiEndpoint, ClientInfo, Error, InstallMethod, LibraryDownload, NetworkAccessManager, Url,
+    fetch_library_list, install_libraries, install_official_libraries, installed_library_dirs,
+    library_git, select_libraries,
 };
 use tokio::sync::Semaphore;
 use wiremock::matchers::path;
@@ -374,4 +375,133 @@ async fn test_install_official_base_library_online() {
         "First resistor device: {} ({})",
         results[0].name, results[0].uuid
     );
+}
+
+fn run_git(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// The git fallback on a local repository (skipped without `git`): the
+/// library replaces the destination atomically, without `.git`, and other
+/// directories of the library are removed.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_clone_library_from_local_git_repository() {
+    if !library_git::git_available().await {
+        eprintln!("git not found, skipping");
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir_all(repo.join("sym")).unwrap();
+    std::fs::write(repo.join(".librepcb-lib"), "1\n").unwrap();
+    std::fs::write(repo.join("library.lp"), "(librepcb_library)\n").unwrap();
+    std::fs::write(repo.join("sym/readme.txt"), "v1\n").unwrap();
+    run_git(&repo, &["init", "-q"]);
+    run_git(&repo, &["add", "."]);
+    let commit_args = [
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.com",
+        "commit",
+        "-q",
+        "-m",
+        "v1",
+    ];
+    run_git(&repo, &commit_args);
+    let v1 = run_git(&repo, &["rev-parse", "HEAD"]);
+    std::fs::write(repo.join("sym/readme.txt"), "v2\n").unwrap();
+    run_git(&repo, &["add", "."]);
+    run_git(&repo, &commit_args);
+    let repo_url = Url::from_directory_path(&repo).unwrap();
+
+    let remote = FilePath::new(tmp.path()).unwrap().path_to("remote");
+    let dest = remote.path_to("lib.lplib");
+    let old = remote.path_to("old copy.lplib");
+    file_utils::make_path(&dest).unwrap();
+    file_utils::make_path(&old).unwrap();
+    std::fs::write(dest.path_to("stale.txt").as_path(), "x").unwrap();
+
+    // Pinned to the first commit.
+    let dir = library_git::clone_library(&repo_url, Some(&v1), &dest, &[old.clone()].into())
+        .await
+        .unwrap();
+    assert_eq!(dir, dest);
+    let read = |p: &str| std::fs::read_to_string(dest.path_to(p).as_path()).unwrap();
+    assert_eq!(read("sym/readme.txt"), "v1\n");
+    assert!(dest.path_to(".librepcb-lib").is_existing_file());
+    assert!(!dest.path_to(".git").is_existing_dir());
+    assert!(!dest.path_to("stale.txt").is_existing_file());
+    assert!(!old.is_existing_dir());
+    assert!(!remote.path_to("lib.lplib.git-tmp").is_existing_dir());
+
+    // Without commit (or with an unknown one): the default branch.
+    let unknown = "0123456789abcdef0123456789abcdef01234567";
+    for commit in [None, Some(unknown)] {
+        library_git::clone_library(&repo_url, commit, &dest, &Default::default())
+            .await
+            .unwrap();
+        assert_eq!(read("sym/readme.txt"), "v2\n");
+    }
+
+    // Not a library: the destination is kept.
+    let not_lib = tmp.path().join("notlib");
+    std::fs::create_dir_all(&not_lib).unwrap();
+    std::fs::write(not_lib.join("x.txt"), "x").unwrap();
+    run_git(&not_lib, &["init", "-q"]);
+    run_git(&not_lib, &["add", "."]);
+    run_git(&not_lib, &commit_args);
+    let err = library_git::clone_library(
+        &Url::from_directory_path(&not_lib).unwrap(),
+        None,
+        &dest,
+        &Default::default(),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, Error::NoLibraryInZip), "{err}");
+    assert_eq!(read("sym/readme.txt"), "v2\n");
+    assert!(!remote.path_to("lib.lplib.git-tmp").is_existing_dir());
+}
+
+/// Installs "LibrePCB Base" with a blocked ZIP download URL, so the git
+/// fallback clones the repository at the commit of the ZIP URL (needs
+/// internet access to api.librepcb.org and github.com, and `git`).
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires internet access to api.librepcb.org and github.com"]
+async fn test_install_official_base_library_with_git_fallback_online() {
+    let nam = online_nam();
+    let libs = fetch_library_list(&nam, &official_endpoint())
+        .await
+        .unwrap();
+    let mut base = select_libraries(&libs, &["LibrePCB Base"], false).unwrap()[0].clone();
+    assert!(base.repository_url.is_some());
+    // Same path (with the commit), unreachable host.
+    let mut blocked = base.download_url.clone().unwrap();
+    blocked.set_host(Some("127.0.0.1")).unwrap();
+    blocked.set_port(Some(9)).unwrap();
+    base.download_url = Some(blocked);
+    let tmp = tempfile::tempdir().unwrap();
+    let remote = FilePath::new(tmp.path()).unwrap().path_to("remote");
+    let installed = install_libraries(&nam, &[&base], &remote, &HashMap::new())
+        .await
+        .unwrap();
+    assert_eq!(installed[0].method, InstallMethod::Git);
+    let dir = &installed[0].directory;
+    assert!(dir.path_to(".librepcb-lib").is_existing_file());
+    assert!(!dir.path_to(".git").is_existing_dir());
+    let pkg_count = std::fs::read_dir(dir.path_to("pkg").as_path())
+        .unwrap()
+        .count();
+    assert!(pkg_count > 500, "{pkg_count}");
 }

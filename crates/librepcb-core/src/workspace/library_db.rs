@@ -1211,6 +1211,148 @@ impl LibraryDb {
         Ok(result)
     }
 
+    /// Finds elements where every whitespace separated token of `keyword`
+    /// occurs (case insensitive) in the element's texts: names, keywords
+    /// and descriptions of all locales, alternative names of packages,
+    /// and for devices also the names of their component and package and
+    /// the MPNs/manufacturers of their parts. No upstream counterpart (the
+    /// upstream [`find()`](Self::find) matches the whole keyword); meant
+    /// for multi-word queries of tools and agents ("resistor 0805").
+    ///
+    /// Returns the UUIDs ranked by the number of tokens found in the
+    /// element's own names (most first), then by name.
+    pub fn find_all_tokens(&self, kind: ElementKind, keyword: &str) -> Result<Vec<Uuid>> {
+        let tokens: Vec<String> = keyword.split_whitespace().map(str::to_lowercase).collect();
+        if tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+        #[derive(Default)]
+        struct Texts {
+            name: String,
+            names: String,
+            other: String,
+        }
+        let mut elements: HashMap<Uuid, Texts> = HashMap::new();
+        let table = kind.table();
+        self.with_db(|db| {
+            // (query, whether column 1 is an own name of the element)
+            let mut queries = vec![(
+                "SELECT %elements.uuid, %elements_tr.name, %elements_tr.keywords, \
+                 %elements_tr.description FROM %elements \
+                 LEFT JOIN %elements_tr ON %elements.id = %elements_tr.element_id",
+                true,
+            )];
+            if kind == ElementKind::Package {
+                queries.push((
+                    "SELECT packages.uuid, packages_alt.name, NULL, NULL FROM packages \
+                     INNER JOIN packages_alt ON packages.id = packages_alt.package_id",
+                    true,
+                ));
+            }
+            if kind == ElementKind::Device {
+                queries.push((
+                    "SELECT devices.uuid, components_tr.name, NULL, NULL FROM devices \
+                     INNER JOIN components ON components.uuid = devices.component_uuid \
+                     INNER JOIN components_tr ON components.id = components_tr.element_id",
+                    false,
+                ));
+                queries.push((
+                    "SELECT devices.uuid, packages_tr.name, NULL, NULL FROM devices \
+                     INNER JOIN packages ON packages.uuid = devices.package_uuid \
+                     INNER JOIN packages_tr ON packages.id = packages_tr.element_id",
+                    false,
+                ));
+                queries.push((
+                    "SELECT devices.uuid, packages_alt.name, NULL, NULL FROM devices \
+                     INNER JOIN packages ON packages.uuid = devices.package_uuid \
+                     INNER JOIN packages_alt ON packages.id = packages_alt.package_id",
+                    false,
+                ));
+                queries.push((
+                    "SELECT devices.uuid, parts.mpn, parts.manufacturer, NULL FROM devices \
+                     INNER JOIN parts ON devices.id = parts.device_id",
+                    false,
+                ));
+            }
+            for (sql, own_name) in queries {
+                let mut query = db.prepare(sql, &[("%elements", table)])?;
+                let rows = query.query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        opt_string(row, 1)?,
+                        opt_string(row, 2)?,
+                        opt_string(row, 3)?,
+                    ))
+                })?;
+                for row in rows {
+                    let (uuid, name, texts1, texts2) = row?;
+                    let texts = elements.entry(parse_uuid(&uuid)?).or_default();
+                    if own_name {
+                        if texts.name.is_empty() {
+                            texts.name = name.clone();
+                        }
+                        texts.names.push('\n');
+                        texts.names.push_str(&name.to_lowercase());
+                    } else {
+                        texts.other.push('\n');
+                        texts.other.push_str(&name.to_lowercase());
+                    }
+                    for t in [texts1, texts2] {
+                        texts.other.push('\n');
+                        texts.other.push_str(&t.to_lowercase());
+                    }
+                }
+            }
+            Ok(())
+        })?;
+        let mut found: Vec<(usize, String, Uuid)> = elements
+            .into_iter()
+            .filter(|(_, t)| {
+                tokens
+                    .iter()
+                    .all(|tok| t.names.contains(tok.as_str()) || t.other.contains(tok.as_str()))
+            })
+            .map(|(uuid, t)| {
+                let in_names = tokens
+                    .iter()
+                    .filter(|tok| t.names.contains(tok.as_str()))
+                    .count();
+                (in_names, t.name, uuid)
+            })
+            .collect();
+        found.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| crate::library::natural_cmp_case_insensitive(&a.1, &b.1))
+                .then_with(|| a.2.cmp(&b.2))
+        });
+        Ok(found.into_iter().map(|(_, _, uuid)| uuid).collect())
+    }
+
+    /// Like [`search()`](Self::search), but matching every whitespace
+    /// separated token of the keyword (see
+    /// [`find_all_tokens()`](Self::find_all_tokens)); results are grouped
+    /// by kind in the order of `query.kinds`, ranked within each kind.
+    pub fn search_all_tokens(&self, query: &SearchQuery) -> Result<Vec<ElementSummary>> {
+        let kinds: &[ElementKind] = if query.kinds.is_empty() {
+            &ElementKind::ELEMENTS
+        } else {
+            &query.kinds
+        };
+        let limit = query.limit.unwrap_or(usize::MAX);
+        let mut result = Vec::new();
+        for &kind in kinds {
+            for uuid in self.find_all_tokens(kind, &query.keyword)? {
+                if result.len() >= limit {
+                    return Ok(result);
+                }
+                if let Some(summary) = self.element_summary(kind, uuid, &query.locale_order)? {
+                    result.push(summary);
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// Returns the category tree of a category kind (component or package
     /// categories): the root categories (including those with an
     /// inexistent parent) with their children, sorted by name. Cycles are

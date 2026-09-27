@@ -57,9 +57,14 @@ impl From<LibKind> for ElementKind {
 
 /// Arguments of `library_search`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LibrarySearchArgs {
     /// Keyword searched in names and keywords of all languages (also in
-    /// part numbers of devices); a UUID matches exactly.
+    /// part numbers of devices); a UUID matches exactly. Whole-string
+    /// matches come first (`match: "whole"`); if there are fewer than
+    /// `limit`, elements containing all words of the query in their name,
+    /// keywords, description or (devices) component/package name follow
+    /// (`match: "all_words"`), e.g. "resistor 0805".
     pub query: String,
     /// Restrict to one kind (default: components, devices, packages and
     /// symbols).
@@ -72,6 +77,7 @@ pub struct LibrarySearchArgs {
 
 /// Arguments of `library_element`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LibraryElementArgs {
     /// UUID of the element.
     pub uuid: String,
@@ -82,10 +88,12 @@ pub struct LibraryElementArgs {
 
 /// Arguments of `library_install`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct LibraryInstallArgs {
     /// Names or UUIDs of the official libraries to install (dependencies
     /// are installed too), e.g. `["LibrePCB Base"]`. Empty: only list the
-    /// available libraries.
+    /// available libraries. If a ZIP download fails (e.g. blocked by a
+    /// proxy), the library repository is cloned with `git` if available.
     #[serde(default)]
     pub libraries: Vec<String>,
 }
@@ -231,6 +239,10 @@ pub fn install_finish(
         );
     }
     let count = rescan(session.workspace()?)?;
+    let names: Vec<String> = installed
+        .iter()
+        .map(|l| format!("{} v{} ({})", l.name, l.version, l.method.as_str()))
+        .collect();
     let installed: Vec<Value> = installed
         .iter()
         .map(|l| {
@@ -239,13 +251,16 @@ pub fn install_finish(
                 "name": l.name,
                 "version": l.version.to_string(),
                 "directory": l.directory.to_native(),
+                // "zip" (download) or "git" (repository clone after a
+                // failed download).
+                "method": l.method.as_str(),
             })
         })
         .collect();
     ToolOutput::new(
         format!(
-            "Installed {} libraries; the index now has {count} elements.",
-            installed.len()
+            "Installed {}; the index now has {count} elements.",
+            names.join(", ")
         ),
         json!({ "installed": installed, "element_count": count }),
     )
@@ -267,14 +282,45 @@ pub fn library_search(session: &Session, args: LibrarySearchArgs) -> ToolResult<
     let mut seen = BTreeSet::new();
     if let Some(ws) = &session.workspace {
         let db = ws.library_db();
-        let query = SearchQuery {
+        let mut query = SearchQuery {
             keyword: args.query.clone(),
             kinds: kinds.clone(),
             include_parts: true,
             locale_order: locale_order(ws),
             limit: Some(limit),
         };
-        for s in db.search(&query)? {
+        // First pass: upstream semantics (the whole string), exact names
+        // first.
+        let mut summaries = db.search(&query)?;
+        let needle = args.query.trim().to_lowercase();
+        summaries.sort_by_key(|s| {
+            let name = s.name.to_lowercase();
+            if name == needle {
+                0
+            } else if name.contains(&needle) {
+                1
+            } else {
+                2
+            }
+        });
+        let mut matches: Vec<(&str, _)> = summaries.into_iter().map(|s| ("whole", s)).collect();
+        // Second pass: all words of a multi-word query ("resistor 0805").
+        if matches.len() < limit {
+            query.limit = None;
+            let whole: HashSet<(ElementKind, Uuid)> =
+                matches.iter().map(|(_, s)| (s.kind, s.uuid)).collect();
+            let more = db.search_all_tokens(&SearchQuery {
+                limit: Some(limit + whole.len()),
+                ..query
+            })?;
+            matches.extend(
+                more.into_iter()
+                    .filter(|s| !whole.contains(&(s.kind, s.uuid)))
+                    .map(|s| ("all_words", s)),
+            );
+            matches.truncate(limit);
+        }
+        for (how, s) in matches {
             seen.insert((s.kind, s.uuid));
             let mut o = json!({
                 "kind": s.kind,
@@ -285,6 +331,7 @@ pub fn library_search(session: &Session, args: LibrarySearchArgs) -> ToolResult<
                 "version": s.version.to_string(),
                 "deprecated": s.deprecated,
                 "source": "workspace",
+                "match": how,
             });
             if let Some(dev) = s.device {
                 o["component"] = element_ref(db, ElementKind::Component, dev.component_uuid, ws);
@@ -297,11 +344,19 @@ pub fn library_search(session: &Session, args: LibrarySearchArgs) -> ToolResult<
     if let Some(open) = &session.project {
         let lib = open.project().library();
         let needle = args.query.trim().to_lowercase();
-        let matches = |uuid: &Uuid, name: &str| {
-            needle.is_empty() || name.to_lowercase().contains(&needle) || uuid.to_string() == needle
+        let tokens: Vec<&str> = needle.split_whitespace().collect();
+        let matches = |uuid: &Uuid, name: &str, description: &str| {
+            let text = format!("{name}\n{description}").to_lowercase();
+            needle.is_empty()
+                || name.to_lowercase().contains(&needle)
+                || tokens.iter().all(|t| text.contains(t))
+                || uuid.to_string() == needle
         };
         let mut push = |kind: ElementKind, uuid: Uuid, name: &str, description: &str| {
-            if results.len() < limit && !seen.contains(&(kind, uuid)) && matches(&uuid, name) {
+            if results.len() < limit
+                && !seen.contains(&(kind, uuid))
+                && matches(&uuid, name, description)
+            {
                 results.push(json!({
                     "kind": kind,
                     "uuid": uuid,
@@ -504,7 +559,12 @@ pub fn library_element(session: &Session, args: LibraryElementArgs) -> ToolResul
                 v["pads"] = json!(
                     p.pads()
                         .iter()
-                        .map(|pad| json!({"uuid": pad.uuid(), "name": pad.name().as_str()}))
+                        .map(|pad| {
+                            let mut o = default_pad_geometry(&p, pad.uuid());
+                            o["uuid"] = json!(pad.uuid());
+                            o["name"] = json!(pad.name().as_str());
+                            o
+                        })
                         .collect::<Vec<_>>()
                 );
                 v["footprints"] = footprints(&p);
@@ -569,6 +629,24 @@ fn symbol_pins(sym: &Symbol) -> Value {
             })
             .collect(),
     )
+}
+
+/// The geometry of a package pad in the default (first) footprint, or an
+/// empty object if the footprint has no such pad.
+fn default_pad_geometry(pkg: &Package, pad_uuid: Uuid) -> Value {
+    pkg.footprints()
+        .iter()
+        .next()
+        .and_then(|fp| {
+            fp.pads()
+                .iter()
+                .find(|fpad| fpad.package_pad_uuid() == Some(pad_uuid))
+        })
+        .map(|fpad| {
+            let pad = fpad.pad();
+            views::pad_geometry(pad, pad.position(), pad.rotation())
+        })
+        .unwrap_or_else(|| json!({}))
 }
 
 fn footprints(pkg: &Package) -> Value {
@@ -737,13 +815,22 @@ fn device_detail(src: &ElementSource<'_>, d: &Device, source: &str) -> ToolResul
                             .map(|s| s.name().as_str().to_owned())
                     })
                 });
-                json!({
-                    "pad": m.pad_uuid(),
-                    "pad_name": pad_name,
-                    "signal": m.signal_uuid(),
-                    "signal_name": signal_name,
-                    "optional": m.is_optional(),
-                })
+                // Geometry of the default footprint (all footprints are
+                // listed under `footprints`).
+                let mut o = package
+                    .as_ref()
+                    .map(|(p, _)| default_pad_geometry(p, m.pad_uuid()))
+                    .unwrap_or_else(|| json!({}));
+                for (key, value) in [
+                    ("pad", json!(m.pad_uuid())),
+                    ("pad_name", json!(pad_name)),
+                    ("signal", json!(m.signal_uuid())),
+                    ("signal_name", json!(signal_name)),
+                    ("optional", json!(m.is_optional())),
+                ] {
+                    o[key] = value;
+                }
+                o
             })
             .collect(),
     );

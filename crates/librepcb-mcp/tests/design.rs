@@ -18,7 +18,7 @@ use librepcb_mcp::tools::output::{self, DrcArgs, ErcArgs, ExportFabricationArgs,
 use librepcb_mcp::tools::project::{self, ProjectCreateArgs, ProjectSaveArgs, WorkspacePathArgs};
 use librepcb_mcp::tools::schematic_edit::{
     self, ComponentAddArgs, ComponentRemoveArgs, ComponentUpdateArgs, ConnectArgs, DisconnectArgs,
-    NetClassSetArgs, NetRenameArgs, SchematicAddArgs, SymbolMoveArgs,
+    NetClassSetArgs, NetRenameArgs, SchematicAddArgs, SchematicTidyArgs, SymbolMoveArgs,
 };
 use librepcb_mcp::tools::write::{self, UndoArgs};
 use librepcb_mcp::units::PointMm;
@@ -206,8 +206,34 @@ fn design_rc_circuit_with_populated_library() {
     assert_eq!(out.result["name"], "VCC");
     assert!(!out.warnings.is_empty());
     connect(&mut session, Some("OUT"), &["R1.2", "C1.1"]);
-    let out = connect(&mut session, None, &["C1.2", "C2.2", &format!("{gnd}.Net")]);
+    // The unconnected GND symbol is attached to net "GND" automatically.
+    let out = connect(&mut session, Some("GND"), &["C1.2", "C2.2"]);
     assert_eq!(out.result["name"], "GND");
+    assert_eq!(
+        out.result["attached_supplies"][0].as_str(),
+        Some(gnd.as_str())
+    );
+    assert!(out.summary.contains(&gnd), "{}", out.summary);
+    // A designator alone addresses the only pin of a supply symbol; other
+    // components need the pin.
+    let out = connect(&mut session, Some("GND"), &[&gnd]);
+    assert_eq!(out.result["name"], "GND");
+    let err = schematic_edit::connect(
+        &mut session,
+        ConnectArgs {
+            net: Some("GND".into()),
+            pins: vec!["R1".into()],
+            max_wire_length: None,
+            expected_revision: None,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::InvalidArgument);
+    assert!(
+        err.message.contains("R1.<") || err.message.contains("signals"),
+        "{}",
+        err.message
+    );
     assert_eq!(net_pins(&session, "OUT"), ["C1.1", "R1.2"]);
     assert_eq!(
         net_pins(&session, "GND"),
@@ -266,6 +292,16 @@ fn design_rc_circuit_with_populated_library() {
         },
     )
     .unwrap();
+    // Tidy the page: nets unchanged, still ERC clean, no overlaps.
+    let netlist_before = circuit::netlist(&session).unwrap().result;
+    let out = schematic_edit::schematic_tidy(&mut session, SchematicTidyArgs::default()).unwrap();
+    assert_eq!(out.result["supplies"], 2, "{}", out.summary);
+    assert_eq!(circuit::netlist(&session).unwrap().result, netlist_before);
+    assert!(!symbols_overlap(&session), "symbols overlap");
+    let erc = output::erc_run(&session, ErcArgs::default()).unwrap();
+    assert_eq!(erc.result["errors"], 0, "{}", erc.summary);
+    assert_eq!(erc.result["warnings"], 0, "{}", erc.summary);
+
     let out = schematic_edit::schematic_add(
         &mut session,
         SchematicAddArgs {
@@ -440,7 +476,7 @@ fn design_rc_circuit_with_populated_library() {
             let png = output::render(
                 &session,
                 output::RenderArgs {
-                    target,
+                    target: Some(target),
                     schematic: None,
                     board: None,
                     side: None,

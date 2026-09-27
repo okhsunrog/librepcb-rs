@@ -1,6 +1,6 @@
 //! Circuit and schematic write tools: `component_add`, `component_remove`,
 //! `component_update`, `symbol_move`, `connect`, `disconnect`,
-//! `net_rename`, `net_class_set`, `schematic_add`.
+//! `net_rename`, `net_class_set`, `schematic_add`, `schematic_tidy`.
 //!
 //! Every tool is one undo group of the editor (see [`write`]) built from
 //! the editor commands; the response re-reads the affected entities.
@@ -17,6 +17,7 @@ use librepcb_core::workspace::{ElementKind, SearchQuery};
 use librepcb_editor::commands::{
     AddComponent, AddNetClass, AddSchematic, AutoPlaceSymbols, ConnectNet, DisconnectSignals,
     EditComponent, EditNet, EditNetClass, MoveSymbol, NetRef, RemoveComponent, SymbolPlacement,
+    TidySchematic,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -33,6 +34,7 @@ use crate::views;
 
 /// Arguments of `component_add`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ComponentAddArgs {
     /// The part: UUID of a library device or component, or a name/keyword
     /// (e.g. "LED 3mm red", "Resistor", "GND") looked up like
@@ -67,6 +69,7 @@ pub struct ComponentAddArgs {
 
 /// Arguments of `component_remove`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ComponentRemoveArgs {
     /// Designator or UUID.
     pub component: String,
@@ -77,6 +80,7 @@ pub struct ComponentRemoveArgs {
 
 /// Arguments of `component_update`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ComponentUpdateArgs {
     /// Designator or UUID.
     pub component: String,
@@ -98,6 +102,7 @@ pub struct ComponentUpdateArgs {
 
 /// Arguments of `symbol_move`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SymbolMoveArgs {
     /// Designator or UUID of the component, or UUID of a symbol.
     pub component: String,
@@ -124,6 +129,7 @@ pub struct SymbolMoveArgs {
 
 /// Arguments of `connect`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ConnectArgs {
     /// Net name (created if it does not exist; nets of the pins are merged
     /// into it). Default: forced name of a supply pin, else the existing
@@ -131,8 +137,10 @@ pub struct ConnectArgs {
     /// force their net name.
     #[serde(default)]
     pub net: Option<String>,
-    /// Pins "R1.1" (pad name) or "U1.VCC" (signal name); supply symbols
-    /// have one pin, e.g. "GND1.1".
+    /// Pins "R1.1" (pad name) or "U1.VCC" (signal name); a designator
+    /// alone ("GND1") for single-pin components like supply symbols.
+    /// Unconnected supply symbols whose net name equals the net (e.g.
+    /// "GND") are attached automatically.
     pub pins: Vec<String>,
     /// Pins on the same page closer than this (mm, Manhattan) are wired
     /// directly, others get a stub wire with a net label (default 25.4; 0:
@@ -146,6 +154,7 @@ pub struct ConnectArgs {
 
 /// Arguments of `disconnect`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DisconnectArgs {
     /// Pins "R1.1" / "U1.VCC" to disconnect from their nets.
     pub pins: Vec<String>,
@@ -156,6 +165,7 @@ pub struct DisconnectArgs {
 
 /// Arguments of `net_rename`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NetRenameArgs {
     /// Current net name or UUID.
     pub net: String,
@@ -171,6 +181,7 @@ pub struct NetRenameArgs {
 
 /// Arguments of `net_class_set`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NetClassSetArgs {
     /// Net class name or UUID (created if no such class exists).
     pub net_class: String,
@@ -191,9 +202,22 @@ pub struct NetClassSetArgs {
 
 /// Arguments of `schematic_add`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SchematicAddArgs {
     /// Name of the page.
     pub name: String,
+    /// Fail with `stale_revision` if the project revision differs.
+    #[serde(default)]
+    pub expected_revision: Option<u64>,
+}
+
+/// Arguments of `schematic_tidy`.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SchematicTidyArgs {
+    /// Schematic page name, index or UUID (default: first page).
+    #[serde(default)]
+    pub schematic: Option<String>,
     /// Fail with `stale_revision` if the project revision differs.
     #[serde(default)]
     pub expected_revision: Option<u64>,
@@ -758,8 +782,9 @@ pub fn connect(session: &mut Session, args: ConnectArgs) -> ToolResult<ToolOutpu
     result["wires"] = json!(r.wires);
     result["labels"] = json!(r.labels);
     result["merged_nets"] = json!(r.merged_nets);
+    result["attached_supplies"] = json!(r.attached_supplies);
     let summary = format!(
-        "Net {}: {} ({} wire(s), {} label(s)){}.",
+        "Net {}: {} ({} wire(s), {} label(s)){}{}.",
         r.name,
         result["pins"]
             .as_array()
@@ -775,6 +800,14 @@ pub fn connect(session: &mut Session, args: ConnectArgs) -> ToolResult<ToolOutpu
             String::new()
         } else {
             format!(", merged {}", r.merged_nets.join(", "))
+        },
+        if r.attached_supplies.is_empty() {
+            String::new()
+        } else {
+            format!(
+                ", attached supply symbol(s) {}",
+                r.attached_supplies.join(", ")
+            )
         }
     );
     Ok(done
@@ -925,4 +958,39 @@ pub fn schematic_add(session: &mut Session, args: SchematicAddArgs) -> ToolResul
         format!("Added schematic page {index} \"{}\".", args.name.trim()),
         json!({ "index": index, "uuid": done.value.0, "name": args.name.trim() }),
     )
+}
+
+/// `schematic_tidy`.
+pub fn schematic_tidy(session: &mut Session, args: SchematicTidyArgs) -> ToolResult<ToolOutput> {
+    let p = session.project()?.project();
+    let (index, id, _) = resolve::schematic(p, args.schematic.as_deref())?;
+    let done = write(
+        session,
+        "schematic_tidy",
+        args.expected_revision,
+        |editor| {
+            Ok(editor.execute(TidySchematic {
+                schematic: Some(id),
+            })?)
+        },
+    )?;
+    let open = session.project()?;
+    let r = &done.value;
+    done.output(
+        open,
+        format!(
+            "Re-arranged schematic page {index}: {} symbol(s) by connectivity, {} supply \
+             symbol(s); {} net(s) drawn with {} wire(s) and {} label(s).",
+            r.placed, r.supplies, r.nets, r.wires, r.labels
+        ),
+        json!({
+            "index": index,
+            "placed": r.placed,
+            "supplies": r.supplies,
+            "nets": r.nets,
+            "wires": r.wires,
+            "labels": r.labels,
+        }),
+    )
+    .map(|out| out.warnings(r.warnings.clone()))
 }

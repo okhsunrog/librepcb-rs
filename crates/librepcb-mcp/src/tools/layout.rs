@@ -20,6 +20,7 @@ use crate::views;
 
 /// Arguments of `schematic_get`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SchematicGetArgs {
     /// Schematic page name, index ("0") or UUID (default: first page).
     #[serde(default)]
@@ -28,6 +29,7 @@ pub struct SchematicGetArgs {
 
 /// Arguments of `board_get`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BoardGetArgs {
     /// Board name, index ("0") or UUID (default: first board).
     #[serde(default)]

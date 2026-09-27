@@ -11,17 +11,13 @@ use rmcp::service::{RoleClient, RunningService};
 use rmcp::transport::TokioChildProcess;
 use serde_json::{Value, json};
 
-async fn call(
-    client: &RunningService<RoleClient, ()>,
-    tool: &'static str,
-    args: Value,
-) -> CallToolResult {
+async fn call(client: &RunningService<RoleClient, ()>, tool: &str, args: Value) -> CallToolResult {
     let args = match args {
         Value::Object(map) => map,
         _ => serde_json::Map::new(),
     };
     client
-        .call_tool(CallToolRequestParams::new(tool).with_arguments(args))
+        .call_tool(CallToolRequestParams::new(tool.to_owned()).with_arguments(args))
         .await
         .unwrap_or_else(|e| panic!("{tool}: {e}"))
 }
@@ -111,6 +107,7 @@ async fn stdio_end_to_end() {
         "autoroute",
         "drc_run",
         "jobs_run",
+        "schematic_tidy",
     ] {
         assert!(
             names.contains(&expected),
@@ -460,4 +457,77 @@ async fn stdio_design_led_board_with_official_libraries() {
         }
         None => eprintln!("librepcb-cli not found, skipping the upstream check"),
     }
+}
+
+/// Unknown arguments are rejected on every tool with `invalid_argument`
+/// (naming the key and the valid ones) before anything runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn stdio_unknown_arguments_are_rejected() {
+    let tmp = tempfile::tempdir().unwrap();
+    let ws = tmp.path().join("ws");
+    let mut cmd = tokio::process::Command::new(env!("CARGO_BIN_EXE_librepcb-mcp"));
+    cmd.arg("--workspace").arg(&ws);
+    let client = ().serve(TokioChildProcess::new(cmd).unwrap()).await.unwrap();
+
+    let tools = client.list_all_tools().await.unwrap();
+    assert!(tools.len() > 40);
+    for tool in &tools {
+        let res = call(&client, &tool.name, json!({ "bogus_argument": 1 })).await;
+        assert_eq!(res.is_error, Some(true), "{}", tool.name);
+        let envelope = res.structured_content.unwrap();
+        assert_eq!(
+            envelope["error"]["kind"], "invalid_argument",
+            "{}: {envelope:#}",
+            tool.name
+        );
+        let message = envelope["error"]["message"].as_str().unwrap();
+        assert!(message.contains("\"bogus_argument\""), "{message}");
+        assert!(message.contains("valid arguments:"), "{message}");
+        let props = tool
+            .input_schema
+            .get("properties")
+            .and_then(|p| p.as_object());
+        for key in props.into_iter().flat_map(|p| p.keys()) {
+            assert!(message.contains(key.as_str()), "{}: {message}", tool.name);
+        }
+    }
+
+    // The case from practice: `path` instead of `directory`.
+    let res = call(
+        &client,
+        "project_create",
+        json!({ "name": "X", "path": tmp.path().join("x").to_string_lossy() }),
+    )
+    .await;
+    let envelope = res.structured_content.unwrap();
+    assert_eq!(envelope["error"]["kind"], "invalid_argument");
+    let message = envelope["error"]["message"].as_str().unwrap();
+    assert!(
+        message.contains("\"path\"") && message.contains("directory"),
+        "{message}"
+    );
+    assert!(!tmp.path().join("x").exists());
+
+    // Unknown keys of nested objects and wrong types are tool errors too.
+    let res = call(
+        &client,
+        "board_set_outline",
+        json!({ "width": 10, "height": 10, "origin": { "x": 0, "y": 0, "z": 1 } }),
+    )
+    .await;
+    let envelope = res.structured_content.unwrap();
+    assert_eq!(
+        envelope["error"]["kind"], "invalid_argument",
+        "{envelope:#}"
+    );
+    let message = envelope["error"]["message"].as_str().unwrap();
+    assert!(message.contains("`z`"), "{message}");
+    let res = call(&client, "library_search", json!({ "query": 5 })).await;
+    let envelope = res.structured_content.unwrap();
+    assert_eq!(
+        envelope["error"]["kind"], "invalid_argument",
+        "{envelope:#}"
+    );
+
+    client.cancel().await.unwrap();
 }

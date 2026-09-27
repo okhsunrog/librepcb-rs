@@ -95,25 +95,18 @@ pub struct Session {
     /// The open project, if any.
     pub project: Option<OpenProject>,
     /// Directory with the application resources (`fontobene/*.bene`), used
-    /// for the stroke fonts of new projects.
+    /// for the stroke fonts of new projects; `None`: the fonts embedded
+    /// into the binary are used (see [`librepcb_scene::resources`]).
     pub resources_dir: Option<FilePath>,
 }
 
 impl Session {
     /// Creates an empty session; the resources directory is taken from the
-    /// environment variable `LIBREPCB_SHARE` or the upstream checkout the
-    /// crate was built against (`$LIBREPCB_UPSTREAM_DIR/share/librepcb`),
-    /// if it exists.
+    /// environment variable `LIBREPCB_SHARE` or `../share/librepcb` next to
+    /// the executable, if it exists (else the embedded resources are used,
+    /// see [`librepcb_scene::resources`]).
     pub fn new() -> Self {
-        let candidates = [
-            std::env::var("LIBREPCB_SHARE").ok(),
-            Some(format!("{}/share/librepcb", env!("LIBREPCB_UPSTREAM_DIR"))),
-        ];
-        let resources_dir = candidates
-            .into_iter()
-            .flatten()
-            .filter_map(|p| FilePath::new(std::path::absolute(p).ok()?))
-            .find(|p| p.path_to("fontobene").is_existing_dir());
+        let resources_dir = librepcb_scene::resources::resources_dir().and_then(FilePath::new);
         Self {
             workspace: None,
             project: None,
