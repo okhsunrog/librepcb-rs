@@ -510,7 +510,7 @@ fn jobs_run_writes_the_output_job_files() {
     )
     .unwrap();
     let out_dir = tmp.path().join("jobs");
-    // Graphics and interactive BOM jobs are not ported yet: skipped.
+    // 3D (STEP) jobs are not supported yet: skipped.
     let jobs = output::jobs_run(
         &mut session,
         JobsRunArgs {

@@ -48,7 +48,7 @@ application is next.
 | ERC, DRC | done, messages identical to upstream on all test projects |
 | Plane fragments, Gerber/Excellon, pick & place, IPC-D-356A, BOM, JSON exports | done, byte-identical to upstream |
 | Graphics export (PDF/SVG/PNG), output jobs | done (graphics not byte-identical to Qt) |
-| `librepcb-cli` | done: upstream `tests/cli` passes except `--version` and the interactive HTML BOM |
+| `librepcb-cli` | done: upstream `tests/cli` passes except `--version` (STEP cases skipped) |
 | Workspace, library index, library download | done |
 | Editing commands with undo, autorouting (built-in router, Freerouting via Specctra DSN/SES) | done |
 | MCP server | working: agents design schematics and boards end to end |
