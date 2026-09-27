@@ -59,19 +59,9 @@ pub enum Error {
         /// The element directory.
         path: Option<FilePath>,
     },
-    /// The element has an older file format, which would need to be
-    /// upgraded by the (not yet ported) file format migrations.
-    #[error(
-        "File format {version} is not supported yet (migrations to the current file \
-         format are not implemented): '{}'",
-        native(.path)
-    )]
-    MigrationRequired {
-        /// File format version of the element.
-        version: Version,
-        /// The element directory.
-        path: Option<FilePath>,
-    },
+    /// Upgrading the element from an older file format failed.
+    #[error(transparent)]
+    Migration(#[from] crate::serialization::MigrationError),
     /// A library directory does not have the suffix `.lplib`.
     #[error(
         "The library directory does not have the suffix '.lplib':\n\n{}",

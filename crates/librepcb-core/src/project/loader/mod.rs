@@ -8,19 +8,21 @@
 //! the change journal is cleared afterwards.
 //!
 //! Differences to upstream:
-//! - Projects in an older file format are rejected with
-//!   [`Error::MigrationRequired`] until the file format migrations are
-//!   ported (their single call site is marked below); the migration log
-//!   (`logs/*_migration_to_v*.html`) and the ERC approval cleanup after a
-//!   migration are therefore not ported yet.
+//! - The ERC approval cleanup after a file format migration is not ported
+//!   yet (needs the ERC), so obsolete approvals are kept.
 //! - `mAutoAssignDeviceModels` belongs to the board loading
 //!   (TODO(wave3b/board)).
 
 mod board;
 mod circuit;
+mod migration_log;
 mod schematic;
 
 use std::collections::BTreeSet;
+
+use chrono::Local;
+
+pub use migration_log::MigrationLog;
 
 use super::Project;
 use super::error::{Error, Result};
@@ -30,11 +32,15 @@ use crate::application;
 use crate::attribute::AttributeList;
 use crate::fileio::{FilePath, FileSystem, TransactionalDirectory, VersionFile};
 use crate::library::LibraryBaseElement;
-use crate::serialization::{DeserializeObject, Mode, SExpression};
+use crate::serialization::{DeserializeObject, Mode, SExpression, file_format_migrations};
+use crate::types::Version;
 
 /// Loads projects, see the module documentation.
 #[derive(Debug, Default)]
-pub struct ProjectLoader {}
+pub struct ProjectLoader {
+    application_version: String,
+    migration_log: Option<MigrationLog>,
+}
 
 impl ProjectLoader {
     /// Creates a loader with default options.
@@ -42,8 +48,27 @@ impl ProjectLoader {
         Self::default()
     }
 
+    /// Sets the application version shown in the migration log (upstream
+    /// `Application::getVersion()`; empty by default).
+    pub fn set_application_version(&mut self, version: impl Into<String>) {
+        self.application_version = version.into();
+    }
+
+    /// Returns the log of the file format migration performed by the last
+    /// [`open()`](Self::open), or `None` if the project was already in the
+    /// current file format.
+    pub fn migration_log(&self) -> Option<&MigrationLog> {
+        self.migration_log.as_ref()
+    }
+
     /// Opens the project `file_name` (`*.lpp`) in `directory`.
-    pub fn open(&self, directory: TransactionalDirectory, file_name: &str) -> Result<Project> {
+    ///
+    /// Projects in an older file format are upgraded (in the transactional
+    /// file system, i.e. not on disk yet) and saved into `directory`,
+    /// including a migration log in `logs/` (see
+    /// [`migration_log()`](Self::migration_log)).
+    pub fn open(&mut self, directory: TransactionalDirectory, file_name: &str) -> Result<Project> {
+        self.migration_log = None;
         let file_path = || {
             directory
                 .abs_path(file_name)
@@ -66,16 +91,8 @@ impl ProjectLoader {
                 path: file_path(),
             });
         }
-        if file_format < current {
-            // TODO(wave3b/migrations): run `FileFormatMigration`s on
-            // `directory` here (upgrading from `file_format` to `current`),
-            // write the migration log, and after loading run the ERC to
-            // drop obsolete approvals and save the project.
-            return Err(Error::MigrationRequired {
-                version: file_format,
-                path: file_path(),
-            });
-        }
+        let mut directory = directory;
+        self.migration_log = self.upgrade_file_format(&mut directory, file_name, file_format)?;
         let mut p = Project::new(directory, file_name, crate::types::Uuid::new_random())?;
         load_metadata(&mut p)?;
         load_settings(&mut p)?;
@@ -87,9 +104,62 @@ impl ProjectLoader {
         board::load_boards(&mut p)?;
         load_project_user_settings(&p);
         p.refs = RefIndex::build(&p);
+
+        if self.migration_log.is_some() {
+            // TODO(erc): upstream runs the ERC here and keeps only the ERC
+            // approvals of messages which still occur, to clean up obsolete
+            // approvals (needs the port of `ElectricalRuleCheck`).
+
+            // Make sure the files are formatted correctly. Also handle
+            // possible errors during serialization now instead of later.
+            p.save()?;
+        }
         p.journal.reset();
         log::debug!("Successfully opened project.");
         Ok(p)
+    }
+
+    /// Runs the file format migrations needed to upgrade the project in
+    /// `directory` from `file_format` to the current file format, and
+    /// writes the migration log. Returns the log, or `None` if no migration
+    /// was needed.
+    fn upgrade_file_format(
+        &self,
+        directory: &mut TransactionalDirectory,
+        file_name: &str,
+        file_format: Version,
+    ) -> Result<Option<MigrationLog>> {
+        let mut migration_log: Option<MigrationLog> = None;
+        for migration in file_format_migrations(&file_format) {
+            let log = migration_log.get_or_insert_with(|| MigrationLog {
+                project_name: file_name.to_owned(),
+                date_time: Local::now(),
+                from_version: file_format.clone(),
+                to_version: application::file_format_version(),
+                messages: Vec::new(),
+            });
+            log::info!(
+                "Project file format is outdated, upgrading from v{} to v{}...",
+                migration.from_version(),
+                migration.to_version()
+            );
+            migration.upgrade_project(directory, &mut log.messages)?;
+        }
+
+        // Sort & save migration messages.
+        if let Some(log) = &mut migration_log {
+            // Make sure to delete the temporary migration log (may not even
+            // exist *now*, but may exist at the time the project gets saved).
+            directory.remove_file(&log.relative_file_path(true))?;
+            // Save final migration log to file system, which gets saved to
+            // disk as soon as the project gets saved.
+            log.sort_messages();
+            directory.write(
+                &log.relative_file_path(false),
+                log.to_html(false, &self.application_version).as_bytes(),
+            )?;
+        }
+        Ok(migration_log)
     }
 }
 

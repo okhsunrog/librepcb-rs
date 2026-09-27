@@ -17,7 +17,7 @@ use librepcb_core::types::{
     SimpleString, UnsignedLength, UnsignedLimitedRatio, Uuid,
 };
 
-use crate::library::{assert_migration_required, assert_open_save_reopen};
+use crate::library::assert_upgrade_v01;
 
 const UUID: &str = "da9e3bd5-7c56-4d6c-987c-603220599356";
 
@@ -81,11 +81,7 @@ fn footprint(pads: Vec<FootprintPad>) -> Footprint {
 
 #[test]
 fn test_upgrade_v01() {
-    assert_migration_required::<Package>(&format!("libraries/v0.1.lplib/pkg/{UUID}"), UUID);
-    assert_open_save_reopen::<Package>(
-        &format!("libraries/Populated Library.lplib/pkg/{UUID}"),
-        UUID,
-    );
+    assert_upgrade_v01::<Package>(&format!("libraries/v0.1.lplib/pkg/{UUID}"), UUID);
 }
 
 #[test]

@@ -5,8 +5,8 @@
 //! (`TransactionalFileSystem::check_for_modifications()`); the only files
 //! which may differ are the `settings.user.lp` files, which the test data
 //! does not contain (upstream creates them on save too). Projects in an
-//! older file format are skipped, they need the (not yet ported) file
-//! format migrations and must be rejected by `open()`.
+//! older file format must be upgraded by `open()`; the upgraded files are
+//! compared with upstream's in `file_format_migration.rs`.
 //!
 //! TODO(wave3b): schematic and board files are currently written back
 //! verbatim by the placeholder item types; once the items are ported, they
@@ -19,14 +19,14 @@ use librepcb_core::application::file_format_version;
 use librepcb_core::fileio::{
     FilePath, FileSystem, TransactionalDirectory, TransactionalFileSystem,
 };
-use librepcb_core::project::{Error, Project};
+use librepcb_core::project::ProjectLoader;
 
 fn projects_dir() -> PathBuf {
     Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data/projects")
 }
 
 /// Returns `Ok(true)` if the project was checked, `Ok(false)` if it has an
-/// older file format.
+/// older file format (and was upgraded).
 fn roundtrip(dir: &Path) -> Result<bool, String> {
     let version = std::fs::read(dir.join(".librepcb-project")).map_err(|e| e.to_string())?;
     let is_current =
@@ -40,13 +40,21 @@ fn roundtrip(dir: &Path) -> Result<bool, String> {
     let fs = TransactionalFileSystem::open_ro(&FilePath::new(dir).unwrap())
         .map_err(|e| e.to_string())?;
     let directory = TransactionalDirectory::new(Arc::new(fs), "");
-    let mut project = match Project::open(directory, &lpp) {
-        Ok(project) => project,
-        Err(Error::MigrationRequired { .. }) if !is_current => return Ok(false),
-        Err(e) => return Err(format!("failed to open: {e}")),
-    };
+    let mut loader = ProjectLoader::new();
+    let mut project = loader
+        .open(directory, &lpp)
+        .map_err(|e| format!("failed to open: {e}"))?;
+    if loader.migration_log().is_some() == is_current {
+        return Err(format!(
+            "file format migration expected: {}, performed: {}",
+            !is_current,
+            loader.migration_log().is_some()
+        ));
+    }
     if !is_current {
-        return Err("opened a project in an old file format".into());
+        // Upgraded, compared with upstream in `file_format_migration.rs`.
+        assert!(project.is_ref_index_consistent());
+        return Ok(false);
     }
     assert!(project.is_ref_index_consistent());
     project.save().map_err(|e| e.to_string())?;
@@ -87,17 +95,17 @@ fn project_roundtrip_test_data() {
         .collect();
     dirs.sort();
 
-    let (mut checked, mut skipped) = (Vec::new(), Vec::new());
+    let (mut checked, mut upgraded) = (Vec::new(), Vec::new());
     let mut failures = Vec::new();
     for dir in &dirs {
         let name = dir.file_name().unwrap().to_string_lossy().into_owned();
         match roundtrip(dir) {
             Ok(true) => checked.push(name),
-            Ok(false) => skipped.push(name),
+            Ok(false) => upgraded.push(name),
             Err(e) => failures.push(format!("{name}: {e}")),
         }
     }
-    println!("checked projects: {checked:?}, skipped (old format): {skipped:?}");
+    println!("checked projects: {checked:?}, upgraded (old format): {upgraded:?}");
     assert!(
         failures.is_empty(),
         "{} failures:\n{}",

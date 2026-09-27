@@ -7,15 +7,14 @@ use librepcb_core::library::org::Organization;
 use librepcb_core::library::sym::Symbol;
 use librepcb_core::library::{Library, LibraryBaseElement};
 
-use super::{assert_migration_required, assert_open_save_reopen, data_path, open_dir};
+use super::{assert_upgrade_v01, data_path, open_dir};
 
 // The whitespaces in the path are there to make the test even stronger ;)
 const DEST_NAME: &str = "test dir.lplib";
 
 #[test]
 fn test_upgrade_v01() {
-    assert_migration_required::<Library>("libraries/v0.1.lplib", DEST_NAME);
-    assert_open_save_reopen::<Library>("libraries/Populated Library.lplib", DEST_NAME);
+    assert_upgrade_v01::<Library>("libraries/v0.1.lplib", DEST_NAME);
 }
 
 #[test]

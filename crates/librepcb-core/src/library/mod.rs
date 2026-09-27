@@ -33,8 +33,6 @@
 //!
 //! # Not ported
 //!
-//! - File format migrations (elements in older file formats are rejected
-//!   with [`Error::MigrationRequired`]).
 //! - Change signals (`onEdited`, Qt signals), see the `// upstream: emits`
 //!   notes.
 //! - UI helpers (`getIconAsPixmap()`, `SymbolPainter`, ...).

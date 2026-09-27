@@ -527,8 +527,9 @@ state (`Board::derived`, the verbatim `raw` files) is skipped.
 - `project/jobs.lp` is kept as a raw `SExpression` until `core/job` is
   ported; `Project::create()` does not copy the application's fontobene
   fonts yet (no resources directory port).
-- Projects in an older file format are rejected with
-  `Error::MigrationRequired` until the migrations agent lands.
+- Projects in an older file format are upgraded by the file format
+  migrations (`serialization::file_format_migrations()`), but the ERC
+  approval cleanup after a migration waits for the ERC port.
 - `Project::create()`/`open()` reset the journal, so a fresh project has
   revision 0; `created` is truncated to seconds (the file format's
   precision).

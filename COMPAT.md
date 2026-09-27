@@ -62,6 +62,33 @@ stated otherwise. Entries are grouped by module.
   `str::parse::<usize>()` (no surrounding whitespace). Paths are given by
   code, not by files.
 
+### File format migrations
+
+- **v0.1 board outline circles** (layer `brd_outlines`, in boards or
+  footprints) are located by their `position` child. Upstream reads the
+  first two children of the circle node as coordinates, which fails
+  ("Invalid fixed point number string"), so such files cannot be upgraded
+  by upstream at all; here they are upgraded as upstream intended.
+- **Several devices of one v0.1 component instance** (different devices of
+  the same component in several boards) become assembly options in UUID
+  order; upstream iterates a `QSet` (hash order, not deterministic across
+  runs), so the order of the `device` nodes in `circuit.lp` can differ.
+- **Board outlines of equal length** keep their file order when sorted by
+  length (stable sort; upstream `std::sort` is unstable), which decides
+  which of several equally long v0.1 outlines stays the board outline.
+- **Version strings of v0.1 projects** (upstream `toFileProofName()`) are
+  decomposed with the `unicode-normalization` crate instead of
+  `QString::normalized()`; results only differ where the Unicode versions
+  differ.
+- **ERC approvals after a project migration** are not cleaned up yet
+  (upstream runs the ERC and keeps only approvals of messages which still
+  occur); obsolete approvals stay in `circuit/erc.lp` until the ERC is
+  ported.
+- **Migration log**: the application version in the footer is passed in by
+  the application (`ProjectLoader::set_application_version()`, empty by
+  default); dates are formatted with `chrono` like Qt's
+  `QDate::toString()`/`QTime::toString()` (English names).
+
 ## attribute
 
 - **Numeric attribute values** (`AttributeType::is_value_valid()`): checked
