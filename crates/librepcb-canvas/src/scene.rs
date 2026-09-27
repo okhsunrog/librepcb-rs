@@ -445,27 +445,16 @@ impl Scene {
         id
     }
 
-    /// Adds many items; faster than [`insert`](Self::insert) in a loop
-    /// because the spatial index is bulk-loaded.
+    /// Adds many items.
+    ///
+    /// The spatial index is not bulk-loaded: rstar 0.13.0
+    /// `RTree::bulk_load()` builds trees which panic ("This is a bug in
+    /// rstar.") on later insertions after removals, i.e. on item updates.
     pub fn extend(&mut self, items: impl IntoIterator<Item = Item>) -> Vec<ItemId> {
         self.bump();
         let ids: Vec<ItemId> = items.into_iter().map(|i| self.insert_entry(i)).collect();
-        if ids.len() > self.index.size() {
-            // Rebuild the whole index at once.
-            let entries: Vec<IndexEntry> = self
-                .items
-                .iter_mut()
-                .filter(|(_, e)| !e.item.geometry.is_empty())
-                .map(|(id, e)| {
-                    e.indexed = true;
-                    index_entry(e.bbox, id)
-                })
-                .collect();
-            self.index = RTree::bulk_load(entries);
-        } else {
-            for id in &ids {
-                self.index_item(*id);
-            }
+        for id in &ids {
+            self.index_item(*id);
         }
         ids
     }

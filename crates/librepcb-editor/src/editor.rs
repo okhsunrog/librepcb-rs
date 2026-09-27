@@ -268,6 +268,14 @@ impl ProjectEditor {
         self.undo_stack.rollback_active_to(&mut self.project, len);
     }
 
+    /// Rebuilds the air wires of the nets scheduled for rebuild on a board
+    /// (upstream `Board::triggerAirWiresRebuild()`), also while a group is
+    /// active (air wires are derived data: not recorded, rebuilt again
+    /// after an abort or undo since the mutations schedule their nets).
+    pub fn rebuild_air_wires(&mut self, board: librepcb_core::project::BoardId) -> Result<()> {
+        Ok(self.project.rebuild_air_wires(board)?)
+    }
+
     /// Undoes the last group; returns `false` if there was nothing to undo.
     pub fn undo(&mut self) -> Result<bool> {
         self.undo_stack.undo(&mut self.project)

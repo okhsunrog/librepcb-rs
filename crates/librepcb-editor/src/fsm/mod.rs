@@ -26,6 +26,7 @@
 //! application polls after each call. Dialogs are not opened by the FSM;
 //! it reports requests instead (see the per-editor request types).
 
+pub mod board;
 pub mod measure;
 pub mod schematic;
 

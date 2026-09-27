@@ -283,3 +283,48 @@ fn test_dashed_stroke_style_is_own_group() {
     ));
     assert_eq!(s.group_count(), 2);
 }
+
+/// Updating items of a scene built with `extend()` must not corrupt the
+/// spatial index (rstar 0.13.0 `bulk_load()` builds trees which panic
+/// with "This is a bug in rstar." on later insertions).
+#[test]
+fn test_update_after_extend() {
+    fn rect(seed: &mut u64, id: usize) -> Item {
+        let mut next = || {
+            *seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((*seed >> 33) % 4000) as f64 / 100.0
+        };
+        let (x, y) = (next(), next());
+        let (w, h) = (
+            next() / 10.0,
+            if id.is_multiple_of(3) {
+                0.0
+            } else {
+                next() / 10.0
+            },
+        );
+        Item::new(
+            GREEN,
+            Rect::new(x, y, x + w, y + h).to_path(0.1),
+            Style::stroke(0.0),
+        )
+    }
+    for n in [100, 443, 1000] {
+        for s in 0..5u64 {
+            let mut seed = s * 7919 + n as u64;
+            let mut scene = scene();
+            let items: Vec<Item> = (0..n).map(|i| rect(&mut seed, i)).collect();
+            let ids = scene.extend(items);
+            for round in 0..3 {
+                for (i, id) in ids.iter().enumerate() {
+                    if (i + round) % 3 != 0 {
+                        assert!(scene.update(*id, rect(&mut seed, i)));
+                    }
+                }
+            }
+            assert_eq!(scene.len(), n);
+        }
+    }
+}
