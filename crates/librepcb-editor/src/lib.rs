@@ -29,6 +29,10 @@
 //! [`FreeroutingRouter`] routes boards with the external FreeRouting
 //! autorouter (Specctra DSN export, session import).
 //!
+//! [`fsm`] holds the UI-toolkit independent editor state machines of the
+//! schematic and board editors (tools, selection, live previews in undo
+//! groups, clipboard).
+//!
 //! Differences to upstream: commands are data instead of `UndoCommand`
 //! objects holding pointers; there are no Qt signals (the project's change
 //! journal reports changes, the stack has a [`UndoStack::state_id()`]);
@@ -39,6 +43,7 @@ pub mod commands;
 mod editor;
 mod error;
 mod freerouting;
+pub mod fsm;
 mod library_source;
 mod open_project;
 mod undo_stack;

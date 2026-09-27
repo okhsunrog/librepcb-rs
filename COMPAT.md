@@ -749,6 +749,68 @@ Rendering only; no file is affected.
   unless placed individually, and the default device of `AddDevice` is the
   first device of the component's assembly options.
 
+### Schematic editor FSM (`fsm::schematic`)
+
+- **Undo steps:** a drag (and a paste) is one undo group including the
+  simplification of the modified net segments; upstream executes the
+  simplification as a separate undo command. Drawing a wire is one group
+  per clicked segment plus a simplification group when finishing, like
+  upstream.
+- **Live previews** are mutations in the open undo group, replaced on
+  every pointer move; upstream modifies the objects without undo and
+  records the command at the end. While a tool keeps a group open, other
+  commands (e.g. from the embedded MCP server) join that group.
+- **Clipboard:** the format is upstream's (`schematic.lp` in a ZIP under
+  `application/x-librepcb-clipboard.schematic; version=<app version>`),
+  but buses and bus segments are not copied (lines attached to bus
+  junctions end at new junctions), and images are copied but not pasted.
+  Pasting symbol clipboard data (from the symbol editor) is not supported.
+- **Hit testing:** junctions are tested on the model with upstream's
+  1.2 mm grab square; symbol texts are part of their symbol (not
+  selectable on their own); items of equal priority keep the item order
+  (upstream: `QMultiMap` insertion order).
+- Not ported yet: buses (drawing, labels, net selection menu), adding and
+  resizing images, moving polygon vertices, cross-probing, the tool bar's
+  value attribute and unit, the "find" feature. The info box shows name,
+  value, net, net class, signal and pin (no MPN, pad numbers or forced net
+  mismatch).
+
+### Board editor FSM (`fsm::board`)
+
+- **Live previews** are mutations in the open undo group, replaced on
+  every change (dragging, trace positioning, placing vias, devices,
+  texts and holes, drawing polygons, planes and zones); upstream modifies
+  the objects without undo and records the edit commands at the end. The
+  resulting undo steps are upstream's ("Drag Board Elements", one "Draw
+  Board Trace" group per clicked segment, one "Draw board polygon/plane/
+  zone" group per vertex, ...). Air wires are rebuilt during previews.
+- **Draw trace:** net segments are combined keeping the element UUIDs
+  (upstream creates new segments); a pad without traces is attached to the
+  current segment directly (upstream first creates a segment for it).
+  `CmdSimplifyBoardNetSegments` is not ported: finishing or removing
+  traces does not merge collinear traces or remove redundant junctions.
+- **Hit testing:** grab areas are the scene items of `librepcb-scene`
+  (device grab area: its footprint graphics); junctions are tested on the
+  model with a circle of the widest trace at them (upstream
+  `BGI_NetPoint`). Items of equal priority are ordered by item reference
+  (upstream: `QMultiMap` insertion order).
+- **Selection:** held by the FSM; selecting a device selects its texts
+  (like upstream). The rubber band selects junctions whose position is in
+  the rectangle (upstream: whose circle touches it).
+- **Clipboard:** upstream's format (`board.lp` plus `dev/`, `pkg/` in a
+  ZIP under `application/x-librepcb-clipboard.board; version=<app
+  version>`). Pasting footprint clipboard data (from the package editor)
+  and DXF import are not supported. Like upstream, a pasted net whose name
+  does not exist becomes a new net with an automatic name.
+- **Plane tool:** the automatic outline uses the vertices of the board
+  outline polygons (upstream `Board::calculateBoundingRect()`).
+- Not ported yet: the add-pad tools (standalone THT/SMT pads), the "change
+  device" context menu (needs the workspace library database; changing the
+  footprint and 3D model is supported), plane visibility from the context
+  menu (a view setting of the application), cross-probing to the
+  schematic (highlighted nets are reported), the "find" feature, aborting
+  blocking tools of other editors (the application must abort them).
+
 ## project (output job runner)
 
 - **Graphics jobs** need a `GraphicsExporter` set by the caller

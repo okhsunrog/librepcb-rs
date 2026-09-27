@@ -21,4 +21,7 @@ vello_cpu = { version = "0.2.0", default-features = false, features = ["multithr
 workspace = true
 
 [dev-dependencies]
+fastrand = "2.5.0"
+librepcb-editor = { path = "../librepcb-editor" }
 png = "0.18.1"
+tempfile = "3.27.0"
