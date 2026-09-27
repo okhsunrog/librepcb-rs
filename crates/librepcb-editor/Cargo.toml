@@ -9,6 +9,7 @@ librepcb-autoroute = { version = "0.1.0", path = "../librepcb-autoroute" }
 librepcb-core = { version = "0.1.0", path = "../librepcb-core" }
 librepcb-i18n = { version = "0.1.0", path = "../librepcb-i18n" }
 log = "0.4.34"
+parking_lot = { version = "0.12.5", features = ["arc_lock"] }
 serde = { version = "1.0.229", features = ["derive"] }
 static_assertions = "1.1.0"
 tempfile = "3.27.0"

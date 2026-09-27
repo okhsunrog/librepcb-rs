@@ -21,6 +21,11 @@
 //!   `Cmd*` classes and editor states, run as one undo group (rolled back
 //!   completely on error) and return the UUIDs of the affected entities.
 //!
+//! [`OpenProject`] is a project opened from disk (locked directory, save
+//! state) around its editor; the application and the embedded MCP server
+//! share it as [`SharedProject`] (`Arc<parking_lot::Mutex<OpenProject>>`),
+//! so both edit through the same undo stack.
+//!
 //! [`FreeroutingRouter`] routes boards with the external FreeRouting
 //! autorouter (Specctra DSN export, session import).
 //!
@@ -35,6 +40,7 @@ mod editor;
 mod error;
 mod freerouting;
 mod library_source;
+mod open_project;
 mod undo_stack;
 
 pub use editor::{Command, ProjectEditor, Transaction, create_project};
@@ -45,4 +51,5 @@ pub use freerouting::{
     routing_stats,
 };
 pub use library_source::{DirectoryLibrarySource, LibraryElementSource, NoLibrarySource};
+pub use open_project::{OpenProject, SharedProject, override_stale_locks};
 pub use undo_stack::{HistoryEntry, LibraryElement, Operation, UndoStack};

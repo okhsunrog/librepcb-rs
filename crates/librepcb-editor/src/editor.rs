@@ -93,9 +93,10 @@ impl Transaction<'_> {
 /// A project opened for editing: the project, its undo stack and the
 /// library element source for adding parts.
 ///
-/// Concurrency: the application wraps the editor in an
-/// `Arc<parking_lot::RwLock<ProjectEditor>>`; commands run under the write
-/// lock, readers take the read lock only to extract data (see
+/// Concurrency: the application and the MCP server share the editor as
+/// part of a [`SharedProject`](crate::SharedProject)
+/// (`Arc<parking_lot::Mutex<OpenProject>>`); commands run under the lock,
+/// readers take it only to extract data (see
 /// `docs/project-model-design.md` §6). Locks are never held across
 /// `.await`.
 pub struct ProjectEditor {

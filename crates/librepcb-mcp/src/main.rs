@@ -3,8 +3,9 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use librepcb_mcp::{LibrePcbMcp, Session};
-use rmcp::ServiceExt;
+use std::sync::Arc;
+
+use librepcb_mcp::{McpState, Session, StandaloneHost};
 
 /// MCP server for LibrePCB projects and libraries.
 #[derive(Debug, Parser)]
@@ -50,7 +51,7 @@ async fn main() -> ExitCode {
             project: args.project.clone(),
             http: args.http,
         };
-        move || setup(&args)
+        move || setup(&args).map(Session::into_slots)
     })
     .await
     {
@@ -64,10 +65,11 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let server = LibrePcbMcp::new(session);
+    // The standalone binary is a host which allows everything.
+    let state = McpState::from_slots(session, Arc::new(StandaloneHost));
     let result = match args.http {
-        Some(addr) => serve_http(server, addr).await,
-        None => serve_stdio(server).await,
+        Some(addr) => serve_http(state, addr).await,
+        None => librepcb_mcp::transport::serve_stdio(state).await,
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -78,45 +80,27 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn serve_stdio(server: LibrePcbMcp) -> Result<(), String> {
-    let running = server
-        .serve(rmcp::transport::stdio())
-        .await
-        .map_err(|e| e.to_string())?;
-    running.waiting().await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 #[cfg(feature = "http")]
-async fn serve_http(server: LibrePcbMcp, addr: std::net::SocketAddr) -> Result<(), String> {
-    use rmcp::transport::streamable_http_server::{
-        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-    };
-    let session = std::sync::Arc::clone(server.session());
-    let service: StreamableHttpService<LibrePcbMcp, LocalSessionManager> =
-        StreamableHttpService::new(
-            move || {
-                Ok(LibrePcbMcp::with_shared_session(std::sync::Arc::clone(
-                    &session,
-                )))
-            },
-            Default::default(),
-            StreamableHttpServerConfig::default(),
-        );
-    let router = axum::Router::new().nest_service("/mcp", service);
+async fn serve_http(state: McpState, addr: std::net::SocketAddr) -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .map_err(|e| e.to_string())?;
-    eprintln!("librepcb-mcp: serving streamable HTTP on http://{addr}/mcp");
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async {
+    let local = listener.local_addr().map_err(|e| e.to_string())?;
+    eprintln!("librepcb-mcp: serving streamable HTTP on http://{local}/mcp");
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    tokio::spawn({
+        let shutdown = shutdown.clone();
+        async move {
             let _ = tokio::signal::ctrl_c().await;
-        })
+            shutdown.cancel();
+        }
+    });
+    librepcb_mcp::transport::serve_http(state, listener, shutdown)
         .await
         .map_err(|e| e.to_string())
 }
 
 #[cfg(not(feature = "http"))]
-async fn serve_http(_server: LibrePcbMcp, _addr: std::net::SocketAddr) -> Result<(), String> {
+async fn serve_http(_state: McpState, _addr: std::net::SocketAddr) -> Result<(), String> {
     Err("this build has no HTTP transport (build with --features http)".to_owned())
 }

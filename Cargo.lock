@@ -3479,6 +3479,7 @@ dependencies = [
  "librepcb-core",
  "librepcb-i18n",
  "log",
+ "parking_lot",
  "serde",
  "serde_json",
  "static_assertions",
@@ -3516,6 +3517,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -5071,6 +5073,8 @@ dependencies = [
  "rustls",
  "rustls-pki-types",
  "rustls-platform-verifier",
+ "serde",
+ "serde_json",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
@@ -5145,6 +5149,7 @@ dependencies = [
  "pin-project-lite",
  "process-wrap",
  "rand",
+ "reqwest",
  "rmcp-macros",
  "schemars",
  "serde",

@@ -19,7 +19,7 @@ use serde_json::json;
 
 use crate::error::{ErrorKind, ToolError, ToolResult};
 use crate::outcome::ToolOutput;
-use crate::session::{Session, absolute_path};
+use crate::session::{OpenProject, Session, SharedProject, absolute_path};
 pub use crate::tools::write::check_revision;
 
 /// Arguments of `workspace_open` / `workspace_create`.
@@ -140,6 +140,14 @@ pub fn workspace_open(
     create: bool,
 ) -> ToolResult<ToolOutput> {
     let ws = session.open_workspace(&args.path, create)?;
+    workspace_output(ws, create)
+}
+
+/// The result of `workspace_open` / `workspace_create` for `ws`.
+pub fn workspace_output(
+    ws: &librepcb_core::workspace::Workspace,
+    create: bool,
+) -> ToolResult<ToolOutput> {
     let libraries = ws
         .library_db()
         .all(librepcb_core::workspace::ElementKind::Library, None, None)?
@@ -315,9 +323,24 @@ fn create_project_files(
 /// `project_open`.
 pub fn project_open(session: &mut Session, args: ProjectOpenArgs) -> ToolResult<ToolOutput> {
     let open = session.open_project(&args.path)?;
+    opened_output(open, "Opened")
+}
+
+/// `project_open` / `project_create` delegated to the host application,
+/// which opened (`verb`: "Opened") or created the project itself.
+pub fn project_attach(
+    session: &mut Session,
+    project: SharedProject,
+    verb: &str,
+) -> ToolResult<ToolOutput> {
+    let open = session.attach_project(project)?;
+    opened_output(open, verb)
+}
+
+fn opened_output(open: &OpenProject, verb: &str) -> ToolResult<ToolOutput> {
     let upgraded = open.upgraded;
     let summary = format!(
-        "Opened project \"{}\" ({}).",
+        "{verb} project \"{}\" ({}).",
         open.project().metadata().name.as_str(),
         open.file_path()
     );
@@ -371,7 +394,7 @@ pub fn project_summary(session: &Session) -> ToolResult<ToolOutput> {
     ToolOutput::new(summary, summary_json(open))
 }
 
-fn summary_json(open: &crate::session::OpenProject) -> serde_json::Value {
+fn summary_json(open: &OpenProject) -> serde_json::Value {
     let p = open.project();
     let md = p.metadata();
     let circuit = p.circuit();
