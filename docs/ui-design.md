@@ -262,3 +262,11 @@ Useful element ids: `SchematicTab::ta` and `Board2dTab::ta` (scene touch
 areas), `AppWindow::menubar`, `AppWindow::sidebar`. Everything else is found
 with `get_element_tree` / `query_element_descendants` (accessible labels of
 upstream's widgets).
+
+Dialogs (M3b) are overlays of the main window: the editors of a form
+dialog have the field id as accessible label (e.g. `author` in the
+project setup dialog), the page tabs are `PageButton`s and the buttons
+are found by their text ("OK", "Apply", "Cancel"). Example: click
+`ProjectSection::setup-dialog-btn`, find the `author` text input, click
+it, `dispatch_key_event` some text, click "OK": the undo button's label
+becomes "Undo: Modify Project Setup".
