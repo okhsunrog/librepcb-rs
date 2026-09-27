@@ -39,6 +39,7 @@ pub mod commands;
 mod editor;
 mod error;
 mod freerouting;
+pub mod fsm;
 mod library_source;
 mod open_project;
 mod undo_stack;
