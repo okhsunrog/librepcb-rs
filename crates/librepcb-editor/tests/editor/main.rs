@@ -3,6 +3,7 @@
 mod autoroute_test;
 mod connect_test;
 mod freerouting_test;
+mod fsm_schematic_test;
 mod helpers;
 mod real_library_test;
 mod serde_test;

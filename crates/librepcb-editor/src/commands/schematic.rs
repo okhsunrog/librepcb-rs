@@ -1218,7 +1218,7 @@ pub(crate) fn remove_component_devices(
 
 /// Returns all pins of placed symbols of the component which belong to the
 /// signal (upstream `ComponentSignalInstance::getRegisteredSymbolPins()`).
-fn registered_symbol_pins(
+pub(crate) fn registered_symbol_pins(
     p: &Project,
     signal: ComponentSignalRef,
 ) -> Result<Vec<(SchematicId, (SymbolId, Uuid))>> {

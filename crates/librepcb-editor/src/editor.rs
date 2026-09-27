@@ -253,6 +253,21 @@ impl ProjectEditor {
         self.undo_stack.abort_group(&mut self.project)
     }
 
+    /// Returns the number of operations recorded in the active group
+    /// (`None` if no group is active), e.g. to roll back to this point
+    /// later with [`rollback_group_to()`](Self::rollback_group_to).
+    pub fn active_group_len(&self) -> Option<usize> {
+        self.undo_stack.active_group_len()
+    }
+
+    /// Rolls back the operations of the active group recorded after the
+    /// first `len` ones (interactive tools replacing a live preview inside
+    /// an open group, like upstream's temporary `setPosition()` calls).
+    /// Does nothing if no group is active or it is not longer than `len`.
+    pub fn rollback_group_to(&mut self, len: usize) {
+        self.undo_stack.rollback_active_to(&mut self.project, len);
+    }
+
     /// Undoes the last group; returns `false` if there was nothing to undo.
     pub fn undo(&mut self) -> Result<bool> {
         self.undo_stack.undo(&mut self.project)
