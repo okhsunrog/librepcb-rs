@@ -19,6 +19,7 @@ use super::simplify::SimplifySchematicSegments;
 use super::{CrossProbe, Cx, SchematicItem, SchematicRequest, State};
 use crate::commands::{RemoveSchematicItems, SchematicSelection};
 use crate::fsm::{CursorShape, Features, PointerEvent};
+use crate::library_editor::commands::{SymbolClipboardData, symbol_clipboard_mime_type};
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum SubState {
@@ -505,11 +506,25 @@ impl SelectState {
 
     /// Pastes from the clipboard (upstream `pasteFromClipboard()`).
     fn paste_from_clipboard(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        let mime = schematic_clipboard_mime_type(&cx.settings.app_version);
-        let Some(zip) = cx.ctx.clipboard.get(&mime) else {
+        let version = &cx.settings.app_version;
+        let result = if let Some(zip) = cx
+            .ctx
+            .clipboard
+            .get(&schematic_clipboard_mime_type(version))
+        {
+            SchematicClipboardData::from_zip(&zip)
+        } else if let Some(zip) = cx.ctx.clipboard.get(&symbol_clipboard_mime_type(version)) {
+            // Graphical elements from the symbol editor.
+            let Some(s) = cx.sch() else {
+                return false;
+            };
+            SymbolClipboardData::from_zip(&zip).and_then(|symbol_data| {
+                SchematicClipboardData::from_symbol_data(&symbol_data, cx.project(), s)
+            })
+        } else {
             return false;
         };
-        let data = match SchematicClipboardData::from_zip(&zip) {
+        let data = match result {
             Ok(data) => data,
             Err(e) => {
                 cx.error(e);
@@ -583,8 +598,13 @@ impl SelectState {
             }
             SubState::Idle | SubState::Moving => {
                 f.select = true;
-                let mime = schematic_clipboard_mime_type(&cx.settings.app_version);
-                f.paste = cx.ctx.clipboard.get(&mime).is_some();
+                let version = &cx.settings.app_version;
+                f.paste = [
+                    schematic_clipboard_mime_type(version),
+                    symbol_clipboard_mime_type(version),
+                ]
+                .iter()
+                .any(|mime| cx.ctx.clipboard.get(mime).is_some());
                 let q = Self::query(cx);
                 let grid = cx.grid();
                 if q.has_modifiable_items() {

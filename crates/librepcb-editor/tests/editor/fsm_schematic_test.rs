@@ -1650,6 +1650,86 @@ fn drag_then_simplify_is_a_separate_undo_step() {
 }
 
 #[test]
+fn paste_graphics_from_symbol_editor() {
+    use librepcb_core::geometry::{Path, Polygon, Text};
+    use librepcb_core::types::{Alignment, Layer, PositiveLength, UnsignedLength};
+    use librepcb_editor::library_editor::commands::{
+        SymbolClipboardData, symbol_clipboard_mime_type,
+    };
+    let mut h = Harness::new();
+    let mut data = SymbolClipboardData::new(Uuid::new_random(), Point::ORIGIN);
+    data.polygons.push(Polygon::new(
+        Uuid::new_random(),
+        Layer::SYMBOL_OUTLINES,
+        UnsignedLength::new(Length::new(200_000)).unwrap(),
+        false,
+        false,
+        Path::rect(mm(0.0, 0.0), mm(2.54, 2.54)),
+    ));
+    for text in ["{{NAME}}", "Hello"] {
+        data.texts.push(Text::new(
+            Uuid::new_random(),
+            Layer::SYMBOL_NAMES,
+            text,
+            mm(0.0, 5.08),
+            Angle::DEG0,
+            PositiveLength::new(Length::new(2_540_000)).unwrap(),
+            Alignment::default(),
+            false,
+        ));
+    }
+    let version = SchematicEditorSettings::default().app_version;
+    h.clipboard.set(
+        &symbol_clipboard_mime_type(&version),
+        data.to_zip().unwrap(),
+    );
+    h.cursor = mm(30.48, 30.48);
+    h.run(|fsm, ctx| fsm.pointer_moved(ctx, PointerEvent::new(mm(30.48, 30.48))));
+    assert!(h.fsm.view_state().features.paste);
+    assert!(h.run(|fsm, ctx| fsm.paste(ctx)));
+    h.press(mm(30.48, 30.48));
+    assert!(!h.editor.undo_stack().is_group_active());
+    let s = h.p().schematic(h.schematic).unwrap();
+    assert_eq!(s.polygons().len(), 1);
+    let poly = s.polygons().values().next().unwrap();
+    assert_eq!(poly.path().vertices()[0].pos, mm(30.48, 30.48));
+    // The placeholder evaluating to an empty string loses its braces.
+    let texts: BTreeSet<String> = s.texts().values().map(|t| t.text().clone()).collect();
+    assert_eq!(
+        texts,
+        ["NAME".to_owned(), "Hello".to_owned()]
+            .into_iter()
+            .collect()
+    );
+    h.undo();
+    assert!(h.p().schematic(h.schematic).unwrap().polygons().is_empty());
+}
+
+#[test]
+fn selected_wire_info_box_and_cross_probe() {
+    let mut h = Harness::new();
+    draw_wire_between_resistors(&mut h);
+    h.click(mm(10.16, 0.0));
+    assert!(matches!(
+        h.fsm.selection().iter().next(),
+        Some(SchematicItem::NetLine(..))
+    ));
+    let s = h.p().schematic(h.schematic).unwrap();
+    let net = s.net_segments().values().next().unwrap().net();
+    let name = h.p().circuit().net_signal(net).unwrap().name().to_string();
+    let info = h.fsm.view_state().info_box.clone();
+    assert!(info.contains("Net:") && info.contains(&name), "{info}");
+    // The net class is shown only with several net classes.
+    assert!(!info.contains("Class:"), "{info}");
+    assert!(h.fsm.cross_probe().nets.contains(&net));
+    assert!(h.fsm.cross_probe().components.is_empty());
+    // Clearing the selection clears the info box and the cross-probing.
+    h.click(mm(50.0, 50.0));
+    assert!(h.fsm.view_state().info_box.is_empty());
+    assert!(h.fsm.cross_probe().nets.is_empty());
+}
+
+#[test]
 fn add_component_value_attribute_from_tool_bar() {
     let mut h = Harness::new();
     h.cursor = mm(0.0, 20.0);

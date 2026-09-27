@@ -33,7 +33,7 @@ use librepcb_core::project::schematic::{
 };
 use librepcb_core::project::{
     AssemblyVariantId, BusId, BusSegmentId, ComponentInstanceId, Mutation, NetSegmentId,
-    NetSegmentRef, Project, SchematicId, SchematicMutation, SymbolId,
+    NetSegmentRef, Project, ProjectAttributeLookup, SchematicId, SchematicMutation, SymbolId,
 };
 use librepcb_core::serialization::{
     self, DeserializeObject, List, Mode, SExpression, SerializeObject,
@@ -48,6 +48,7 @@ use crate::commands::circuit::{add_net, default_net_class, set_component_signal_
 use crate::commands::schematic::{apply_net_name, forced_net_name};
 use crate::editor::{Command, Transaction};
 use crate::error::{Error, Result};
+use crate::library_editor::commands::SymbolClipboardData;
 use crate::undo_stack::LibraryElement;
 
 /// The MIME type prefix of schematic clipboard data (followed by
@@ -453,6 +454,43 @@ impl SchematicClipboardData {
             images: ImageList::deserialize(&root)?,
             directory,
         })
+    }
+
+    /// Converts symbol clipboard data (copied in the symbol editor) to
+    /// schematic clipboard data with its polygons, texts and images, to
+    /// paste graphical elements from the symbol editor (upstream
+    /// `pasteFromClipboard()`). Texts which evaluate to an empty string in
+    /// the schematic (e.g. `{{NAME}}`) lose their braces to keep them
+    /// visible.
+    pub fn from_symbol_data(
+        data: &SymbolClipboardData,
+        project: &Project,
+        schematic: &Schematic,
+    ) -> Result<Self> {
+        let mut out = Self::new(
+            data.symbol_uuid,
+            data.cursor_pos,
+            AssemblyVariantList::new(),
+        )?;
+        for polygon in data.polygons.iter() {
+            out.polygons.push(polygon.clone());
+        }
+        let lookup = ProjectAttributeLookup::for_schematic(project, schematic, None);
+        for text in data.texts.iter() {
+            let mut copy = text.clone();
+            if lookup.substitute(text.text()).trim().is_empty() {
+                copy.set_text(text.text().replace(['{', '}'], ""));
+            }
+            out.texts.push(copy);
+        }
+        let mut dir = out.dir();
+        for image in data.images.iter() {
+            if let Some(content) = data.files.get(image.file_name().as_str()) {
+                dir.write(image.file_name().as_str(), content)?;
+            }
+            out.images.push(image.clone());
+        }
+        Ok(out)
     }
 
     /// Whether there is nothing to paste.

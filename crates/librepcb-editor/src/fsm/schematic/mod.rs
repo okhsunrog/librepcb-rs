@@ -962,8 +962,14 @@ impl SchematicEditorFsm {
     /// next click. Without schematic data, an image in the clipboard is
     /// added (upstream `SchematicTab`: `ImageHelpers::getImageFromClipboard()`).
     pub fn paste(&mut self, ctx: &mut SchematicContext<'_>) -> bool {
-        let mime = clipboard::schematic_clipboard_mime_type(&self.settings.app_version);
-        if ctx.clipboard.get(&mime).is_none() {
+        let version = &self.settings.app_version;
+        let has_items = [
+            clipboard::schematic_clipboard_mime_type(version),
+            crate::library_editor::commands::symbol_clipboard_mime_type(version),
+        ]
+        .iter()
+        .any(|mime| ctx.clipboard.get(mime).is_some());
+        if !has_items {
             let image = CLIPBOARD_IMAGE_TYPES.iter().find_map(|(mime, format)| {
                 ctx.clipboard.get(mime).map(|data| ImageData {
                     data,
