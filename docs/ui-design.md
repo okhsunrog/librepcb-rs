@@ -1,7 +1,8 @@
 # UI design (M2 viewer → M3 editor)
 
 Design of the graphical application `crates/librepcb-app` (binary
-`librepcb`). Status: proposal, to be reviewed before implementation.
+`librepcb`). Status: agreed with the user (copy and port upstream's `.slint` files;
+embedded MCP server in M2).
 
 ## Key finding: upstream already has a Slint UI
 
@@ -34,7 +35,7 @@ What upstream still does with Qt Widgets: 72 `.ui` dialogs (property
 dialogs, board setup, output jobs, BOM review, ...) and the 3D view. Those
 need new Slint dialogs (M3, batched per area) and a new 3D renderer (M5).
 
-## Decisions (proposed)
+## Decisions
 
 1. **UI sources:** copy `libs/librepcb/ui/**` at the pinned upstream
    revision into `crates/librepcb-app/ui/` as ported source (GPL like the
