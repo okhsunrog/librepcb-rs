@@ -101,6 +101,9 @@ pub enum Error {
     /// Another invalid argument.
     #[error("{0}")]
     InvalidArgument(String),
+    /// The routing problem extracted from a board is invalid.
+    #[error(transparent)]
+    Autoroute(#[from] librepcb_autoroute::Error),
 }
 
 impl From<project::Error> for Error {

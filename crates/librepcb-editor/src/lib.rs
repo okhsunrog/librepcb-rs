@@ -10,7 +10,7 @@
 //!
 //! - [`ProjectEditor`] owns a [`Project`](librepcb_core::project::Project),
 //!   its [`UndoStack`] and a [`LibraryElementSource`] (where library
-//!   elements are copied from, later the workspace library database).
+//!   elements are copied from, e.g. the workspace library database).
 //! - Every user or agent action is one labeled undo group. A group records
 //!   the inverses of the applied [`Operation`]s: project
 //!   [`Mutation`](librepcb_core::project::Mutation)s and the (file backed)

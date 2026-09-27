@@ -10,10 +10,11 @@
 //!
 //! Differences to upstream: traces are given as anchors and points instead
 //! of mouse clicks (no snapping); segments are combined with the element
-//! UUIDs kept (upstream creates new junctions); the automatic trace width
-//! ignores the width of existing traces at the start anchor; removing
-//! traces from other commands does not remove unused library elements
-//! (only [`RemoveBoardItems`] does, like upstream).
+//! UUIDs kept (upstream creates new junctions); a via connects to the
+//! traces of its net at its position in one new segment (upstream splits
+//! and combines step by step); removing traces from other commands does
+//! not remove unused library elements (only [`RemoveBoardItems`] does, like
+//! upstream).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -323,6 +324,8 @@ pub enum TraceEndpoint {
     },
     /// An existing via.
     Via(Uuid),
+    /// An existing standalone board pad.
+    BoardPad(Uuid),
     /// An existing junction.
     Junction(Uuid),
     /// An existing trace, split at the point nearest to `position`
@@ -405,6 +408,18 @@ impl TraceEnd {
                     position,
                     segment: Some(id),
                     net: Some(segment_net(id)),
+                    smt_layer: None,
+                })
+            }
+            TraceEndpoint::BoardPad(uuid) => {
+                let id = find_segment(p, board, "Pad", *uuid, |s| s.pads().contains_key(uuid))?;
+                let pad = b.net_segment(id).expect("found above").pads()[uuid].pad();
+                let net = segment_net(id).ok_or(Error::PadNotConnected)?;
+                Ok(TraceEnd {
+                    anchor: Some(TraceAnchor::Pad(*uuid)),
+                    position: pad.position(),
+                    segment: Some(id),
+                    net: Some(Some(net)),
                     smt_layer: None,
                 })
             }
@@ -555,8 +570,9 @@ pub struct AddTrace {
     /// top copper).
     #[serde(default)]
     pub layer: Option<Layer>,
-    /// The width (default: the net class' default trace width, else the
-    /// board's design rules default).
+    /// The width (default: the median width of the traces at the start
+    /// anchor, else the net class' default trace width, else the board's
+    /// design rules default; like upstream's automatic width).
     #[serde(default)]
     pub width: Option<PositiveLength>,
     /// The net if no end determines it (both ends are points).
@@ -631,7 +647,19 @@ impl Command for AddTrace {
                 "Invalid layer selected."
             )));
         }
-        let width = match self.width {
+        // Upstream automatic width: the median width of the traces at the
+        // start anchor, else the net class' default, else the design rules'
+        // default.
+        let median_at_start = a.anchor.zip(a.segment).and_then(|(anchor, segment)| {
+            let mut widths: Vec<PositiveLength> = b_ref
+                .net_segment(segment)?
+                .traces_at(anchor)
+                .map(Trace::width)
+                .collect();
+            widths.sort();
+            widths.get(widths.len() / 2).copied()
+        });
+        let width = match self.width.or(median_at_start) {
             Some(w) => w,
             None => net
                 .and_then(|n| p.circuit().net_signal(n))
@@ -717,9 +745,119 @@ pub struct ViaResult {
     pub via: Uuid,
 }
 
-/// Adds a via in a new net segment (upstream `BoardEditorState_AddVia`):
-/// through all layers, drill and size from the design rules, no stop mask
-/// opening by default. Connect it with [`AddTrace`] (`Via` endpoint).
+/// Adds a via of `net` (upstream `BoardEditorState_AddVia::fixPosition()`):
+/// traces of the same net passing the via position are split there and
+/// junctions of the same net at the position are replaced by the via; all
+/// affected net segments are combined with the via into one new segment.
+pub(crate) fn add_via_connected(
+    tx: &mut Transaction<'_>,
+    board: BoardId,
+    via: Via,
+    net: Option<NetSignalId>,
+) -> Result<ViaResult> {
+    let p = tx.project();
+    let b = resolve::board(p, Some(board))?;
+    let pos = via.position();
+    let via_anchor = TraceAnchor::Via(via.uuid());
+    let mut affected: Vec<NetSegmentId> = Vec::new();
+    let mut elements = BoardSegmentElements {
+        vias: vec![via.clone()],
+        ..BoardSegmentElements::default()
+    };
+    for seg in b.net_segments().values().filter(|s| s.net() == net) {
+        // Junctions at the position (hit area: the widest trace at them).
+        let found: BTreeSet<Uuid> = seg
+            .junctions()
+            .values()
+            .filter(|j| {
+                let radius = seg
+                    .traces_at(TraceAnchor::Junction(j.uuid()))
+                    .map(|t| *t.width() / 2)
+                    .max()
+                    .unwrap_or(Length::ZERO);
+                *(j.position() - pos).length() <= radius
+            })
+            .map(|j| j.uuid())
+            .collect();
+        let is_found = |a: TraceAnchor| matches!(a, TraceAnchor::Junction(j) if found.contains(&j));
+        // Traces through the position (not attached to a found junction).
+        let mut split = BTreeSet::new();
+        for trace in seg.traces().values() {
+            if is_found(trace.p1()) || is_found(trace.p2()) {
+                continue;
+            }
+            let (Some(p1), Some(p2)) = (
+                b.anchor_position(seg, trace.p1(), p.library(), p.circuit()),
+                b.anchor_position(seg, trace.p2(), p.library(), p.circuit()),
+            ) else {
+                continue;
+            };
+            let (distance, _) = toolbox::shortest_distance_between_point_and_line(pos, p1, p2);
+            if *distance <= *trace.width() / 2 {
+                split.insert(trace.uuid());
+            }
+        }
+        if found.is_empty() && split.is_empty() {
+            continue;
+        }
+        elements.pads.extend(seg.pads().values().cloned());
+        elements.vias.extend(seg.vias().values().cloned());
+        elements.junctions.extend(
+            seg.junctions()
+                .values()
+                .filter(|j| !found.contains(&j.uuid()))
+                .cloned(),
+        );
+        for trace in seg.traces().values() {
+            if split.contains(&trace.uuid()) {
+                for end in [trace.p1(), trace.p2()] {
+                    elements.traces.push(Trace::new(
+                        Uuid::new_random(),
+                        trace.layer(),
+                        trace.width(),
+                        via_anchor,
+                        end,
+                    ));
+                }
+                continue;
+            }
+            let map = |a: TraceAnchor| if is_found(a) { via_anchor } else { a };
+            let (a1, a2) = (map(trace.p1()), map(trace.p2()));
+            if a1 != a2 {
+                let mut trace = trace.clone();
+                trace.set_anchors(a1, a2);
+                elements.traces.push(trace);
+            }
+        }
+        affected.push(seg.id());
+    }
+    for segment in affected {
+        tx.apply(brd(BoardMutation::RemoveNetSegment(BoardNetSegmentRef {
+            board,
+            segment,
+        })))?;
+    }
+    let segment = BoardNetSegment::with_elements(
+        Uuid::new_random(),
+        net,
+        elements.pads,
+        elements.vias,
+        elements.junctions,
+        elements.traces,
+    );
+    let id = segment.id();
+    tx.apply(brd(BoardMutation::AddNetSegment { board, segment }))?;
+    Ok(ViaResult {
+        segment: id,
+        via: via.uuid(),
+    })
+}
+
+/// Adds a via (upstream `BoardEditorState_AddVia`): through all layers,
+/// drill and size from the design rules, no stop mask opening by default.
+/// Traces and junctions of the same net at the position are connected to
+/// it (upstream `fixPosition()`); otherwise it is placed in a new net
+/// segment. Connect it with [`AddTrace`] (`Via` endpoint).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AddVia {
     /// The board (default: the primary board).
@@ -771,14 +909,7 @@ impl Command for AddVia {
             self.exposure.unwrap_or(MaskConfig::Off),
         )
         .map_err(|e| Error::InvalidArgument(e.to_string()))?;
-        let uuid = via.uuid();
-        let segment = BoardNetSegment::with_elements(Uuid::new_random(), net, [], [via], [], []);
-        let id = segment.id();
-        tx.apply(brd(BoardMutation::AddNetSegment { board, segment }))?;
-        Ok(ViaResult {
-            segment: id,
-            via: uuid,
-        })
+        add_via_connected(tx, board, via, net)
     }
 }
 

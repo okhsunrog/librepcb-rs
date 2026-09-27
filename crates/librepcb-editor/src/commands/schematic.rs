@@ -8,18 +8,18 @@
 //!
 //! Differences to upstream: wires are given as anchors and points instead
 //! of mouse clicks (no snapping, no grid); segments are combined with the
-//! element UUIDs kept (upstream creates new junctions and labels); forced
-//! net names of component signals (`{{VALUE}}` substitution) are not
-//! applied yet (needs the attribute lookup); buses are not supported by
-//! the wiring commands (bus junctions stay fixed anchors when splitting).
+//! element UUIDs kept (upstream creates new junctions and labels); only
+//! valid forced net names are considered, an invalid one is ignored with a
+//! log warning (upstream shows a message box); buses are not supported by the wiring commands (bus
+//! junctions stay fixed anchors when splitting).
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use librepcb_core::geometry::{Junction, NetLabel, NetLine, NetLineAnchor};
 use librepcb_core::project::schematic::{SchematicNetSegment, SchematicNetSegmentSplitter};
 use librepcb_core::project::{
-    ComponentSignalRef, Mutation, NetSegmentId, NetSegmentRef, NetSignalId, Project, SchematicId,
-    SchematicMutation, SymbolId, SymbolRef,
+    ComponentSignalRef, Mutation, NetSegmentId, NetSegmentRef, NetSignalId, Project,
+    ProjectAttributeLookup, SchematicId, SchematicMutation, SymbolId, SymbolRef,
 };
 use librepcb_core::types::{Angle, CircuitIdentifier, Length, Point, UnsignedLength, Uuid};
 use librepcb_core::utils::toolbox;
@@ -372,6 +372,66 @@ pub(crate) fn apply_net_name(
     Ok(net)
 }
 
+/// Returns the forced net name of a component signal (upstream
+/// `ComponentSignalInstance::getForcedNetSignalName()`: the library
+/// signal's forced net name with attributes like `{{VALUE}}` substituted),
+/// or `None` if the signal has none or it is not a valid net name.
+pub(crate) fn forced_net_name(
+    p: &Project,
+    signal: ComponentSignalRef,
+) -> Option<CircuitIdentifier> {
+    let component = p.circuit().component_instance(signal.component)?;
+    let lib_signal = p
+        .library()
+        .component(&component.lib_component())?
+        .signals()
+        .by_uuid(&signal.signal)?;
+    if !lib_signal.is_net_signal_name_forced() {
+        return None;
+    }
+    let name = ProjectAttributeLookup::for_component(p, component, None, None)
+        .substitute(lib_signal.forced_net_name());
+    if name.is_empty() {
+        return None;
+    }
+    match CircuitIdentifier::new(&name) {
+        Ok(name) => Some(name),
+        Err(_) => {
+            log::warn!(
+                "Could not apply the forced net name because '{name}' is not a valid net name."
+            );
+            None
+        }
+    }
+}
+
+/// Returns the forced net names of the pins connected to a net segment
+/// (upstream `SI_NetSegment::getForcedNetNames()`).
+fn segment_forced_net_names(
+    p: &Project,
+    schematic: SchematicId,
+    segment: NetSegmentId,
+) -> BTreeSet<CircuitIdentifier> {
+    let Some(s) = p.schematic(schematic) else {
+        return BTreeSet::new();
+    };
+    let Some(seg) = s.net_segments().get(&segment) else {
+        return BTreeSet::new();
+    };
+    seg.connected_pins()
+        .into_iter()
+        .filter_map(|(symbol, pin)| {
+            let view = s.symbols().get(&symbol)?.pin(p.view(), pin).ok()??;
+            forced_net_name(p, view.signal())
+        })
+        .collect()
+}
+
+/// Whether a pin connected to the net segment forces a net name.
+fn segment_has_forced_net_name(p: &Project, schematic: SchematicId, segment: NetSegmentId) -> bool {
+    !segment_forced_net_names(p, schematic, segment).is_empty()
+}
+
 /// Draws a wire (upstream `SchematicEditorState_DrawWire`), see [`DrawWire`].
 pub(crate) fn draw_wire(
     tx: &mut Transaction<'_>,
@@ -421,6 +481,20 @@ pub(crate) fn draw_wire(
         ));
     }
 
+    // The net name to apply: the requested one, else the forced net name of
+    // an unconnected pin at the end or the start (upstream:
+    // `otherForcedNetName` of the end pin, `forcedNetName` of the start pin).
+    let forced = |end: &End| {
+        end.pin
+            .filter(|_| end.segment.is_none())
+            .and_then(|(signal, _)| forced_net_name(tx.project(), signal))
+    };
+    let requested = net_name
+        .cloned()
+        .or_else(|| forced(&b))
+        .or_else(|| forced(&a));
+    let net_name = requested.as_ref();
+
     // Determine the net and the target segment (upstream: the fixed start
     // anchor determines the current segment/net, the end anchor's segment
     // is combined with it).
@@ -456,14 +530,20 @@ pub(crate) fn draw_wire(
             let this_net = segment_net(tx, s1)?;
             let other_net = segment_net(tx, s2)?;
             if this_net != other_net {
-                let circuit = tx.project().circuit();
+                let p = tx.project();
+                let circuit = p.circuit();
                 let this_auto = circuit
                     .net_signal(this_net)
                     .is_some_and(|n| n.has_auto_name());
                 let other_auto = circuit
                     .net_signal(other_net)
                     .is_some_and(|n| n.has_auto_name());
-                if other_auto && !this_auto {
+                // Segments with forced net names keep their net.
+                let other_forced = segment_has_forced_net_name(p, schematic, s2);
+                let this_forced = segment_has_forced_net_name(p, schematic, s1);
+                if other_forced {
+                    change_net_of_schematic_segment(tx, seg_ref(s1), other_net)?;
+                } else if this_forced || (other_auto && !this_auto) {
                     change_net_of_schematic_segment(tx, seg_ref(s2), this_net)?;
                 } else {
                     change_net_of_schematic_segment(tx, seg_ref(s1), other_net)?;
@@ -1020,20 +1100,34 @@ pub(crate) fn remove_schematic_items(
     }
     // Assign new nets to unlabeled parts (after all segments were added,
     // so that nets are not removed too early).
+    // Parts with exactly one forced net name get that net (upstream
+    // `SI_NetSegment::getForcedNetName()`).
     for (segment, old_net, has_labels) in new_segments {
-        if has_labels {
+        let mut forced = segment_forced_net_names(tx.project(), schematic, segment);
+        let forced = (forced.len() == 1).then(|| forced.pop_first()).flatten();
+        if has_labels && forced.is_none() {
             continue;
         }
-        let class = tx
-            .project()
-            .circuit()
-            .net_signal(old_net)
-            .map(|n| n.net_class());
-        let class = match class {
-            Some(c) => c,
-            None => default_net_class(tx)?,
+        let circuit = tx.project().circuit();
+        let old = circuit.net_signal(old_net);
+        if let (Some(name), Some(old)) = (&forced, old)
+            && old.name() == name
+        {
+            continue;
+        }
+        let existing = forced
+            .as_ref()
+            .and_then(|name| circuit.net_signal_by_name(name.as_str()))
+            .map(|(id, _)| id);
+        let class = old.map(|n| n.net_class());
+        let net = match (existing, class) {
+            (Some(net), _) => net,
+            (None, Some(class)) => add_net(tx, forced, class)?,
+            (None, None) => {
+                let class = default_net_class(tx)?;
+                add_net(tx, forced, class)?
+            }
         };
-        let net = add_net(tx, None, class)?;
         change_net_of_schematic_segment(tx, NetSegmentRef { schematic, segment }, net)?;
     }
 

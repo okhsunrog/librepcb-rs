@@ -112,11 +112,14 @@ undo group), `mutation_schema`.
 An agent cannot route by coordinates reliably. Two paths, both behind
 `autoroute`:
 
-1. Built-in grid router in `librepcb-editor` (A* on a per-layer grid with
-   via cost, obstacle inflation by clearance + half width from the design
-   rules, nets ordered by length), routing only unrouted air wires and
-   producing ordinary traces/vias through the command layer (undoable,
-   DRC-checked afterwards). Enough for 2-layer boards with a few dozen nets.
+1. Built-in grid router: the pure algorithm in `librepcb-autoroute` (A* on
+   a per-layer grid with via cost, exact clearance checks, rip-up and
+   reroute, air wires routed shortest first) and the editor command
+   `commands::Autoroute`, which extracts the problem from the board (DRC
+   data: pads, copper, holes, keepouts, DRC settings and design rules),
+   routes only unrouted air wires (optionally of selected nets and layers)
+   and applies ordinary traces/vias through `AddTrace`/`AddVia` in one undo
+   group. Enough for 2-layer boards with a few dozen nets.
 2. Later: Specctra DSN export / SES import for FreeRouting.
 
 ## Tests
