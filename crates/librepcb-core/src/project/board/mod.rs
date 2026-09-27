@@ -30,6 +30,7 @@ mod d356_netlist_export;
 mod design_rules;
 mod device;
 mod export_error;
+pub mod drc;
 mod fabrication_output_settings;
 mod gerber_export;
 mod hole_data;
