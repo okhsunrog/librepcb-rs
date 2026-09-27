@@ -209,6 +209,35 @@ fn test_scan_and_query() {
         })
         .unwrap();
     assert_eq!(results.len(), 1);
+    // All tokens (not an upstream function): device by its component name.
+    assert!(
+        db.find(ElementKind::Device, "resistor 0805")
+            .unwrap()
+            .is_empty()
+    );
+    let found = db
+        .find_all_tokens(ElementKind::Device, "  Resistor   0805 ")
+        .unwrap();
+    assert_eq!(found.first(), Some(&uuid(R0805_DEVICE)), "{found:?}");
+    assert!(
+        db.find_all_tokens(ElementKind::Device, "resistor nonexistingtoken")
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        db.find_all_tokens(ElementKind::Device, " ")
+            .unwrap()
+            .is_empty()
+    );
+    let results = db
+        .search_all_tokens(&SearchQuery {
+            keyword: "manu1 demo1".to_owned(),
+            kinds: vec![ElementKind::Device],
+            ..SearchQuery::default()
+        })
+        .unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].uuid, uuid(DEMO_DEVICE));
 
     // Category tree with translations.
     let tree = db

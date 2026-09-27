@@ -7,7 +7,9 @@
 //! component signal (`U1.VCC`), or the name of a package pad of the
 //! component's device (`R1.1`, resolved through the device's pad-signal
 //! map). Designators and signal names are circuit identifiers, which
-//! cannot contain `.`, so the reference is split at the first dot.
+//! cannot contain `.`, so the reference is split at the first dot. A
+//! designator alone (`GND1`) addresses the only signal of a single-pin
+//! component such as a supply symbol.
 
 use std::str::FromStr;
 
@@ -196,7 +198,35 @@ pub fn split_pin_ref(pin: &str) -> ToolResult<(&str, &str)> {
 }
 
 /// Resolves a pin reference (see the module docs) to a component signal.
+/// A designator alone (`"GND1"`) addresses the only signal of a
+/// single-pin component (e.g. a supply symbol).
 pub fn pin(project: &Project, reference: &str) -> ToolResult<ResolvedPin> {
+    if !reference.contains('.')
+        && let Ok((id, component)) = self::component(project, reference.trim())
+    {
+        let lib = lib_component(project, component)?;
+        let mut signals = lib.signals().iter();
+        return match (signals.next(), signals.next()) {
+            (Some(sig), None) => Ok(ResolvedPin {
+                signal: ComponentSignalRef {
+                    component: id,
+                    signal: sig.uuid(),
+                },
+                label: format!("{}.{}", component.name().as_str(), sig.name().as_str()),
+            }),
+            _ => Err(ToolError::invalid(format!(
+                "Invalid pin reference \"{reference}\": {} has {} signals, use \
+                 <designator>.<pin> (signals: {}).",
+                component.name().as_str(),
+                lib.signals().len(),
+                lib.signals()
+                    .iter()
+                    .map(|s| s.name().as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))),
+        };
+    }
     let (designator, pin) = split_pin_ref(reference)?;
     let (id, component) = self::component(project, designator)?;
     let lib = lib_component(project, component)?;

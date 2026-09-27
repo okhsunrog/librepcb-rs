@@ -52,7 +52,10 @@ pub fn attributes(list: &AttributeList) -> Value {
 }
 
 /// The geometry of a pad (relative to its footprint, or absolute for
-/// placed pads when `position`/`rotation` are the placed values).
+/// placed pads when `position`/`rotation` are the placed values): shape,
+/// size (`width` x `height` before rotation, also as `size`), corner
+/// radius, copper side, and the holes with `drill` (diameter of the first
+/// hole, `null` for SMT pads).
 pub fn pad_geometry(pad: &Pad, position: Point, rotation: Angle) -> Value {
     let holes: Vec<Value> = pad
         .holes()
@@ -61,18 +64,24 @@ pub fn pad_geometry(pad: &Pad, position: Point, rotation: Angle) -> Value {
             json!({
                 "diameter": mm(h.diameter()),
                 "slot": h.is_slot(),
+                // Relative to the pad center, unrotated.
+                "path": path(h.path()),
             })
         })
         .collect();
+    let drill = pad.holes().iter().next().map(|h| mm(h.diameter()));
     json!({
         "position": point(position),
         "rotation": angle(rotation),
         "shape": pad.shape().to_str(),
         "width": mm(pad.width()),
         "height": mm(pad.height()),
+        "size": { "width": mm(pad.width()), "height": mm(pad.height()) },
+        "corner_radius_ratio": pad.radius().to_normalized(),
         "tht": pad.is_tht(),
         "side": if pad.is_tht() { "tht" } else { pad.component_side().to_str() },
         "function": pad.function().to_str(),
+        "drill": drill,
         "holes": holes,
     })
 }

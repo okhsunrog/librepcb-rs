@@ -151,6 +151,17 @@ pub enum Error {
     /// A background task panicked or was cancelled.
     #[error("Background task failed: {0}")]
     Task(String),
+    /// A `git` command failed (library installation from its repository).
+    #[error("git: {0}")]
+    Git(String),
+    /// Both the ZIP download and the git fallback of a library failed.
+    #[error("{zip}; git fallback: {git}")]
+    ZipAndGit {
+        /// The error of the ZIP download.
+        zip: Box<Error>,
+        /// The error of the git fallback.
+        git: Box<Error>,
+    },
 }
 
 impl From<reqwest::Error> for Error {

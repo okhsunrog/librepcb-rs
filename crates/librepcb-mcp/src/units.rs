@@ -14,6 +14,7 @@ use crate::error::{ToolError, ToolResult};
 
 /// A point in millimeters.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PointMm {
     /// X coordinate in millimeters.
     pub x: f64,

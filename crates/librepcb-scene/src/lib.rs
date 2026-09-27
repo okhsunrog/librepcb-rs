@@ -37,6 +37,7 @@ mod error;
 pub mod export;
 mod footprint;
 mod render;
+pub mod resources;
 mod schematic;
 mod shapes;
 mod symbol;
@@ -55,24 +56,14 @@ pub use symbol::SymbolScene;
 
 /// Loads the application's default stroke font (upstream
 /// `Application::getDefaultStrokeFont()`, `newstroke.bene`) from the
-/// resources directory: `$LIBREPCB_SHARE/fontobene`, `../share/librepcb/fontobene`
-/// relative to the executable, or the upstream checkout the crate was
-/// built against. `None` if not found.
+/// resources directory (`$LIBREPCB_SHARE/fontobene` or
+/// `../share/librepcb/fontobene` relative to the executable), else the font
+/// embedded into the binary (see [`resources`]). Always `Some` (kept as
+/// `Option` for callers which handle a missing font).
 pub fn default_stroke_font() -> Option<librepcb_core::font::StrokeFont> {
-    const FILE: &str = "fontobene/newstroke.bene";
-    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
-    if let Ok(dir) = std::env::var("LIBREPCB_SHARE") {
-        dirs.push(dir.into());
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(bin) = exe.parent()
-    {
-        dirs.push(bin.join("../share/librepcb"));
-    }
-    dirs.push(std::path::Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("share/librepcb"));
-    dirs.into_iter()
-        .find_map(|dir| std::fs::read(dir.join(FILE)).ok())
-        .map(librepcb_core::font::StrokeFont::new)
+    Some(librepcb_core::font::StrokeFont::new(
+        resources::default_stroke_font_data(),
+    ))
 }
 
 pub use librepcb_canvas;

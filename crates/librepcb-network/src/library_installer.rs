@@ -21,7 +21,28 @@ use crate::api_endpoint::{ApiEndpoint, Library};
 use crate::error::{Error, Result};
 use crate::file_download::ChecksumAlgorithm;
 use crate::library_download::LibraryDownload;
+use crate::library_git;
 use crate::network_access_manager::NetworkAccessManager;
+
+/// How a library was installed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallMethod {
+    /// ZIP download from the API's download URL (like upstream).
+    Zip,
+    /// Clone of the library's git repository, after the ZIP download
+    /// failed (see [`library_git`](crate::library_git)).
+    Git,
+}
+
+impl InstallMethod {
+    /// `"zip"` or `"git"`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Zip => "zip",
+            Self::Git => "git",
+        }
+    }
+}
 
 /// A successfully installed library.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +55,8 @@ pub struct InstalledLibrary {
     pub version: Version,
     /// Library directory.
     pub directory: FilePath,
+    /// How the library was installed.
+    pub method: InstallMethod,
 }
 
 /// Requests the complete (all pages) library list from an API endpoint.
@@ -122,16 +145,19 @@ pub async fn install_libraries(
 ) -> Result<Vec<InstalledLibrary>> {
     // Limit number of parallel file access threads (like upstream).
     let semaphore = Arc::new(Semaphore::new(4));
+    let git_available = tokio::sync::OnceCell::new();
+    let git_available = &git_available;
     let downloads = libraries.iter().map(|lib| {
         let semaphore = Arc::clone(&semaphore);
         async move {
-            let result = async {
+            let dest_dir = remote_libraries_dir.path_to(&format!("{}.lplib", lib.uuid));
+            let existing = existing_dirs.get(&lib.uuid).cloned().unwrap_or_default();
+            let zip = async {
                 let url = lib
                     .download_url
                     .clone()
                     .ok_or_else(|| Error::NoDownloadUrl(lib.name.clone()))?;
-                let dest_dir = remote_libraries_dir.path_to(&format!("{}.lplib", lib.uuid));
-                let mut dl = LibraryDownload::new(url, dest_dir, semaphore)?;
+                let mut dl = LibraryDownload::new(url, dest_dir.clone(), semaphore)?;
                 if let Some(size) = lib.download_size.filter(|s| *s > 0) {
                     dl = dl.expected_zip_file_size(size);
                 }
@@ -140,23 +166,54 @@ pub async fn install_libraries(
                         .map_err(|e| Error::Transport(format!("invalid SHA-256: {e}")))?;
                     dl = dl.expected_checksum(ChecksumAlgorithm::Sha256, checksum);
                 }
-                if let Some(dirs) = existing_dirs.get(&lib.uuid) {
-                    dl = dl.existing_dirs_to_replace(dirs.clone());
-                }
+                dl = dl.existing_dirs_to_replace(existing.clone());
                 log::info!("Install library {} v{}...", lib.name, lib.version);
-                let directory = dl.download(nam).await?;
-                Ok(InstalledLibrary {
+                dl.download(nam).await
+            }
+            .await;
+            let result = match zip {
+                Ok(directory) => Ok((directory, InstallMethod::Zip)),
+                Err(zip_err) => match &lib.repository_url {
+                    Some(repository)
+                        if !matches!(zip_err, Error::Aborted)
+                            && *git_available.get_or_init(library_git::git_available).await =>
+                    {
+                        log::warn!(
+                            "Download of library {} failed ({zip_err}), cloning {repository}.",
+                            lib.name
+                        );
+                        let commit = lib
+                            .download_url
+                            .as_ref()
+                            .and_then(library_git::commit_of_download_url);
+                        library_git::clone_library(
+                            repository,
+                            commit.as_deref(),
+                            &dest_dir,
+                            &existing,
+                        )
+                        .await
+                        .map(|directory| (directory, InstallMethod::Git))
+                        .map_err(|git_err| Error::ZipAndGit {
+                            zip: Box::new(zip_err),
+                            git: Box::new(git_err),
+                        })
+                    }
+                    _ => Err(zip_err),
+                },
+            };
+            result
+                .map(|(directory, method)| InstalledLibrary {
                     uuid: lib.uuid,
                     name: lib.name.clone(),
                     version: lib.version.clone(),
                     directory,
+                    method,
                 })
-            }
-            .await;
-            result.map_err(|e| Error::LibraryInstall {
-                library: lib.name.clone(),
-                source: Box::new(e),
-            })
+                .map_err(|e| Error::LibraryInstall {
+                    library: lib.name.clone(),
+                    source: Box::new(e),
+                })
         }
     });
     join_all(downloads).await.into_iter().collect()

@@ -88,6 +88,21 @@ fn workspace_library_tools() {
     assert_eq!(device["kind"], "device");
     assert!(device["component"]["name"].is_string());
     assert!(device["package"]["name"].is_string());
+    assert_eq!(device["match"], "whole");
+
+    // Multi-word queries: all words (here: component name + device name).
+    let out = library::library_search(
+        &session,
+        LibrarySearchArgs {
+            query: "resistor 0805".into(),
+            kind: Some(LibKind::Device),
+            limit: None,
+        },
+    )
+    .unwrap();
+    let elements = out.result["elements"].as_array().unwrap();
+    assert_eq!(elements[0]["uuid"], device["uuid"], "{elements:#?}");
+    assert_eq!(elements[0]["match"], "all_words");
 
     // Device details: pad-signal map and footprints with pads.
     let out = library::library_element(
@@ -104,10 +119,20 @@ fn workspace_library_tools() {
     assert_eq!(pads.len(), 2);
     assert!(pads.iter().all(|p| p["pad_name"].is_string()));
     assert!(pads.iter().all(|p| p["signal_name"].is_string()));
+    // With the geometry of the default footprint.
+    assert!(
+        pads.iter()
+            .all(|p| p["size"]["width"].as_f64().unwrap() > 0.0)
+    );
+    assert!(pads.iter().all(|p| p["position"]["x"].is_number()));
+    assert!(pads.iter().all(|p| p["shape"].is_string()));
     let footprint_pads = d["footprints"][0]["pads"].as_array().unwrap();
     assert_eq!(footprint_pads.len(), 2);
     assert!(footprint_pads[0]["width"].as_f64().unwrap() > 0.0);
     assert!(footprint_pads[0]["position"]["x"].is_number());
+    assert!(footprint_pads[0]["rotation"].is_number());
+    assert!(footprint_pads[0]["height"].as_f64().unwrap() > 0.0);
+    assert!(footprint_pads[0].get("drill").is_some());
 
     // Component details: signals and gates with pin names.
     let component = d["component"]["uuid"].as_str().unwrap().to_owned();
@@ -160,11 +185,20 @@ fn workspace_library_tools() {
     assert_eq!(names(&out.result["schematics"], "name"), ["Main"]);
     assert_eq!(names(&out.result["boards"], "name"), ["default"]);
     assert_eq!(out.result["unsaved_changes"], false);
-    assert!(
-        ws_dir
-            .join("projects/My_Board/resources/fontobene/newstroke.bene")
-            .is_file()
-    );
+    // The stroke font: from LIBREPCB_SHARE if set, else embedded into the
+    // binary (identical to upstream's).
+    let font =
+        std::fs::read(ws_dir.join("projects/My_Board/resources/fontobene/newstroke.bene")).unwrap();
+    if std::env::var_os("LIBREPCB_SHARE").is_none() {
+        assert_eq!(
+            font,
+            std::fs::read(
+                Path::new(env!("LIBREPCB_UPSTREAM_DIR"))
+                    .join("share/librepcb/fontobene/newstroke.bene")
+            )
+            .unwrap()
+        );
+    }
     let out = layout::board_get(&session, BoardGetArgs::default()).unwrap();
     let outline = &out.result["outlines"][0]["path"];
     assert_eq!(outline.as_array().unwrap().len(), 5);
@@ -392,7 +426,7 @@ fn checks_exports_and_render() {
         let out = output::render(
             &session,
             RenderArgs {
-                target,
+                target: Some(target),
                 width: Some(400),
                 height: Some(300),
                 ..Default::default()
@@ -402,6 +436,28 @@ fn checks_exports_and_render() {
         assert_eq!(out.images.len(), 1);
         assert!(out.images[0].starts_with(b"\x89PNG"));
     }
+    // Without target, `side` or `board` select the board.
+    let out = output::render(
+        &session,
+        RenderArgs {
+            side: Some(SideArg::Bottom),
+            width: Some(200),
+            height: Some(150),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(out.summary.contains("board"), "{}", out.summary);
+    let out = output::render(
+        &session,
+        RenderArgs {
+            width: Some(200),
+            height: Some(150),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(out.summary.contains("schematic"), "{}", out.summary);
     let err = output::export_bom(
         &session,
         ExportBomArgs {

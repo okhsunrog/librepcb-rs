@@ -16,6 +16,8 @@
 //! - [`ApiEndpoint`], [`OrderPcbApiRequest`]: LibrePCB API server access.
 //! - [`LibraryDownload`]: download and atomic installation of a library
 //!   ZIP.
+//! - [`library_git`]: library installation from its git repository (fallback
+//!   when the ZIP download is blocked).
 //! - [`library_installer`]: installation of libraries from an API server
 //!   into a workspace ([`install_official_libraries()`]).
 
@@ -23,6 +25,7 @@ mod api_endpoint;
 mod error;
 mod file_download;
 mod library_download;
+pub mod library_git;
 pub mod library_installer;
 mod network_access_manager;
 mod network_request;
@@ -35,8 +38,8 @@ pub use file_download::{
 };
 pub use library_download::{LibraryDownload, find_library_in_zip};
 pub use library_installer::{
-    InstalledLibrary, fetch_library_list, install_libraries, install_official_libraries,
-    installed_library_dirs, select_libraries,
+    InstallMethod, InstalledLibrary, fetch_library_list, install_libraries,
+    install_official_libraries, installed_library_dirs, select_libraries,
 };
 pub use network_access_manager::{ClientInfo, NetworkAccessManager};
 pub use network_request::{NetworkRequest, Progress, Reply};

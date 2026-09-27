@@ -109,6 +109,7 @@ fn board_overview(p: &Project, board: BoardId) -> ToolResult<Value> {
 
 /// Arguments of `board_add`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BoardAddArgs {
     /// Name of the board.
     pub name: String,
@@ -138,6 +139,7 @@ pub fn board_add(session: &mut Session, args: BoardAddArgs) -> ToolResult<ToolOu
 
 /// Arguments of `board_set_outline`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BoardSetOutlineArgs {
     /// Board name, index or UUID (default: first board).
     #[serde(default)]
@@ -224,6 +226,7 @@ pub enum Side {
 
 /// Arguments of `device_place`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DevicePlaceArgs {
     /// Designator (e.g. "R1") or UUID of the component.
     pub component: String,
@@ -350,6 +353,7 @@ pub fn device_place(session: &mut Session, args: DevicePlaceArgs) -> ToolResult<
 
 /// Arguments of `device_auto_place`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DeviceAutoPlaceArgs {
     /// Board name, index or UUID (default: first board).
     #[serde(default)]
@@ -466,6 +470,7 @@ fn endpoint(p: &Project, board: BoardId, arg: &EndpointArg) -> ToolResult<TraceE
 
 /// Arguments of `trace_add`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TraceAddArgs {
     /// Start: pad "R1.1", via/junction UUID, or point {x, y} in mm.
     pub from: EndpointArg,
@@ -569,6 +574,7 @@ pub fn trace_add(session: &mut Session, args: TraceAddArgs) -> ToolResult<ToolOu
 
 /// Arguments of `via_add`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ViaAddArgs {
     /// Position in mm.
     pub position: PointMm,
@@ -631,6 +637,7 @@ pub fn via_add(session: &mut Session, args: ViaAddArgs) -> ToolResult<ToolOutput
 
 /// Arguments of `trace_remove`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TraceRemoveArgs {
     /// Remove all traces and vias of these nets.
     #[serde(default)]
@@ -718,6 +725,7 @@ pub enum ConnectStyleArg {
 
 /// Arguments of `plane_add`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PlaneAddArgs {
     /// Net name or UUID (e.g. "GND").
     pub net: String,
@@ -824,6 +832,7 @@ pub fn plane_add(session: &mut Session, args: PlaneAddArgs) -> ToolResult<ToolOu
 
 /// Arguments of `design_rules_set`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DesignRulesSetArgs {
     /// Board name, index or UUID (default: first board).
     #[serde(default)]
@@ -946,6 +955,7 @@ pub enum RouterBackend {
 
 /// Arguments of `autoroute`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AutorouteArgs {
     /// Router backend (default auto: Freerouting if installed, else
     /// builtin).
@@ -1281,6 +1291,7 @@ pub fn autoroute(session: &mut Session, args: AutorouteArgs) -> ToolResult<ToolO
 
 /// Arguments of `specctra_export`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SpecctraExportArgs {
     /// Output file (default: `<project>/output/<version>/<board>.dsn`).
     #[serde(default)]
@@ -1334,6 +1345,7 @@ pub fn specctra_export(session: &Session, args: SpecctraExportArgs) -> ToolResul
 
 /// Arguments of `specctra_import`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SpecctraImportArgs {
     /// The Specctra session file (*.ses), e.g. written by an external
     /// autorouter from a specctra_export file.
@@ -1384,6 +1396,7 @@ pub fn specctra_import(session: &mut Session, args: SpecctraImportArgs) -> ToolR
 
 /// Arguments of `planes_rebuild` and `unrouted`.
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BoardArgs {
     /// Board name, index or UUID (default: first board).
     #[serde(default)]
