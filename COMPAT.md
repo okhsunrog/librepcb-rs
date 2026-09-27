@@ -620,3 +620,48 @@ Rendering only; no file is affected.
   (it modifies the board; to be added as mutation with the editor).
 - `DrcMsgInvalidPadConnection` keeps upstream's untranslated `'%2'` in its
   message (upstream substitutes only the first placeholder).
+
+## editor (crate librepcb-editor)
+
+- **Undo stack**: every change is recorded in a group (upstream `execCmd()`
+  of a single command is a group with one operation). The redo history is
+  discarded when a group is *committed*; upstream discards it when a group
+  is started, so an aborted group also loses the redo history there. If
+  undoing or redoing fails (a violated model invariant), the applied steps
+  are rolled back and the history is cleared; upstream rethrows and leaves
+  the stack as it is. `state_id()` replaces `getUniqueStateId()`/the
+  `stateModified` signal.
+- **Combining net segments** (`CmdCombineSchematicNetSegments`,
+  `CmdCombineBoardNetSegments`, used when a wire or trace connects two
+  segments) moves the elements with their UUIDs; upstream re-creates
+  junctions, pads, vias and labels with new random UUIDs. Likewise the
+  segments re-added after removing items keep the UUIDs of their elements
+  (upstream: new junction and label UUIDs). Files differ only in these
+  (random) UUIDs.
+- **Forced net names** of component signals (e.g. `{{VALUE}}` of supply
+  symbols) are not applied by the wiring commands and after removals yet
+  (needs the project attribute lookup); upstream renames or merges nets to
+  the forced name. The agent-level `net` parameters of the wiring commands
+  cover the same need explicitly.
+- **Automatic trace width**: the net class default or the design rules
+  default; upstream prefers the median width of the traces already at the
+  start anchor.
+- **Removing traces as a side effect** (disconnecting component signals,
+  replacing devices, changing the net of a schematic segment) does not
+  remove unused project library elements; upstream's nested
+  `CmdRemoveBoardItems` does. The explicit `RemoveBoardItems` and all
+  schematic removals do, like upstream.
+- **`AddBoard`** with `copy_settings_from` copies only the board settings;
+  upstream `Board::copyFrom()` also copies all items. The automatic plane
+  outline of `AddPlane` uses the vertices of the board outline polygons
+  (arc bulges are ignored); upstream uses the bounding rectangle including
+  arcs.
+- **Adding a via** creates a separate net segment; upstream's add-via tool
+  also merges it with traces/junctions of the same net under the cursor.
+- **`create_project()`** copies the stroke fonts from a given directory
+  (upstream: the application resources directory), because the core's
+  `Project::create()` does not know the application resources yet.
+- Interactive steps are replaced by parameters: no snapping to the grid or
+  to items, gates of a multi-gate component are placed with a fixed offset
+  unless placed individually, and the default device of `AddDevice` is the
+  first device of the component's assembly options.
