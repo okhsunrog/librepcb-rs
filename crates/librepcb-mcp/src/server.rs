@@ -1,15 +1,17 @@
 //! The MCP server: tool registration (rmcp tool router) on top of the
 //! synchronous tool implementations in [`tools`](crate::tools).
 //!
-//! Every tool runs its core work in `tokio::task::spawn_blocking` with the
-//! session lock held only inside the blocking closure (never across
-//! `.await`). Results use the envelope of [`outcome`](crate::outcome).
-//! `autoroute` with Freerouting runs the router between two locked steps
-//! (export, strict import), so other tools stay responsive meanwhile.
+//! Every tool runs its core work in `tokio::task::spawn_blocking` through
+//! [`McpState::call()`], which locks the session's workspace and project
+//! only inside the blocking closure (never across `.await`) and notifies
+//! the host afterwards. Results use the envelope of
+//! [`outcome`](crate::outcome). `autoroute` with Freerouting runs the
+//! router between two locked steps (export, strict import), so other tools
+//! and the host application stay responsive meanwhile. The host is asked
+//! (without any lock held) before workspace and project lifecycle tools.
 
 use std::sync::Arc;
 
-use parking_lot::Mutex;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::Parameters;
@@ -21,8 +23,9 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 
 use crate::error::{ToolError, ToolResult};
+use crate::host::{HostDecision, McpHost, McpState, ProjectCreateRequest, StandaloneHost};
 use crate::outcome::{ToolOutput, error_result};
-use crate::session::Session;
+use crate::session::{Session, absolute_path};
 use crate::tools::board_edit::{
     AutorouteArgs, AutoroutePlan, BoardAddArgs, BoardArgs, BoardSetOutlineArgs, DesignRulesSetArgs,
     DeviceAutoPlaceArgs, DevicePlaceArgs, PlaneAddArgs, SpecctraExportArgs, SpecctraImportArgs,
@@ -75,10 +78,15 @@ io, network, not_available, internal). Nothing is written to disk before project
 /// Message prefix of rmcp's argument deserialization errors.
 const DESERIALIZE_ERROR_PREFIX: &str = "failed to deserialize parameters:";
 
-/// The LibrePCB MCP server (cheap to clone; clones share the session).
+tokio::task_local! {
+    /// The name of the tool being called (for the host's change notices).
+    static CURRENT_TOOL: String;
+}
+
+/// The LibrePCB MCP server (cheap to clone; clones share the state).
 #[derive(Clone)]
 pub struct LibrePcbMcp {
-    session: Arc<Mutex<Session>>,
+    state: McpState,
     tool_router: ToolRouter<Self>,
 }
 
@@ -89,23 +97,24 @@ impl std::fmt::Debug for LibrePcbMcp {
 }
 
 impl LibrePcbMcp {
-    /// Creates a server on `session`.
+    /// Creates a standalone server (host: [`StandaloneHost`]) on `session`.
     pub fn new(session: Session) -> Self {
-        Self::with_shared_session(Arc::new(Mutex::new(session)))
+        Self::with_state(McpState::from_session(session, Arc::new(StandaloneHost)))
     }
 
-    /// Creates a server on a shared session (e.g. one per HTTP client
-    /// session, all working on the same project).
-    pub fn with_shared_session(session: Arc<Mutex<Session>>) -> Self {
+    /// Creates a server on a shared state (e.g. one per HTTP client
+    /// session, all working on the same project, or embedded in a host
+    /// application).
+    pub fn with_state(state: McpState) -> Self {
         Self {
-            session,
+            state,
             tool_router: Self::tool_router(),
         }
     }
 
-    /// Returns the shared session.
-    pub fn session(&self) -> &Arc<Mutex<Session>> {
-        &self.session
+    /// Returns the shared state.
+    pub fn state(&self) -> &McpState {
+        &self.state
     }
 
     /// Returns the names of all tools.
@@ -159,24 +168,72 @@ impl LibrePcbMcp {
     }
 
     /// The revision of the open project, if any.
-    fn current_revision(&self) -> Option<u64> {
-        self.session
-            .lock()
-            .project
-            .as_ref()
-            .map(|p| p.project().revision())
+    async fn current_revision(&self) -> Option<u64> {
+        self.blocking(|s| Ok(s.project.as_ref().map(|p| p.project().revision())))
+            .await
+            .ok()
+            .flatten()
     }
 
-    /// Runs `f` on the session in a blocking thread.
+    /// Runs `f` on the locked session in a blocking thread (see
+    /// [`McpState::call()`]).
     async fn blocking<T, F>(&self, f: F) -> ToolResult<T>
     where
         T: Send + 'static,
         F: FnOnce(&mut Session) -> ToolResult<T> + Send + 'static,
     {
-        let session = Arc::clone(&self.session);
-        tokio::task::spawn_blocking(move || f(&mut session.lock()))
+        let state = self.state.clone();
+        let tool = CURRENT_TOOL.try_with(Clone::clone).unwrap_or_default();
+        tokio::task::spawn_blocking(move || state.call(&tool, f))
             .await
             .map_err(|e| ToolError::internal(format!("tool failed: {e}")))?
+    }
+
+    /// Asks the host in a blocking thread (no lock held).
+    async fn ask_host<T, F>(&self, f: F) -> ToolResult<HostDecision<T>>
+    where
+        T: Send + 'static,
+        F: FnOnce(&dyn McpHost) -> HostDecision<T> + Send + 'static,
+    {
+        let host = Arc::clone(self.state.host());
+        tokio::task::spawn_blocking(move || f(host.as_ref()))
+            .await
+            .map_err(|e| ToolError::internal(format!("host request failed: {e}")))
+    }
+
+    /// Returns `e` as tool result (with the current revision).
+    async fn fail(&self, e: ToolError) -> Result<CallToolResult, McpError> {
+        self.run(move |_| Err(e)).await
+    }
+
+    /// `workspace_open` / `workspace_create`, asking the host first.
+    async fn workspace_open_or_create(
+        &self,
+        args: WorkspacePathArgs,
+        create: bool,
+    ) -> Result<CallToolResult, McpError> {
+        let path = match absolute_path(&args.path) {
+            Ok(path) => path,
+            Err(e) => return self.fail(e).await,
+        };
+        match self
+            .ask_host(move |h| h.open_workspace(&path, create))
+            .await
+        {
+            Ok(HostDecision::Allow) => {
+                self.run(move |s| project::workspace_open(s, args, create))
+                    .await
+            }
+            Ok(HostDecision::Delegated(ws)) => {
+                self.run(move |s| {
+                    s.attach_workspace(ws);
+                    project::workspace_output(s.workspace()?, create)
+                })
+                .await
+            }
+            Ok(HostDecision::Refuse(message)) => self.fail(ToolError::refused(message)).await,
+            Err(e) => self.fail(e).await,
+        }
     }
 
     /// Runs a tool implementation and builds the MCP result.
@@ -220,8 +277,7 @@ impl LibrePcbMcp {
         &self,
         Parameters(args): Parameters<WorkspacePathArgs>,
     ) -> Result<CallToolResult, McpError> {
-        self.run(move |s| project::workspace_open(s, args, false))
-            .await
+        self.workspace_open_or_create(args, false).await
     }
 
     #[tool(
@@ -232,8 +288,7 @@ impl LibrePcbMcp {
         &self,
         Parameters(args): Parameters<WorkspacePathArgs>,
     ) -> Result<CallToolResult, McpError> {
-        self.run(move |s| project::workspace_open(s, args, true))
-            .await
+        self.workspace_open_or_create(args, true).await
     }
 
     #[tool(
@@ -246,7 +301,22 @@ impl LibrePcbMcp {
         &self,
         Parameters(args): Parameters<ProjectCreateArgs>,
     ) -> Result<CallToolResult, McpError> {
-        self.run(move |s| project::project_create(s, args)).await
+        if let Err(e) = self.blocking(|s| s.ensure_no_project()).await {
+            return self.fail(e).await;
+        }
+        let request = ProjectCreateRequest {
+            name: args.name.clone(),
+            directory: args.directory.clone(),
+        };
+        match self.ask_host(move |h| h.create_project(&request)).await {
+            Ok(HostDecision::Allow) => self.run(move |s| project::project_create(s, args)).await,
+            Ok(HostDecision::Delegated(p)) => {
+                self.run(move |s| project::project_attach(s, p, "Created"))
+                    .await
+            }
+            Ok(HostDecision::Refuse(message)) => self.fail(ToolError::refused(message)).await,
+            Err(e) => self.fail(e).await,
+        }
     }
 
     #[tool(
@@ -257,7 +327,23 @@ impl LibrePcbMcp {
         &self,
         Parameters(args): Parameters<ProjectOpenArgs>,
     ) -> Result<CallToolResult, McpError> {
-        self.run(move |s| project::project_open(s, args)).await
+        let path = match self.blocking(|s| s.ensure_no_project()).await {
+            Ok(()) => absolute_path(&args.path),
+            Err(e) => Err(e),
+        };
+        let path = match path {
+            Ok(path) => path,
+            Err(e) => return self.fail(e).await,
+        };
+        match self.ask_host(move |h| h.open_project(&path)).await {
+            Ok(HostDecision::Allow) => self.run(move |s| project::project_open(s, args)).await,
+            Ok(HostDecision::Delegated(p)) => {
+                self.run(move |s| project::project_attach(s, p, "Opened"))
+                    .await
+            }
+            Ok(HostDecision::Refuse(message)) => self.fail(ToolError::refused(message)).await,
+            Err(e) => self.fail(e).await,
+        }
     }
 
     #[tool(description = "Save the open project to disk (upstream file format).")]
@@ -276,7 +362,27 @@ impl LibrePcbMcp {
         &self,
         Parameters(args): Parameters<ProjectCloseArgs>,
     ) -> Result<CallToolResult, McpError> {
-        self.run(move |s| project::project_close(s, args)).await
+        let discard = args.discard_changes;
+        let project = self
+            .blocking(move |s| {
+                s.check_close_project(discard)?;
+                s.shared_project().ok_or_else(ToolError::no_project)
+            })
+            .await;
+        let project = match project {
+            Ok(p) => p,
+            Err(e) => return self.fail(e).await,
+        };
+        match self
+            .ask_host(move |h| h.close_project(&project, discard))
+            .await
+        {
+            Ok(HostDecision::Allow | HostDecision::Delegated(())) => {
+                self.run(move |s| project::project_close(s, args)).await
+            }
+            Ok(HostDecision::Refuse(message)) => self.fail(ToolError::refused(message)).await,
+            Err(e) => self.fail(e).await,
+        }
     }
 
     #[tool(
@@ -854,10 +960,12 @@ impl ServerHandler for LibrePcbMcp {
         // the result envelope), not protocol errors.
         let name = request.name.clone();
         if let Err(e) = self.check_arguments(&name, request.arguments.as_ref()) {
-            return Ok(error_result(&e, self.current_revision()).into());
+            return Ok(error_result(&e, self.current_revision().await).into());
         }
         let context = ToolCallContext::new(self, request, context);
-        let response = self.tool_router.call(context).await?;
+        let response = CURRENT_TOOL
+            .scope(name.to_string(), self.tool_router.call(context))
+            .await?;
         // rmcp reports argument deserialization failures as plain error
         // results; give them the envelope with `invalid_argument`.
         if let CallToolResponse::Complete(result) = &response
@@ -873,7 +981,7 @@ impl ServerHandler for LibrePcbMcp {
                 "Invalid arguments for tool {name}: {}",
                 message.trim()
             ));
-            return Ok(error_result(&e, self.current_revision()).into());
+            return Ok(error_result(&e, self.current_revision().await).into());
         }
         Ok(response)
     }

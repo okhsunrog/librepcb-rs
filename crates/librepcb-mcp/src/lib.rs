@@ -92,15 +92,20 @@
 //!   conventions.
 
 pub mod error;
+pub mod host;
 pub mod outcome;
 pub mod resolve;
 pub mod server;
 pub mod session;
 pub mod tools;
+pub mod transport;
 pub mod units;
 pub mod views;
 
 pub use error::{ErrorKind, ToolError, ToolResult};
+pub use host::{
+    ChangeNotice, Focus, HostDecision, McpHost, McpState, ProjectCreateRequest, StandaloneHost,
+};
 pub use outcome::ToolOutput;
 pub use server::LibrePcbMcp;
-pub use session::Session;
+pub use session::{OpenProject, Session, SharedProject, SharedWorkspace};

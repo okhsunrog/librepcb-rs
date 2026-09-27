@@ -38,6 +38,9 @@ pub enum ErrorKind {
     /// The requested feature or backend is not available in this build
     /// (e.g. an external router which is not integrated).
     NotAvailable,
+    /// The host application embedding the server refused the operation
+    /// (e.g. closing a project the user is editing).
+    Refused,
 }
 
 impl ErrorKind {
@@ -54,6 +57,7 @@ impl ErrorKind {
             Self::Network => "network",
             Self::Internal => "internal",
             Self::NotAvailable => "not_available",
+            Self::Refused => "refused",
         }
     }
 }
@@ -99,6 +103,11 @@ impl ToolError {
     /// Shorthand for [`ErrorKind::Internal`].
     pub fn internal(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Internal, message)
+    }
+
+    /// Shorthand for [`ErrorKind::Refused`].
+    pub fn refused(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Refused, message)
     }
 
     /// The error of tools which need an open project.
