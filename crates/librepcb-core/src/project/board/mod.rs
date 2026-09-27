@@ -20,9 +20,10 @@
 //! ([`Project::run_drc()`](crate::project::Project::run_drc)).
 //!
 //! [`BoardSpecctraExport`] writes Specctra DSN files for external
-//! autorouters.
+//! autorouters, [`BoardInteractiveHtmlBomGenerator`] the interactive HTML
+//! BOM.
 //!
-//! Not ported yet: the painters and the interactive HTML BOM export.
+//! Not ported yet: the painters.
 
 mod air_wire;
 mod air_wires_builder;
@@ -38,6 +39,7 @@ mod export_error;
 mod fabrication_output_settings;
 mod gerber_export;
 mod hole_data;
+mod interactive_html_bom_generator;
 pub(crate) mod keyed_map;
 mod net_segment;
 mod net_segment_splitter;
@@ -67,6 +69,7 @@ pub use gerber_export::{
     export_fabrication_data,
 };
 pub use hole_data::BoardHoleData;
+pub use interactive_html_bom_generator::BoardInteractiveHtmlBomGenerator;
 pub use net_segment::{BoardNetSegment, BoardSegmentElements, BoardViaProperties};
 pub use net_segment_splitter::{BoardNetSegmentParts, BoardNetSegmentSplitter};
 pub use pad_data::BoardPadData;

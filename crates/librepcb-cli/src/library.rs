@@ -33,7 +33,7 @@ use crate::output::{
 use crate::project::{clean_file_name, graphics_creator};
 
 /// Upstream `OccModel::throwNotAvailable()` (a build without OpenCascade).
-const OCC_NOT_AVAILABLE: &str =
+pub(crate) const OCC_NOT_AVAILABLE: &str =
     "Attempted to work with STEP file, but LibrePCB was compiled without OpenCascade.";
 
 /// Settings of symbol and footprint exports: the defaults without page
