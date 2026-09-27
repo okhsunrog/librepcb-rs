@@ -48,13 +48,13 @@ library that everything else builds on.
 | Libraries: symbols, packages, components, devices, categories, organizations, and their checks | done, check output identical to upstream |
 | Gerber, Excellon, IPC-D-356A, BOM, pick & place generators | done |
 | File format migrations (v0.1 → v1 → v2) | done |
-| Project model: circuit, schematics | done |
-| Project model: boards | in progress |
+| Project model: circuit, schematics, boards (with undoable mutations and a change journal) | done |
 | Plane fragments, DRC, ERC, output jobs, CLI | next |
 | MCP server, library manager, Specctra export for autorouting | planned |
 | Slint viewer and editor | planned (a rendering canvas already exists) |
 
-See [docs/roadmap.md](docs/roadmap.md) for the milestones.
+See [docs/roadmap.md](docs/roadmap.md) for the milestones and
+[docs/status.md](docs/status.md) for the current state and next steps.
 
 ## Repository layout
 

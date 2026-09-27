@@ -15,7 +15,8 @@ Read before working:
 - `docs/project-model-design.md`: the project model (UUID-keyed data tree,
   `Mutation`/`apply()` with inverses, change journal). Required reading for
   anything under `project/`.
-- `docs/roadmap.md`: milestones and what comes next.
+- `docs/status.md`: current state, next steps and how the work is organized.
+- `docs/roadmap.md`: milestones.
 - `docs/mcp-research-konnect.md`: MCP decisions.
 - `COMPAT.md`: intentional differences from upstream.
 
