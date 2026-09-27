@@ -11,7 +11,7 @@ use crate::types::{Angle, FileProofName, Length, Point, PositiveLength, Unsigned
 
 /// An image (file in the library element / project directory) placed in a
 /// symbol, schematic etc.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Image {
     uuid: Uuid,
     file_name: FileProofName,

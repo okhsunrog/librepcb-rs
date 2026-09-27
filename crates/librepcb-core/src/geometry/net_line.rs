@@ -10,7 +10,11 @@ use crate::types::{UnsignedLength, Uuid};
 ///
 /// The ordering is part of the file format (it defines which anchor is
 /// serialized as `from`): pins < bus junctions < junctions, then by UUIDs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde: externally tagged (`{"Junction": "<uuid>"}`,
+/// `{"BusJunction": {"segment": .., "junction": ..}}`,
+/// `{"Pin": {"symbol": .., "pin": ..}}`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum NetLineAnchor {
     /// A net junction of the schematic.
     Junction(Uuid),
@@ -118,7 +122,11 @@ impl DeserializeObject for NetLineAnchor {
 ///
 /// The anchors are normalized: [`p1()`](Self::p1) is never greater than
 /// [`p2()`](Self::p2).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Serde: `{"uuid", "width", "p1", "p2"}`; the anchors are normalized when
+/// deserializing.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(from = "NetLineData")]
 pub struct NetLine {
     uuid: Uuid,
     width: UnsignedLength,
@@ -172,6 +180,21 @@ impl NetLine {
         self.p2 = b;
         // upstream: emits onEdited(AnchorsChanged)
         true
+    }
+}
+
+/// Wire form of [`NetLine`] (deserialized, then normalized).
+#[derive(serde::Deserialize)]
+struct NetLineData {
+    uuid: Uuid,
+    width: UnsignedLength,
+    p1: NetLineAnchor,
+    p2: NetLineAnchor,
+}
+
+impl From<NetLineData> for NetLine {
+    fn from(d: NetLineData) -> Self {
+        Self::new(d.uuid, d.width, d.p1, d.p2)
     }
 }
 

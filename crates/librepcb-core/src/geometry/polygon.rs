@@ -5,7 +5,7 @@ use crate::serialization::{self, DeserializeObject, List, SExpression, Serialize
 use crate::types::{Layer, UnsignedLength, Uuid};
 
 /// A polygon (or polyline) on a layer.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Polygon {
     uuid: Uuid,
     layer: Layer,

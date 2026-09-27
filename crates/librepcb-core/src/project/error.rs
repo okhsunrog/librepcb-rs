@@ -50,6 +50,24 @@ pub enum EntityKind {
     Plane,
     /// A library element of the project library.
     LibraryElement,
+    /// A junction of a schematic net segment (upstream `SI_NetPoint`).
+    NetPoint,
+    /// A net line of a schematic net segment.
+    NetLine,
+    /// A net label of a schematic net segment.
+    NetLabel,
+    /// A junction of a schematic bus segment.
+    BusJunction,
+    /// A line of a schematic bus segment.
+    BusLine,
+    /// A label of a schematic bus segment.
+    BusLabel,
+    /// A polygon of a schematic.
+    SchematicPolygon,
+    /// A text of a schematic or symbol.
+    SchematicText,
+    /// An image of a schematic.
+    SchematicImage,
 }
 
 impl fmt::Display for EntityKind {
@@ -69,6 +87,15 @@ impl fmt::Display for EntityKind {
             Self::Device => "device",
             Self::Plane => "plane",
             Self::LibraryElement => "library element",
+            Self::NetPoint => "netpoint",
+            Self::NetLine => "netline",
+            Self::NetLabel => "netlabel",
+            Self::BusJunction => "bus junction",
+            Self::BusLine => "bus line",
+            Self::BusLabel => "bus label",
+            Self::SchematicPolygon => "polygon",
+            Self::SchematicText => "text",
+            Self::SchematicImage => "image",
         })
     }
 }
@@ -338,5 +365,151 @@ pub enum Error {
         component: String,
         /// Name of the component signal.
         signal: String,
+    },
+
+    // --- Schematic items ---
+    /// A symbol references a component instance which is not in the
+    /// circuit.
+    #[error("The component '{0}' does not exist in the circuit.")]
+    InexistentComponent(Uuid),
+    /// The symbol of a gate is not in the project library.
+    #[error(
+        "{}",
+        tr!(
+            "librepcb::SI_Symbol",
+            "No symbol with the UUID \"{0}\" found in the project's library.",
+            .0
+        )
+    )]
+    MissingLibrarySymbol(Uuid),
+    /// A symbol references a gate (symbol variant item) which is not in the
+    /// symbol variant of its component.
+    #[error("Invalid symbol item in circuit: \"{0}\".")]
+    InvalidSymbolItem(Uuid),
+    /// A gate of a component is already placed as a symbol.
+    #[error("Symbol item UUID already exists in circuit: \"{0}\".")]
+    SymbolItemAlreadyPlaced(Uuid),
+    /// Symbols of one component must be placed in the same schematic.
+    #[error(
+        "{}",
+        tr!(
+            "librepcb::ComponentInstance",
+            "All symbols of a component must be placed in the same schematic."
+        )
+    )]
+    SymbolsInDifferentSchematics,
+    /// The pins of the library symbol do not match the pin-signal-map of
+    /// the gate.
+    #[error(
+        "The pin count of the symbol instance \"{0}\" does not match with the \
+         pin-signal-map of its component."
+    )]
+    PinCountMismatch(Uuid),
+    /// A pin UUID of the library symbol is used several times.
+    #[error("The symbol pin UUID \"{0}\" is defined multiple times.")]
+    DuplicateSymbolPin(Uuid),
+    /// A net line references a junction which is not in its net segment.
+    #[error("Net point '{0}' does not exist in schematic.")]
+    InexistentNetPoint(Uuid),
+    /// A net line references a bus segment which is not in the schematic.
+    #[error("Bus segment '{0}' does not exist in schematic.")]
+    InexistentBusSegment(Uuid),
+    /// A net or bus line references a bus junction which does not exist.
+    #[error("Bus junction '{segment}:{junction}' does not exist in schematic.")]
+    InexistentBusJunction {
+        /// The bus segment.
+        segment: Uuid,
+        /// The junction.
+        junction: Uuid,
+    },
+    /// A net line references a symbol which is not in the schematic.
+    #[error("Symbol '{0}' does not exist in schematic.")]
+    InexistentSymbol(Uuid),
+    /// A net line references a symbol pin which does not exist (or is not
+    /// connected to a component signal).
+    #[error("Symbol pin '{symbol}:{pin}' does not exist in schematic.")]
+    InexistentSymbolPin {
+        /// The symbol.
+        symbol: Uuid,
+        /// The library pin.
+        pin: Uuid,
+    },
+    /// A line is connected to a pin whose component signal is connected to
+    /// another net.
+    #[error(
+        "Line of net \"{net}\" is not allowed to be connected to pin \"{signal}\" of \
+         component \"{component}\" ({lib_component}) since it is connected to the net \
+         \"{pin_net}\"."
+    )]
+    AnchorNetMismatch {
+        /// Name of the net of the line.
+        net: String,
+        /// Name of the component signal of the pin.
+        signal: String,
+        /// Name of the component instance.
+        component: String,
+        /// Name of the library component.
+        lib_component: String,
+        /// Name of the net of the component signal (empty if none).
+        pin_net: String,
+    },
+    /// Lines of several net segments are connected to one pin.
+    #[error(
+        "There are lines from multiple net segments connected to the pin \"{signal}\" of \
+         component \"{component}\" ({lib_component})."
+    )]
+    AnchorInMultipleSegments {
+        /// Name of the component signal of the pin.
+        signal: String,
+        /// Name of the component instance.
+        component: String,
+        /// Name of the library component.
+        lib_component: String,
+    },
+    /// Both endpoints of a line are the same.
+    #[error(
+        "{}",
+        match .kind {
+            EntityKind::BusLine => "SI_BusLine: both endpoints are the same.",
+            _ => "SI_NetLine: both endpoints are the same.",
+        }
+    )]
+    DegenerateLine {
+        /// Kind of the line.
+        kind: EntityKind,
+        /// The line.
+        uuid: Uuid,
+    },
+    /// The junctions and lines of a net segment are not all connected.
+    #[error(
+        "{}",
+        if *.after_removal {
+            format!("The netsegment with the UUID \"{uuid}\" is not cohesive!")
+        } else {
+            format!(
+                "The netsegment with the UUID \"{uuid}\" is not cohesive! If this error \
+                 occurs after opening an existing project with a newer LibrePCB version, \
+                 please contact us."
+            )
+        }
+    )]
+    NetSegmentNotCohesive {
+        /// The net segment.
+        uuid: Uuid,
+        /// Whether elements were removed (upstream uses another message).
+        after_removal: bool,
+    },
+    /// The junctions and lines of a bus segment are not all connected.
+    #[error("The bus segment with the UUID \"{0}\" is not cohesive!")]
+    BusSegmentNotCohesive(Uuid),
+    /// An item cannot be removed or re-targeted because other items are
+    /// connected to it (upstream `LogicError`: a wired symbol pin, a
+    /// junction with lines, a non-empty segment whose net/bus changes).
+    #[error("The {kind} \"{uuid}\" cannot be modified because it is still in use!")]
+    ItemInUse {
+        /// Kind of the item.
+        kind: EntityKind,
+        /// The item.
+        uuid: Uuid,
     },
 }

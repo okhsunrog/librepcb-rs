@@ -59,6 +59,6 @@ pub use id::{
 pub use library::{LibraryElementKind, ProjectLibrary};
 pub use loader::ProjectLoader;
 pub use mutation::{BoardMutation, Mutation, SchematicMutation};
-pub use project::{Project, ProjectMetadata, ProjectSettings};
+pub use project::{Project, ProjectMetadata, ProjectSettings, ProjectView};
 pub use ref_index::{ComponentUses, NetUse, Reference};
 pub use schematic::SchematicChange;

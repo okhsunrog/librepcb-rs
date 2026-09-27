@@ -5,7 +5,7 @@ use crate::serialization::{self, DeserializeObject, HasUuid, List, SExpression, 
 use crate::types::{Angle, Point, Uuid};
 
 /// A net label in a schematic.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct NetLabel {
     uuid: Uuid,
     position: Point,

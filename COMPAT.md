@@ -372,3 +372,21 @@ differ between platforms/implementations:
   the "project is too large" message formats the size like
   `formatFileSize()` (`"1.50 MB"`) instead of
   `QLocale::formattedDataSize()` (`"2 MiB"`).
+
+## project/schematic
+
+- Loading validates each schematic page as a whole after deserializing it
+  (upstream adds the empty page and then item by item); for a file with
+  several errors, the reported error can differ. Messages are upstream's.
+- Removing a symbol with connected pins, a junction with lines, a bus
+  junction or bus segment with attached net lines, or changing the net/bus
+  of a non-empty segment fails with an `ItemInUse` error message (upstream:
+  `LogicError` without message).
+- `DuplicateUuid` messages use "a" for every item kind ("There is already a
+  image ..."; upstream: "an image").
+- Pin numbers text (`SymbolPinView::numbers_text()`): the 8 character
+  truncation counts the text built so far; upstream accidentally counts the
+  previously cached text, so its result depends on the history of pad name
+  updates. Display only.
+- The inverse of adding a non-empty schematic page is a batch removing its
+  items first (a page can only be removed when empty, like upstream).

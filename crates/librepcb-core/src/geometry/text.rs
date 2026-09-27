@@ -5,7 +5,7 @@ use crate::serialization::{self, DeserializeObject, List, SExpression, Serialize
 use crate::types::{Alignment, Angle, Layer, Point, PositiveLength, Uuid};
 
 /// A text rendered with a regular (non-stroke) font, e.g. in symbols.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Text {
     uuid: Uuid,
     layer: Layer,
