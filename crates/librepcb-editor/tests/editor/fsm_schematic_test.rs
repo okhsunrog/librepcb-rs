@@ -1570,3 +1570,128 @@ fn copy_paste_bus_with_attached_wire() {
         "the pasted wire is attached to the pasted bus"
     );
 }
+
+/// A wire between R1 and R2 with a branch from (10.16, 0) to
+/// (10.16, 10.16), back in the select tool.
+fn wire_with_branch(h: &mut Harness) {
+    draw_wire_between_resistors(h);
+    h.run(|fsm, ctx| fsm.draw_wire(ctx));
+    h.click(mm(10.16, 0.0));
+    h.move_to(mm(10.16, 10.16));
+    h.press(mm(10.16, 10.16));
+    h.run(|fsm, ctx| fsm.abort(ctx));
+    h.run(|fsm, ctx| fsm.abort(ctx));
+    assert_eq!(h.fsm.tool(), SchematicTool::Select);
+}
+
+fn line_count(h: &Harness) -> usize {
+    let s = h.p().schematic(h.schematic).unwrap();
+    s.net_segments().values().map(|seg| seg.lines().len()).sum()
+}
+
+#[test]
+fn remove_line_then_simplify_is_a_separate_undo_step() {
+    let mut h = Harness::new();
+    wire_with_branch(&mut h);
+    assert_eq!(line_count(&h), 3);
+    let index = h.editor.undo_stack().index();
+    h.click(mm(10.16, 5.0));
+    assert_eq!(h.fsm.selection().len(), 1);
+    assert!(matches!(
+        h.fsm.selection().iter().next(),
+        Some(SchematicItem::NetLine(..))
+    ));
+    h.run(|fsm, ctx| fsm.remove(ctx));
+    // Removal, then the simplification merges the lines at the tap.
+    assert_eq!(h.editor.undo_stack().index(), index + 2);
+    assert_eq!(line_count(&h), 1);
+    let s = h.p().schematic(h.schematic).unwrap();
+    let segment = s.net_segments().values().next().unwrap();
+    assert!(segment.junctions().is_empty());
+    assert!(h.p().is_ref_index_consistent());
+    h.undo();
+    assert_eq!(line_count(&h), 2);
+    h.undo();
+    assert_eq!(line_count(&h), 3);
+    h.redo();
+    h.redo();
+    assert_eq!(line_count(&h), 1);
+}
+
+#[test]
+fn drag_then_simplify_is_a_separate_undo_step() {
+    let mut h = Harness::new();
+    wire_with_branch(&mut h);
+    let index = h.editor.undo_stack().index();
+    // Drag the end junction of the branch onto the tap junction.
+    let end = mm(10.16, 10.16);
+    h.move_to(end);
+    assert!(h.press(end));
+    assert!(matches!(
+        h.fsm.selection().iter().next(),
+        Some(SchematicItem::NetPoint(..))
+    ));
+    h.move_to(mm(10.16, 0.0));
+    h.release(mm(10.16, 0.0));
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(h.editor.undo_stack().index(), index + 2);
+    assert_eq!(line_count(&h), 1);
+    assert!(h.p().is_ref_index_consistent());
+    // The first undo step reverts the simplification only.
+    h.undo();
+    assert_eq!(line_count(&h), 3);
+    let s = h.p().schematic(h.schematic).unwrap();
+    let segment = s.net_segments().values().next().unwrap();
+    assert!(segment.junctions().values().all(|j| j.position() != end));
+    h.undo();
+    let s = h.p().schematic(h.schematic).unwrap();
+    let segment = s.net_segments().values().next().unwrap();
+    assert!(segment.junctions().values().any(|j| j.position() == end));
+}
+
+#[test]
+fn add_component_value_attribute_from_tool_bar() {
+    let mut h = Harness::new();
+    h.cursor = mm(0.0, 20.0);
+    assert!(h.run(|fsm, ctx| {
+        fsm.add_component(
+            ctx,
+            ComponentChoice {
+                device: Some(lib::r0805()),
+                ..ComponentChoice::new(lib::resistor())
+            },
+        )
+    }));
+    // The value "{{RESISTANCE}}" references the attribute RESISTANCE.
+    assert_eq!(h.fsm.tool_data().value, "{{RESISTANCE}}");
+    let attr = h.fsm.tool_data().value_attribute.clone().unwrap();
+    assert_eq!(attr.key().as_str(), "RESISTANCE");
+    let unit = attr
+        .attribute_type()
+        .unit_from_string("kiloohm")
+        .unwrap()
+        .unwrap();
+    // Invalid values are ignored.
+    h.run(|fsm, ctx| fsm.set_value_attribute_value(ctx, "abc"));
+    let current = h.fsm.tool_data().value_attribute.clone().unwrap();
+    assert_eq!(current.value(), "");
+    h.run(|fsm, ctx| fsm.set_value_attribute_value(ctx, "4.7"));
+    h.run(|fsm, ctx| fsm.set_value_attribute_unit(ctx, Some(unit)));
+    let resistance = |h: &Harness, name: &str| {
+        let (_, c) = h.p().circuit().component_instance_by_name(name).unwrap();
+        let a = c.attributes().by_name("RESISTANCE", true).unwrap();
+        (a.value().to_owned(), a.unit().map(|u| u.name()))
+    };
+    let expected = ("4.7".to_owned(), Some(unit.name()));
+    assert_eq!(resistance(&h, "R3"), expected);
+    // Placing keeps the attribute for the next component.
+    h.move_to(mm(10.0, 20.0));
+    h.press(mm(10.0, 20.0));
+    assert_eq!(resistance(&h, "R3"), expected);
+    assert_eq!(resistance(&h, "R4"), expected);
+    // A value without attribute reference clears it.
+    h.run(|fsm, ctx| fsm.set_value(ctx, "fixed"));
+    assert!(h.fsm.tool_data().value_attribute.is_none());
+    h.run(|fsm, ctx| fsm.abort(ctx));
+    assert_eq!(resistance(&h, "R3"), expected);
+}

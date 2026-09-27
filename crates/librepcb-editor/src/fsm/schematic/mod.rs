@@ -22,13 +22,11 @@
 //! - Interactive operations keep an undo group open and replace their live
 //!   preview inside it (`ProjectEditor::rollback_group_to()`) instead of
 //!   modifying the model without undo commands (`immediate` edits).
-//! - A drag (and paste) is one undo group including the simplification of
-//!   the modified net segments (upstream: two undo steps).
 //! - Error message boxes become [`SchematicRequest::ShowError`], the
 //!   context menu becomes [`SchematicRequest::ContextMenu`].
-//! - Not ported: buses (drawing, bus labels, splitting bus lines), images
-//!   (adding, resizing), moving polygon vertices, cross-probing, the "find"
-//!   feature, symbol texts as separately selectable items.
+//! - Cross-probing is reported through
+//!   [`cross_probe()`](SchematicEditorFsm::cross_probe); the application
+//!   forwards it to the board editors.
 
 mod add_component;
 mod add_image;

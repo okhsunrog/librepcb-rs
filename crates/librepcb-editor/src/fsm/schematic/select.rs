@@ -319,37 +319,43 @@ impl SelectState {
         true
     }
 
-    /// Finishes a drag or paste: applies the final state, simplifies the
-    /// modified segments and commits the group.
-    fn finish_drag(&mut self, cx: &mut Cx<'_, '_>, pos: Point) {
+    /// Finishes a drag or paste: applies the final state and commits the
+    /// group. After a drag (not after pasting), the modified segments are
+    /// simplified in a separate undo step like upstream.
+    fn finish_drag(&mut self, cx: &mut Cx<'_, '_>, pos: Point, simplify: bool) {
         if let Some(drag) = &mut self.drag {
             drag.set_current_position(pos, None);
         }
         self.apply_drag_preview(cx);
         let drag = self.drag.take();
-        if let Some(drag) = drag {
-            let segments = drag.modified_segments().clone();
-            let bus_segments = drag.modified_bus_segments().clone();
-            if drag.has_changes() && !(segments.is_empty() && bus_segments.is_empty()) {
-                let len = cx.ctx.editor.active_group_len().unwrap_or(0);
-                if let Err(e) = cx.ctx.editor.execute(SimplifySchematicSegments {
-                    schematic: cx.schematic,
-                    segments,
-                    bus_segments,
-                }) {
-                    log::error!("Failed to simplify schematic segments: {e}");
-                    cx.ctx.editor.rollback_group_to(len);
+        match cx.ctx.editor.commit_group() {
+            Ok(committed) => {
+                if let Some(drag) = drag
+                    && simplify
+                    && committed
+                    && drag.has_changes()
+                {
+                    let segments = drag.modified_segments().clone();
+                    let bus_segments = drag.modified_bus_segments().clone();
+                    if !(segments.is_empty() && bus_segments.is_empty())
+                        && let Err(e) = cx.ctx.editor.execute(SimplifySchematicSegments {
+                            schematic: cx.schematic,
+                            segments,
+                            bus_segments,
+                        })
+                    {
+                        log::error!("Failed to simplify schematic segments: {e}");
+                    }
                 }
             }
-        }
-        if let Err(e) = cx.ctx.editor.commit_group() {
-            cx.error(e);
+            Err(e) => cx.error(e),
         }
         self.sub = SubState::Idle;
     }
 
     /// Runs a one-shot drag operation (move, rotate, mirror, snap, reset
-    /// texts) as one undo group.
+    /// texts) as one undo group (like upstream without a simplification of
+    /// the modified segments).
     fn one_shot(&mut self, cx: &mut Cx<'_, '_>, f: impl FnOnce(&mut DragSelection)) -> bool {
         let query = Self::query(cx);
         let Some(s) = cx.sch() else {
@@ -364,43 +370,15 @@ impl SelectState {
             return true;
         }
         let mutations = drag.mutations(cx.project());
-        let segments = drag.modified_segments().clone();
-        let bus_segments = drag.modified_bus_segments().clone();
-        let editor = &mut cx.ctx.editor;
-        let result = editor
-            .begin_group(tr!(
+        match cx.ctx.editor.execute(crate::commands::ApplyMutations {
+            text: Some(tr!(
                 "CmdDragSelectedSchematicItems",
                 "Drag Schematic Elements"
-            ))
-            .and_then(|()| {
-                editor.execute(crate::commands::ApplyMutations {
-                    text: None,
-                    mutations,
-                })
-            });
-        match result {
-            Ok(()) => {
-                if !(segments.is_empty() && bus_segments.is_empty()) {
-                    let len = editor.active_group_len().unwrap_or(0);
-                    if let Err(e) = editor.execute(SimplifySchematicSegments {
-                        schematic: cx.schematic,
-                        segments,
-                        bus_segments,
-                    }) {
-                        log::error!("Failed to simplify schematic segments: {e}");
-                        editor.rollback_group_to(len);
-                    }
-                }
-                if let Err(e) = editor.commit_group() {
-                    cx.error(e);
-                    return false;
-                }
-                true
-            }
+            )),
+            mutations,
+        }) {
+            Ok(()) => true,
             Err(e) => {
-                if editor.undo_stack().is_group_active() {
-                    let _ = editor.abort_group();
-                }
                 cx.error(e);
                 false
             }
@@ -1136,7 +1114,7 @@ impl State for SelectState {
                 self.start_moving(cx, e.pos)
             }
             SubState::Pasting => {
-                self.finish_drag(cx, e.pos);
+                self.finish_drag(cx, e.pos, false);
                 false
             }
             _ => false,
@@ -1151,7 +1129,7 @@ impl State for SelectState {
                 true
             }
             SubState::Moving => {
-                self.finish_drag(cx, e.pos);
+                self.finish_drag(cx, e.pos, true);
                 false
             }
             SubState::MovingPolygonVertices | SubState::ResizingImage => {
