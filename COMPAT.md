@@ -423,3 +423,27 @@ differ between platforms/implementations:
 - `BoardNetSegmentSplitter`: new junction UUIDs come from a caller provided
   generator, and the elements of a resulting segment may be listed in
   another order. Files are unaffected (elements are saved sorted by UUID).
+
+### Plane fragments and board exports
+
+- **Plane fragments builder**: creating a `PlaneJob` does not modify the
+  board; the processed layers are unscheduled when the result is applied,
+  and only if the project was not modified since the job was created
+  (upstream takes the scheduled layers when creating the job). Planes may
+  therefore be rebuilt more often, the fragments are the same.
+- The fragments of a plane are sorted by their first point with a stable
+  sort (upstream `std::sort`); the order can only differ for two fragments
+  starting at the same point, which Clipper does not produce.
+- Cancellation is an `AtomicBool` checked between planes of a layer
+  (upstream also checks between the steps of one plane).
+- **Missing stroke font**: upstream fails to load a board whose default
+  stroke font does not exist in the project (`StrokeFontPool::getFont()`
+  throws in the `BI_StrokeText` constructor); here the board loads, and the
+  plane rebuild and the exports fail with the same message.
+- **Export metadata**: the application version and creation date written
+  into Gerber, Excellon, pick&place and IPC-D-356A files are passed in by
+  the caller (`ExportInfo`), see "export".
+- **Output paths** are resolved relative to the project directory like
+  upstream; a project without a directory on disk (in-memory file system)
+  cannot export to relative paths (error instead of a path relative to an
+  empty directory).

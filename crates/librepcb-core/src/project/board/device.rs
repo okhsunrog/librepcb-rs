@@ -387,6 +387,12 @@ impl<'a> FootprintPadView<'a> {
         self.signal
     }
 
+    /// Returns the name of the library component signal the pad is
+    /// connected to, if any.
+    pub fn component_signal_name(&self) -> Option<&'a str> {
+        self.signal_name
+    }
+
     /// Returns the net of the pad (the net of its component signal).
     pub fn net(&self) -> Option<NetSignalId> {
         self.net

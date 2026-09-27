@@ -245,7 +245,10 @@ impl Glyph {
             } else if let Some(reference) = line.strip_prefix('@') {
                 glyph.references.push(parse_codepoint(reference)?);
             } else if let Some(spacing) = line.strip_prefix('~') {
-                glyph.spacing = Some(parse_number(spacing)?);
+                // Upstream stores the glyph spacing as `float`, which changes
+                // the stroked text geometry (e.g. 3.6 becomes 3.5999999), so
+                // round it to single precision like upstream.
+                glyph.spacing = Some(f64::from(parse_number(spacing)? as f32));
             } else if !line.is_empty() {
                 glyph.polylines.push(parse_polyline(line)?);
             } else {
