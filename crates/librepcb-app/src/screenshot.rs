@@ -72,7 +72,10 @@ impl EventLoopProxy for HeadlessProxy {
         Ok(())
     }
 
-    fn invoke_from_event_loop(&self, event: Box<dyn FnOnce() + Send>) -> Result<(), EventLoopError> {
+    fn invoke_from_event_loop(
+        &self,
+        event: Box<dyn FnOnce() + Send>,
+    ) -> Result<(), EventLoopError> {
         self.queue.lock().push_back(event);
         Ok(())
     }

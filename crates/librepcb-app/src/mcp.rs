@@ -324,11 +324,11 @@ impl State {
         // Keep the agent's project while the home tab is shown, unless it
         // was closed.
         let keep = active.is_none()
-            && self.mcp.state().and_then(McpState::project).is_some_and(|p| {
-                self.projects
-                    .iter()
-                    .any(|a| Arc::ptr_eq(a.shared(), &p))
-            });
+            && self
+                .mcp
+                .state()
+                .and_then(McpState::project)
+                .is_some_and(|p| self.projects.iter().any(|a| Arc::ptr_eq(a.shared(), &p)));
         if !keep {
             self.mcp.set_project(active);
         }
@@ -367,6 +367,10 @@ impl State {
         {
             Some(p) => {
                 self.close_project(&p);
+                // Closing the tabs handed another project (or none) to the
+                // server; the server detaches the session from the closed
+                // project itself after this answer.
+                self.mcp.set_project(Some(Arc::clone(project)));
                 HostDecision::Delegated(())
             }
             None => HostDecision::Allow,
@@ -518,7 +522,13 @@ impl State {
         self.show_status(&status, AGENT_ACTIVE_DURATION.as_millis() as u64);
         if !self.mcp.announced {
             self.mcp.announced = true;
-            let name = project.shared().lock().project().metadata().name.to_string();
+            let name = project
+                .shared()
+                .lock()
+                .project()
+                .metadata()
+                .name
+                .to_string();
             self.notifications.borrow_mut().push(Notification::new(
                 ui::NotificationType::Info,
                 tr!("MainWindow", "AI Agent Connected"),

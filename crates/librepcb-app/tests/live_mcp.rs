@@ -21,7 +21,7 @@ use rmcp::ServiceExt;
 use rmcp::model::CallToolRequestParams;
 use rmcp::transport::StreamableHttpClientTransport;
 use serde_json::{Value, json};
-use slint::ComponentHandle;
+use slint::{ComponentHandle, Model};
 
 const WIDTH: u32 = 1200;
 const HEIGHT: u32 = 800;
@@ -109,8 +109,10 @@ fn scene_vias(app: &App) -> usize {
         .map(|s| {
             s.scene()
                 .items()
-                .filter(|(id, _)| matches!(s.object(*id), Some(BoardObject::Via(..))))
-                .count()
+                .filter_map(|(id, _)| s.object(id))
+                .filter(|o| matches!(o, BoardObject::Via(..)))
+                .collect::<std::collections::HashSet<_>>()
+                .len()
         })
         .unwrap_or(0)
 }
@@ -148,12 +150,20 @@ fn live_mcp_rule_checks_and_outputs() {
     // ERC: runs automatically after opening.
     let project = app.state().borrow().projects()[0].clone();
     assert!(
-        headless.run_until(TIMEOUT, || project.checks().borrow().erc().messages().is_some()),
+        headless.run_until(TIMEOUT, || project
+            .checks()
+            .borrow()
+            .erc()
+            .messages()
+            .is_some()),
         "ERC did not run"
     );
     headless.settle(10);
     let data = app.window().global::<ui::Data>();
-    assert_eq!(data.get_current_project().erc.state, ui::RuleCheckState::UpToDate);
+    assert_eq!(
+        data.get_current_project().erc.state,
+        ui::RuleCheckState::UpToDate
+    );
     app.show_panel(ui::PanelPage::RuleCheck);
     save(&headless, "app_erc.png");
 
@@ -250,7 +260,34 @@ fn live_mcp_rule_checks_and_outputs() {
     app.show_panel(ui::PanelPage::RuleCheck);
     save(&headless, "app_drc.png");
     assert_eq!(data.get_current_rule_check().r#type, ui::RuleCheckType::Drc);
-    assert_eq!(data.get_current_rule_check().state, ui::RuleCheckState::UpToDate);
+    assert_eq!(
+        data.get_current_rule_check().state,
+        ui::RuleCheckState::UpToDate
+    );
+
+    // Double-clicking a message zooms to its location; approving it is an
+    // undoable command which keeps the results up to date.
+    let rows = data.get_current_rule_check().messages;
+    let mut row = rows.row_data(0).unwrap();
+    row.action = ui::RuleCheckMessageAction::HighlightAndZoomTo;
+    rows.set_row_data(0, row);
+    save(&headless, "app_drc_zoom.png");
+    let unapproved = data.get_current_rule_check().unapproved;
+    let mut row = rows.row_data(0).unwrap();
+    row.approved = true;
+    rows.set_row_data(0, row);
+    headless.settle(10);
+    let check = data.get_current_rule_check();
+    assert_eq!(check.unapproved, unapproved - 1);
+    assert_eq!(check.state, ui::RuleCheckState::UpToDate);
+    assert!(
+        check
+            .messages
+            .row_data(check.messages.row_count() - 1)
+            .unwrap()
+            .approved
+    );
+    assert_eq!(data.get_current_tab().undo_text, "Approve");
 
     // Exports: Gerber/Excellon and the schematic PDF.
     let output = project_dir.join("output");

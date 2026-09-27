@@ -28,7 +28,9 @@ use librepcb_app_ui as ui;
 use librepcb_core::export::{BomCsvWriter, PickPlaceSides, Timestamp};
 use librepcb_core::fileio::{CleanFileNameOptions, FileNameCase, FilePath};
 use librepcb_core::job::{GraphicsOutputJob, LppzOutputJob, ObjectSet, OutputJob, OutputJobKind};
-use librepcb_core::project::board::{ExportInfo, export_d356_netlist, export_fabrication_data, export_pick_place_csv};
+use librepcb_core::project::board::{
+    ExportInfo, export_d356_netlist, export_fabrication_data, export_pick_place_csv,
+};
 use librepcb_core::project::{
     AssemblyVariantId, BoardId, BomGenerator, OutputJobError, OutputJobEvent, OutputJobRunner,
     Project,
@@ -157,7 +159,12 @@ pub fn run_output_jobs(
 impl State {
     /// Handles the output related `Backend.trigger-tab()` actions of
     /// schematic and board tabs; returns whether the action was handled.
-    pub(crate) fn trigger_tab_output(&mut self, section: usize, tab: usize, action: ui::TabAction) -> bool {
+    pub(crate) fn trigger_tab_output(
+        &mut self,
+        section: usize,
+        tab: usize,
+        action: ui::TabAction,
+    ) -> bool {
         let Some(t) = self.sections.get(section).and_then(|s| s.tabs().get(tab)) else {
             return false;
         };
@@ -173,7 +180,10 @@ impl State {
             (ui::TabAction::ExportPickPlace, Some(b)) => self.export_pick_place(&project, b),
             (ui::TabAction::ExportD356Netlist, Some(b)) => self.export_netlist(&project, b),
             (ui::TabAction::BillOfMaterials, b) => self.export_bom(&project, b),
-            (ui::TabAction::Print | ui::TabAction::ExportImage | ui::TabAction::ExportSpecctra, _) => {
+            (
+                ui::TabAction::Print | ui::TabAction::ExportImage | ui::TabAction::ExportSpecctra,
+                _,
+            ) => {
                 self.not_implemented(&format!("{action:?}"));
             }
             _ => return false,
@@ -280,10 +290,7 @@ impl State {
 
     /// Exports the IPC-D-356A netlist of a board.
     pub fn export_netlist(&mut self, project: &Rc<AppProject>, board: BoardId) {
-        let title = tr!(
-            "librepcb::editor::Board2dTab",
-            "Export IPC D-356A Netlist"
-        );
+        let title = tr!("librepcb::editor::Board2dTab", "Export IPC D-356A Netlist");
         self.run_export(
             project,
             title,
@@ -313,7 +320,9 @@ impl State {
                 let csv = BomCsvWriter::new(&bom)
                     .generate_csv()
                     .map_err(|e| e.to_string())?;
-                let suffix = b.map(|b| format!("_{}", b.properties().name)).unwrap_or_default();
+                let suffix = b
+                    .map(|b| format!("_{}", b.properties().name))
+                    .unwrap_or_default();
                 let file = output_dir(p)?.path_to(&format!("{}_BOM{suffix}.csv", file_base(p)));
                 csv.save_to_file(&file).map_err(|e| e.to_string())?;
                 Ok(vec![file])
@@ -391,7 +400,9 @@ impl State {
                     job(&mut open, &progress)
                 };
                 let _ = slint::invoke_from_event_loop(move || {
-                    with_current_state(|s| s.export_finished(&shared, &title, notification, result));
+                    with_current_state(|s| {
+                        s.export_finished(&shared, &title, notification, result)
+                    });
                 });
             });
         if let Err(e) = spawned {

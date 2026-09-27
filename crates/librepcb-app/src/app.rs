@@ -302,9 +302,19 @@ impl App {
             .set_on_dont_show_again(move |key| {
                 let key = key.to_owned();
                 deferred(&dismiss_weak, move |s| {
-                    let mut keys = s.workspace.lock().settings().dismissed_messages.get().clone();
+                    let mut keys = s
+                        .workspace
+                        .lock()
+                        .settings()
+                        .dismissed_messages
+                        .get()
+                        .clone();
                     keys.insert(key);
-                    s.workspace.lock().settings_mut().dismissed_messages.set(keys);
+                    s.workspace
+                        .lock()
+                        .settings_mut()
+                        .dismissed_messages
+                        .set(keys);
                     if let Err(e) = s.workspace.lock().save_settings() {
                         log::error!("Failed to save the workspace settings: {e}");
                     }

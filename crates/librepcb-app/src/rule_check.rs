@@ -47,7 +47,6 @@ use librepcb_core::serialization::SExpression;
 use librepcb_core::utils::toolbox::compare_numeric;
 use librepcb_editor::SharedProject;
 use librepcb_i18n::tr;
-use slint::ComponentHandle;
 
 use crate::app::{State, deferred, with_current_state};
 use crate::models::{UiModel, model_rc};
@@ -265,7 +264,12 @@ impl CheckState {
         self.running
     }
 
-    fn data(&self, kind: ui::RuleCheckType, state: ui::RuleCheckState, read_only: bool) -> ui::RuleCheckData {
+    fn data(
+        &self,
+        kind: ui::RuleCheckType,
+        state: ui::RuleCheckState,
+        read_only: bool,
+    ) -> ui::RuleCheckData {
         let messages = self.messages.as_ref();
         ui::RuleCheckData {
             r#type: kind,
@@ -348,7 +352,7 @@ fn locations_rect(message: &RuleCheckMessage) -> Option<Rect> {
     let (x, y) = points.next()?;
     let mut rect = Rect::new(x, y, x, y);
     for (x, y) in points {
-        rect = rect.union_pt((x, y).into());
+        rect = rect.union_pt(librepcb_canvas::kurbo::Point::new(x, y));
     }
     Some(rect)
 }
@@ -418,8 +422,7 @@ impl State {
     pub(crate) fn schedule_rule_checks(&mut self) {
         for project in &self.projects {
             // Skip projects locked by a worker (exports, DRC preparation).
-            let Some(revision) = project.shared().try_lock().map(|p| p.project().revision())
-            else {
+            let Some(revision) = project.shared().try_lock().map(|p| p.project().revision()) else {
                 continue;
             };
             let checks = project.checks().borrow();
@@ -703,22 +706,22 @@ impl State {
                 let last_percent = AtomicU32::new(0);
                 let progress = |p: DrcProgress<'_>| {
                     let Some(id) = notification else { return };
-                    let update: Option<Box<dyn FnOnce(&mut ui::NotificationData) + Send>> =
-                        match p {
-                            DrcProgress::Percent(pc) => {
-                                (last_percent.swap(pc, Ordering::Relaxed) != pc).then(|| {
-                                    Box::new(move |d: &mut ui::NotificationData| {
-                                        d.progress = pc as i32;
-                                    }) as _
-                                })
-                            }
-                            DrcProgress::Status(text) => {
-                                let text = slint::SharedString::from(text);
-                                Some(Box::new(move |d: &mut ui::NotificationData| {
-                                    d.description = text;
-                                }))
-                            }
-                        };
+                    let update: Option<Box<dyn FnOnce(&mut ui::NotificationData) + Send>> = match p
+                    {
+                        DrcProgress::Percent(pc) => {
+                            (last_percent.swap(pc, Ordering::Relaxed) != pc).then(|| {
+                                Box::new(move |d: &mut ui::NotificationData| {
+                                    d.progress = pc as i32;
+                                }) as _
+                            })
+                        }
+                        DrcProgress::Status(text) => {
+                            let text = slint::SharedString::from(text);
+                            Some(Box::new(move |d: &mut ui::NotificationData| {
+                                d.description = text;
+                            }))
+                        }
+                    };
                     if let Some(update) = update {
                         let _ = slint::invoke_from_event_loop(move || {
                             with_current_state(|s| {
