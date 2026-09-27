@@ -7,7 +7,7 @@ use librepcb_core::project::{BoardId, SchematicId};
 use librepcb_core::types::{Angle, CircuitIdentifier, ElementName, Layer, Length, PositiveLength};
 use librepcb_editor::commands::*;
 
-use crate::helpers::{Harness, create_editor, dump_board, dump_schematic, lib, mm};
+use super::helpers::{Harness, create_editor, dump_board, dump_schematic, lib, mm};
 
 fn name(s: &str) -> ElementName {
     ElementName::new(s).unwrap()

@@ -15,7 +15,7 @@ use librepcb_editor::ProjectEditor;
 use librepcb_editor::commands::{ApplyMutations, MoveDevice};
 use librepcb_scene::{BoardScene, BoardSide, ColorScheme, SceneSync};
 
-use crate::helpers::{assert_same, dump_board, mm, open_upstream, projects, upstream_editor};
+use super::helpers::{assert_same, dump_board, mm, open_upstream, projects, upstream_editor};
 
 /// The board with the most scene items of all upstream test projects.
 fn largest_board() -> (std::path::PathBuf, BoardId) {
