@@ -435,8 +435,9 @@ impl Scene {
     // ------------------------------------------------------------------
 
     /// Adds an item. Filled paths are normalized so that every closed
-    /// subpath adds to the filled area (like a union); express holes as
-    /// cut-ins, as LibrePCB paths do.
+    /// subpath adds to the filled area (like a union), except for subpaths
+    /// nested in others (within their bounding box and covered by them),
+    /// which become holes like with the odd-even rule (e.g. pad drills).
     pub fn insert(&mut self, item: Item) -> ItemId {
         self.bump();
         let id = self.insert_entry(item);

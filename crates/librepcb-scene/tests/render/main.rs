@@ -2,6 +2,8 @@
 //! projects and checks that the images show something. The PNGs are
 //! written to `<CARGO_TARGET_TMPDIR>/renders/` for visual inspection.
 
+mod export;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 

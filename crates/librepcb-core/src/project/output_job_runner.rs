@@ -11,10 +11,15 @@
 //!   `warning`) are one observer callback receiving [`OutputJobEvent`]s.
 //! - The application version and the creation date written into the files
 //!   are passed in ([`ExportInfo`]).
+//! - Graphics (PDF/SVG/image) jobs: the runner builds the pages (upstream
+//!   `buildPages()`, [`GraphicsPage`]) and hands them to a
+//!   [`GraphicsExporter`] set by the caller
+//!   ([`OutputJobRunner::set_graphics_exporter()`]), since the painters live
+//!   in the scene crate (which depends on core). Without an exporter, these
+//!   jobs fail with [`OutputJobError::Unsupported`].
 //! - Not supported yet (the job fails with [`OutputJobError::Unsupported`]):
-//!   graphics (PDF/SVG/image), interactive HTML BOM and 3D (STEP) jobs,
-//!   since the painters, the HTML BOM generator and the STEP export are not
-//!   ported yet. `buildPages()` (preview of graphics jobs) is not ported.
+//!   interactive HTML BOM and 3D (STEP) jobs, since the HTML BOM generator
+//!   and the STEP export are not ported yet.
 //! - Archive jobs collect their input files in an in-memory transactional
 //!   file system (upstream opens a writable one in a temporary directory,
 //!   which is left behind); the archive content is the same.
@@ -30,18 +35,22 @@ use super::board::{
 use super::board::{BoardPickPlaceGenerator, export_d356_netlist};
 use super::circuit::AssemblyVariant;
 use super::{
-    AssemblyVariantId, BoardId, BomGenerator, Project, ProjectAttributeLookup, json_export,
+    AssemblyVariantId, BoardId, BomGenerator, Project, ProjectAttributeLookup, SchematicId,
+    json_export,
 };
 use crate::application;
-use crate::export::{BoardSide, BomCsvWriter, PickPlaceCsvWriter, PickPlaceSides, PickPlaceType};
+use crate::export::{
+    BoardSide, BomCsvWriter, GraphicsExportSettings, PageSize, PickPlaceCsvWriter, PickPlaceSides,
+    PickPlaceType,
+};
 use crate::fileio::{
     self, CleanFileNameOptions, FileNameCase, FilePath, FileSystem, OutputDirectoryEvent,
     OutputDirectoryWriter, TransactionalDirectory, file_utils,
 };
 use crate::job::{
     ArchiveOutputJob, BomOutputJob, CopyOutputJob, GerberExcellonOutputJob, GerberX3OutputJob,
-    LppzOutputJob, NetlistOutputJob, ObjectSet, OutputJob, OutputJobKind, PickPlaceOutputJob,
-    ProjectJsonOutputJob,
+    GraphicsContentType, GraphicsOutputJob, LppzOutputJob, NetlistOutputJob, ObjectSet, OutputJob,
+    OutputJobKind, PickPlaceOutputJob, ProjectJsonOutputJob,
 };
 use crate::types::Uuid;
 
@@ -65,6 +74,18 @@ pub enum OutputJobError {
         "Output jobs of type '{0}' are not supported yet by this LibrePCB version (librepcb-rs)."
     )]
     Unsupported(String),
+    /// A graphics job has a page size key unknown to Qt's `QPageSize`.
+    #[error("Unsupported page size: '{0}'")]
+    UnsupportedPageSize(String),
+    /// A graphics job contains an assembly guide (upstream supports them only
+    /// in later releases).
+    #[error(
+        "Assembly guide output jobs are not supported yet, you need to use a more recent release of LibrePCB."
+    )]
+    AssemblyGuideUnsupported,
+    /// The graphics export failed (all error messages, joined by `"; "`).
+    #[error("{0}")]
+    Graphics(String),
     /// A board of the job does not exist.
     #[error("Board does not exist: {0}")]
     BoardNotFound(Uuid),
@@ -148,6 +169,55 @@ pub enum OutputJobEvent<'a> {
     Warning(&'a str),
 }
 
+/// What a page of a graphics export shows (upstream: the
+/// `GraphicsPagePainter` subclass created by `buildPages()`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GraphicsPageContent {
+    /// A schematic page (upstream `SchematicPainter`).
+    Schematic(SchematicId),
+    /// A board (upstream `BoardPainter`).
+    Board(BoardId),
+    /// A realistic rendering of a board (upstream `RealisticBoardPainter`).
+    BoardRendering(BoardId),
+}
+
+/// A page of a graphics export (upstream `GraphicsExport::Page`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphicsPage {
+    /// What to paint.
+    pub content: GraphicsPageContent,
+    /// Page layout and colors.
+    pub settings: GraphicsExportSettings,
+}
+
+/// Result of a graphics export (upstream `GraphicsExport::Result`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GraphicsExportResult {
+    /// The written files (upstream reports the PDF file even if the export
+    /// failed later).
+    pub written_files: Vec<FilePath>,
+    /// Error messages (of the export and of the painters, e.g. images
+    /// which could not be loaded); empty on success.
+    pub errors: Vec<String>,
+}
+
+/// Exports pages of a project to a PDF, SVG or image file (upstream
+/// `GraphicsExport::startExport()` + `waitForFinished()`). Implemented
+/// outside of core (the painters need the scene crate).
+pub trait GraphicsExporter: Send + Sync {
+    /// Exports `pages` to `file_path` (the file type is taken from the
+    /// suffix; for several pages of an image format, the page number is
+    /// appended to the file name). `document_name` is the document title of
+    /// PDF and SVG files.
+    fn export(
+        &self,
+        project: &Project,
+        pages: &[GraphicsPage],
+        file_path: &FilePath,
+        document_name: &str,
+    ) -> GraphicsExportResult;
+}
+
 /// Observer callback of an [`OutputJobRunner`].
 pub type OutputJobObserver = Box<dyn FnMut(OutputJobEvent<'_>) + Send>;
 
@@ -184,6 +254,7 @@ pub struct OutputJobRunner<'a> {
     writer: OutputDirectoryWriter,
     info: ExportInfo,
     observer: SharedObserver,
+    graphics_exporter: Option<Arc<dyn GraphicsExporter>>,
 }
 
 impl std::fmt::Debug for OutputJobRunner<'_> {
@@ -222,6 +293,7 @@ impl<'a> OutputJobRunner<'a> {
             writer: OutputDirectoryWriter::new(&dir),
             info,
             observer,
+            graphics_exporter: None,
         };
         runner.set_output_directory(&dir);
         Ok(runner)
@@ -230,6 +302,12 @@ impl<'a> OutputJobRunner<'a> {
     /// Sets the observer notified about the progress.
     pub fn set_observer(&mut self, observer: Option<OutputJobObserver>) {
         *self.observer.lock().unwrap_or_else(PoisonError::into_inner) = observer;
+    }
+
+    /// Sets the exporter which runs graphics (PDF/SVG/image) jobs; without
+    /// one, they fail with [`OutputJobError::Unsupported`].
+    pub fn set_graphics_exporter(&mut self, exporter: Option<Arc<dyn GraphicsExporter>>) {
+        self.graphics_exporter = exporter;
     }
 
     /// Returns the output directory.
@@ -302,9 +380,13 @@ impl<'a> OutputJobRunner<'a> {
             OutputJobKind::Lppz(j) => self.run_lppz(uuid, j)?,
             OutputJobKind::Copy(j) => self.run_copy(uuid, j)?,
             OutputJobKind::Archive(j) => self.run_archive(uuid, j)?,
-            OutputJobKind::Graphics(_)
-            | OutputJobKind::InteractiveHtmlBom(_)
-            | OutputJobKind::Board3D(_) => {
+            OutputJobKind::Graphics(j) => match self.graphics_exporter.clone() {
+                Some(exporter) => self.run_graphics(uuid, j, exporter.as_ref())?,
+                None => {
+                    return Err(OutputJobError::Unsupported(job.type_name().to_owned()));
+                }
+            },
+            OutputJobKind::InteractiveHtmlBom(_) | OutputJobKind::Board3D(_) => {
                 return Err(OutputJobError::Unsupported(job.type_name().to_owned()));
             }
             OutputJobKind::Unknown(_) => {
@@ -318,6 +400,154 @@ impl<'a> OutputJobRunner<'a> {
                 TR_CONTEXT,
                 "No output files were generated, check the job configuration."
             ));
+        }
+        Ok(())
+    }
+
+    /// Upstream `buildPages()`: the pages of a graphics job, rebuilding
+    /// outdated planes of the exported boards if `rebuild_planes`.
+    pub fn build_pages(
+        &mut self,
+        job: &GraphicsOutputJob,
+        rebuild_planes: bool,
+    ) -> OutputJobResult<Vec<GraphicsPage>> {
+        let mut pages = Vec::new();
+        for content in &job.content {
+            let page_size = match &content.page_size {
+                None => None,
+                Some(key) if PageSize::is_known_key(key) => Some(key.clone()),
+                Some(key) => return Err(OutputJobError::UnsupportedPageSize(key.clone())),
+            };
+            let mut settings = GraphicsExportSettings {
+                page_size,
+                orientation: content.orientation,
+                margin_left: content.margin_left,
+                margin_top: content.margin_top,
+                margin_right: content.margin_right,
+                margin_bottom: content.margin_bottom,
+                rotate: content.rotate,
+                mirror: content.mirror,
+                scale: content.scale,
+                pixmap_dpi: content.pixmap_dpi,
+                black_white: content.monochrome,
+                background_color: content.background_color,
+                min_line_width: content.min_line_width,
+                ..GraphicsExportSettings::default()
+            };
+            if content.content_type == GraphicsContentType::BoardRendering {
+                settings.load_board_rendering_colors(crate::types::Layer::INNER_COPPER_COUNT);
+            }
+            settings.colors = settings
+                .colors
+                .iter()
+                .filter_map(|(role, _)| {
+                    content.layers.get(role).map(|color| (role.clone(), *color))
+                })
+                .collect();
+            let boards = self.optional_boards(&content.boards, false)?;
+            let variants = self.optional_assembly_variants(&content.assembly_variants, false)?;
+            match content.content_type {
+                GraphicsContentType::Schematic => {
+                    // Upstream does not consider boards and assembly variants
+                    // yet (TODO), but they multiply the pages.
+                    for _ in &variants {
+                        for _ in &boards {
+                            for schematic in self.project.schematics() {
+                                pages.push(GraphicsPage {
+                                    content: GraphicsPageContent::Schematic(schematic.id()),
+                                    settings: settings.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+                GraphicsContentType::Board | GraphicsContentType::BoardRendering => {
+                    // Upstream would dereference a null board for "no
+                    // board"; skip it.
+                    for board in boards.into_iter().flatten() {
+                        if rebuild_planes {
+                            self.rebuild_outdated_planes(board)?;
+                        }
+                        let content = if content.content_type == GraphicsContentType::BoardRendering
+                        {
+                            GraphicsPageContent::BoardRendering(board)
+                        } else {
+                            GraphicsPageContent::Board(board)
+                        };
+                        for _ in &variants {
+                            pages.push(GraphicsPage {
+                                content,
+                                settings: settings.clone(),
+                            });
+                        }
+                    }
+                }
+                GraphicsContentType::AssemblyGuide => {
+                    return Err(OutputJobError::AssemblyGuideUnsupported);
+                }
+            }
+        }
+        Ok(pages)
+    }
+
+    fn run_graphics(
+        &mut self,
+        uuid: Uuid,
+        job: &GraphicsOutputJob,
+        exporter: &dyn GraphicsExporter,
+    ) -> OutputJobResult<()> {
+        // Build pages.
+        let pages = self.build_pages(job, true)?;
+
+        // Determine lookup objects.
+        let mut all_boards: BTreeSet<Option<BoardId>> = BTreeSet::new();
+        let mut all_variants: BTreeSet<Option<AssemblyVariantId>> = BTreeSet::new();
+        for content in &job.content {
+            all_boards.extend(self.optional_boards(&content.boards, false)?);
+            all_variants
+                .extend(self.optional_assembly_variants(&content.assembly_variants, false)?);
+        }
+
+        // Determine output path.
+        let project = &*self.project;
+        let variant = match all_variants.iter().collect::<Vec<_>>().as_slice() {
+            [Some(av)] => Some(required_variant(project, *av)?),
+            _ => None,
+        };
+        let board = match all_boards.iter().collect::<Vec<_>>().as_slice() {
+            [Some(b)] => Some(required_board(project, *b)?),
+            _ => None,
+        };
+        let lookup = match board {
+            Some(b) => ProjectAttributeLookup::for_board(project, b, variant),
+            None => ProjectAttributeLookup::for_project(project, variant),
+        };
+        let fp = self
+            .writer
+            .begin_writing_file(&uuid, &output_path(&lookup, &job.output_path))?;
+
+        // Determine document name (`QString::simplified()`).
+        let mut doc_name = job.document_title.as_str().to_owned();
+        if doc_name.is_empty() {
+            doc_name = "{{PROJECT}} {{VERSION}}".to_owned();
+        }
+        let doc_name = lookup
+            .substitute(&doc_name)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Perform the export.
+        let result = exporter.export(project, &pages, &fp, &doc_name);
+        for written in &result.written_files {
+            if *written != fp {
+                // Track additional files.
+                let rel = written.to_relative(self.writer.directory_path());
+                self.writer.begin_writing_file(&uuid, &rel)?;
+            }
+        }
+        if !result.errors.is_empty() {
+            return Err(OutputJobError::Graphics(result.errors.join("; ")));
         }
         Ok(())
     }

@@ -6,7 +6,7 @@ covers where things stand and how the work has been organized.
 
 ## Where we are
 
-Milestone M1 (headless `librepcb-cli`) is done except graphics export;
+Milestone M1 (headless `librepcb-cli`) is done except the interactive HTML BOM;
 M1.5 (MCP) is in progress. About 1100 tests pass.
 
 Done, in `crates/librepcb-core` unless noted:
@@ -37,15 +37,17 @@ Done, in `crates/librepcb-core` unless noted:
   with `librepcb-cli`. Output jobs (`job`) and the output job runner.
 - **File format migrations** v0.1 → v1 → v2, byte-identical incl. `jobs.lp`.
 - **`crates/librepcb-cli`:** port of the upstream CLI. Upstream
-  `tests/cli`: 140 passed, 29 failed (graphics export and `--version`),
-  9 skipped (STEP).
+  `tests/cli`: 162 passed, 7 failed (interactive HTML BOM jobs and
+  `--version`), 9 skipped (STEP).
 - **`crates/librepcb-editor`:** undo stack and intent-level commands
   (components, wiring with forced net names, devices, traces, vias,
   planes, outline, autorouting) used by MCP and later the UI.
 - **`crates/librepcb-autoroute`:** built-in grid A* router with rip-up and
   exact clearance verification.
-- **`crates/librepcb-scene`:** schematic/board scenes on
-  `crates/librepcb-canvas` and headless PNG rendering.
+- **`crates/librepcb-scene`:** scene builders for schematics, boards,
+  symbols and footprints on `crates/librepcb-canvas`, headless PNG
+  rendering, and the graphics export (PDF via `pdf-writer`, SVG,
+  PNG/JPEG/BMP; upstream's page layout and realistic board rendering).
 - **`crates/librepcb-mcp`:** MCP server (rmcp, stdio/HTTP), see
   `mcp-design.md`.
 - **`crates/librepcb-i18n`, `tools/ts2po`, `lang/`:** translations from the
@@ -58,9 +60,9 @@ Done, in `crates/librepcb-core` unless noted:
    automatic symbol/device placement, `autoroute` with Freerouting or the
    built-in router, DRC, output jobs); end-to-end design over stdio with
    the official libraries, verified by `librepcb-cli`
-   (`LIBREPCB_TEST_LIBRARIES_DIR`).
-2. Graphics export (PDF/SVG/PNG) for the CLI and graphics output jobs
-   (`jobs_run` skips graphics, interactive BOM and 3D jobs until then).
+   (`LIBREPCB_TEST_LIBRARIES_DIR`). `jobs_run` skips job types which are
+   not ported yet (interactive HTML BOM, 3D).
+2. Interactive HTML BOM output job.
 3. Then M2 (viewer) per `roadmap.md`.
 
 Deliberately deferred: the interactive HTML BOM, 3D/STEP, and the

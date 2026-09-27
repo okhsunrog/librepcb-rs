@@ -198,6 +198,39 @@ stated otherwise. Entries are grouped by module.
   precision, 16 bit channels, `qt_div_257()` rounding), because the
   resulting colors are written to `jobs.lp` by the default graphics jobs.
 
+- **Graphics export** (port of `GraphicsExport`, `GraphicsPainter` and the
+  painters, in the scene crate as `librepcb_scene::export`): no Qt, so the
+  written bytes differ completely from upstream's `QPdfWriter`,
+  `QSvgGenerator` and `QImageWriter` output. The page layout follows
+  upstream (fixed or content-derived page size, orientation incl. the
+  automatic one, margins, rotation, mirroring, fixed scale or fit,
+  background, minimum line width, black/white, one PDF with all pages,
+  numbered SVG/image files for several pages, output directory creation,
+  error messages). Differences:
+  - PDF: vector paths through `pdf-writer` at the page size in points
+    (upstream: 1200 DPI device units); creator and producer are
+    `LibrePCB <version>` (upstream producer: Qt). No invisible texts for
+    selection/search (upstream draws transparent TrueType texts on boards
+    and footprints), no embedded fonts (all texts are stroke paths, see
+    scene).
+  - SVG: hand-written, one `<path>` per paint, `<desc>Generated with
+    LibrePCB</desc>`; size in millimeters rounded to 0.1 µm.
+  - Images: PNG, JPEG and BMP only (upstream: every Qt image format), via
+    vello_cpu and the `image` crate; anti-aliasing differs. JPEG/BMP drop
+    the alpha channel like Qt (transparent areas become black).
+  - The source rectangle (upstream `QPicture::boundingRect()`) is the
+    bounding box of the paths plus half the stroke widths; Qt's is
+    slightly larger (about 0.3 mm on a schematic page), so derived page
+    sizes can differ by a few points.
+  - Page sizes are Qt 6's `QPageSize` table (`PageSize`); the page size in
+    whole points is used for all output devices.
+  - Pages with nothing to paint get the device's real-size scale instead
+    of Qt's infinite fit scale.
+  - Unknown extensions fail before painting (upstream paints the page
+    first, then fails to save it); the message is the same.
+  - Printing, previews and the asynchronous API (progress signals,
+    cancellation, clipboard) are not ported.
+
 ## job
 
 - **Class hierarchy → enum:** `OutputJob` holds UUID, name and options,
@@ -472,14 +505,35 @@ Rendering only; no file is affected.
   and overline rules; glyph shapes and widths differ.
 - Images (schematic and symbol images) are not drawn yet, only their
   borders.
-- Pad, via and hole drills are filled with the background color instead of
-  being cut out of the copper. Standalone board pads are drawn with the
+- Pad and via drills are cut out of the copper (filled subpaths nested in
+  others become holes, like Qt's odd-even rule); all drills are also
+  filled with the background color on a separate layer (the editor look,
+  hidden in graphics exports). Standalone board pads are drawn with the
   pad's preview geometries (default mask offsets) until core exposes the
   board pad geometries for them.
 - Planes are drawn with the fragments stored in the board's derived data
   (if computed) plus their outline as a hairline.
 - Board colors are the dark scheme's primary colors (the editor look); the
   graphics export's color adjustment for white backgrounds is not applied.
+  Graphics exports build the scenes with the colors of the export
+  settings (`ColorScheme::custom()`).
+- Symbols and footprints (`SymbolScene`, `FootprintScene`, upstream
+  `SymbolPainter`/`FootprintPainter`) draw their texts raw (e.g.
+  `{{NAME}}`) like upstream; footprint texts use the default stroke font
+  found at runtime (`LIBREPCB_SHARE`, `../share/librepcb` next to the
+  executable, or the upstream checkout the crate was built against); without
+  it, no footprint texts are drawn.
+- Board graphics export (`BoardPainter`): THT pads and vias are drawn once
+  in the pads/vias color if no copper layer is enabled (upstream
+  deduplicates identical paths; here only the top copper instance, so vias
+  not reaching the top layer are missing). Plane outlines are drawn as
+  minimum width lines (upstream: fragments only). Zones and air wires are
+  not drawn (like upstream).
+- Realistic board rendering (`RealisticBoardPainter`) takes its areas from
+  the board scene instead of the 3D scene data (`SceneData3D`, not ported):
+  all drills are cut out of the board body (upstream cuts plated drills of
+  the viewed side out of the copper only; the result looks the same), and
+  flattening uses a 5 µm tolerance like upstream.
 
 ## project (ERC, attribute lookup, BOM, JSON export)
 
@@ -676,12 +730,17 @@ Rendering only; no file is affected.
 
 ## project (output job runner)
 
-- **Unsupported job types**: graphics (PDF/SVG/image), interactive HTML
-  BOM and 3D (STEP) jobs fail with "Output jobs of type '...' are not
-  supported yet by this LibrePCB version (librepcb-rs)." since the
-  painters, the HTML BOM generator and the STEP export are not ported yet.
-  Unknown job types fail with the upstream message. `buildPages()`
-  (preview of graphics jobs) is not ported.
+- **Graphics jobs** need a `GraphicsExporter` set by the caller
+  (`set_graphics_exporter()`, the CLI uses the scene crate's
+  `ProjectGraphicsExporter`) since the painters live in the scene crate;
+  without one they fail like unsupported job types. `build_pages()` ports
+  `buildPages()`; for board contents with "no board" (a project without
+  boards and the default board set), no page is created (upstream would
+  dereference a null board).
+- **Unsupported job types**: interactive HTML BOM and 3D (STEP) jobs fail
+  with "Output jobs of type '...' are not supported yet by this LibrePCB
+  version (librepcb-rs)." since the HTML BOM generator and the STEP export
+  are not ported yet. Unknown job types fail with the upstream message.
 - The Qt signals (`jobStarted`, `aboutToWriteFile`, `aboutToRemoveFile`,
   `warning`) are one observer callback (`OutputJobEvent`).
 - The application version and creation date written into the files are
@@ -702,12 +761,10 @@ The console output (messages, help texts, exit codes) is identical to
 upstream `librepcb-cli` 2.1.1 except for:
 
 - **Graphics exports** (`open-project --export-schematics`, `open-symbol
-  --export`, `open-package --export`, graphics output jobs) are not
-  supported yet: after the usual header lines, each export fails with
-  `  ERROR: Graphics export is not supported yet ...`. For unknown file
-  extensions, the upstream message is printed. The help texts list only
-  `pdf, svg, bmp, jpeg, jpg, png` as supported extensions (upstream: PDF,
-  SVG and all image formats of the Qt installation).
+  --export`, `open-package --export`, graphics output jobs) print the same
+  lines as upstream, but the files differ (see export). The help texts
+  list `pdf, svg, bmp, jpeg, jpg, png` as supported extensions (upstream:
+  PDF, SVG and all image formats of the Qt installation).
 - **STEP models**: behaves like an upstream build without OpenCascade:
   `open-step` and `open-library --minify-step` fail with
   "Attempted to work with STEP file, but LibrePCB was compiled without

@@ -3,7 +3,7 @@
 //! round pens with a minimum line width, polygons whose zero-length paths
 //! become dots, and optional fills (filled shapes or grab areas).
 
-use librepcb_canvas::kurbo::{Affine, BezPath, Circle as KCircle, Line, Point as KPoint};
+use librepcb_canvas::kurbo::{Affine, BezPath, Circle as KCircle, Line, Point as KPoint, Shape};
 use librepcb_canvas::{Brush, Geometry, Item, LayerId, StrokeStyle, Style, convert};
 use librepcb_core::geometry::Path;
 use librepcb_core::types::{Length, Point};
@@ -109,4 +109,49 @@ pub(crate) fn outline(layer: LayerId, outlines: &[Path], xf: Affine) -> Option<I
     }
     let path: BezPath = xf * convert::paths(outlines);
     Some(Item::new(layer, Geometry::Path(path), Style::stroke(0.0)))
+}
+
+/// Filled outlines with holes cut out (upstream: pad paths with the holes
+/// added, painted with the odd-even rule). The canvas fills with the
+/// non-zero rule, so outlines are oriented counterclockwise and holes
+/// clockwise.
+pub(crate) fn area_with_holes(
+    layer: LayerId,
+    outlines: &[Path],
+    holes: &[Path],
+    xf: Affine,
+) -> Option<Item> {
+    if outlines.is_empty() {
+        return None;
+    }
+    let mut path = BezPath::new();
+    let mut add = |p: BezPath, positive: bool| {
+        let p = if (p.area() >= 0.0) == positive {
+            p
+        } else {
+            p.reverse_subpaths()
+        };
+        path.extend(p.elements().iter().copied());
+    };
+    for outline in outlines {
+        add(xf * convert::path(outline), true);
+    }
+    for hole in holes {
+        add(xf * convert::path(hole), false);
+    }
+    Some(Item::new(layer, Geometry::Path(path), Style::fill()))
+}
+
+/// A filled ring (upstream `Via::toQPainterPathPx()`): a circle of
+/// `diameter` with a hole of diameter `hole` cut out.
+pub(crate) fn ring(layer: LayerId, center: KPoint, diameter: f64, hole: f64) -> Item {
+    let mut path = KCircle::new(center, diameter / 2.0).to_path(1e-4);
+    let inner = KCircle::new(center, hole / 2.0).to_path(1e-4);
+    let inner = if (inner.area() >= 0.0) == (path.area() >= 0.0) {
+        inner.reverse_subpaths()
+    } else {
+        inner
+    };
+    path.extend(inner.elements().iter().copied());
+    Item::new(layer, Geometry::Path(path), Style::fill())
 }

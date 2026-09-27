@@ -12,7 +12,7 @@
 //! - [`Bom`] + [`BomCsvWriter`]: bill of materials as CSV.
 //! - [`PickPlaceData`] + [`PickPlaceCsvWriter`]: pick&place CSV files.
 //! - [`GraphicsExportSettings`]: settings of graphics exports (plain data,
-//!   used by the graphics output job), and the option enums of the
+//!   used by the graphics output job), [`PageSize`] (Qt's page sizes), and the option enums of the
 //!   interactive HTML BOM ([`InteractiveHtmlBomViewMode`],
 //!   [`InteractiveHtmlBomHighlightPin1Mode`]).
 //!
@@ -21,8 +21,9 @@
 //! `QDateTime::currentDateTime()`) are passed in by the caller, see
 //! [`GerberFileInfo`] and [`Timestamp`].
 //!
-//! Not ported yet: `graphicsexport*` and `graphicspainter` (PDF/SVG/image
-//! rendering) and `interactivehtmlbom`.
+//! `graphicsexport` and `graphicspainter` (PDF/SVG/image rendering) are
+//! ported in the scene crate (`librepcb_scene::export`), which has the
+//! painters. Not ported yet: `interactivehtmlbom`.
 
 mod bom;
 mod bom_csv_writer;
@@ -35,6 +36,7 @@ mod gerber_attribute_writer;
 mod gerber_generator;
 mod graphics_export_settings;
 mod interactive_html_bom;
+mod page_size;
 mod pick_place_csv_writer;
 mod pick_place_data;
 mod timestamp;
@@ -56,6 +58,7 @@ pub use gerber_generator::{
 pub use graphics_export_settings::{GraphicsExportSettings, PageOrientation};
 pub(crate) use graphics_export_settings::{scale_from_sexpression, scale_to_sexpression};
 pub use interactive_html_bom::{InteractiveHtmlBomHighlightPin1Mode, InteractiveHtmlBomViewMode};
+pub use page_size::PageSize;
 pub use pick_place_csv_writer::{PickPlaceCsvWriter, PickPlaceSides};
 pub use pick_place_data::{PickPlaceData, PickPlaceDataItem, PickPlaceType};
 pub use timestamp::Timestamp;

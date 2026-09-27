@@ -71,7 +71,8 @@ pub use library::{LibraryElementKind, ProjectLibrary};
 pub use loader::ProjectLoader;
 pub use mutation::{BoardMutation, Mutation, SchematicMutation};
 pub use output_job_runner::{
-    OutputJobError, OutputJobEvent, OutputJobObserver, OutputJobResult, OutputJobRunner,
+    GraphicsExportResult, GraphicsExporter, GraphicsPage, GraphicsPageContent, OutputJobError,
+    OutputJobEvent, OutputJobObserver, OutputJobResult, OutputJobRunner,
 };
 pub use project::{Project, ProjectMetadata, ProjectSettings, ProjectView};
 pub use ref_index::{ComponentUses, NetUse, Reference};
