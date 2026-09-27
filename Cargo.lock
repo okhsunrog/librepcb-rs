@@ -3480,6 +3480,7 @@ dependencies = [
  "librepcb-autoroute",
  "librepcb-core",
  "librepcb-i18n",
+ "librepcb-scene",
  "log",
  "parking_lot",
  "serde",

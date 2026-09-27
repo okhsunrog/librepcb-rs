@@ -1,6 +1,7 @@
 //! Tests of the editor crate (one integration test binary).
 
 mod autoroute_test;
+mod board_fsm_test;
 mod connect_test;
 mod freerouting_test;
 mod helpers;
