@@ -189,9 +189,18 @@ impl State {
         }
         match (action, board) {
             (ui::TabAction::ExportFabricationData, Some(b)) => self.export_fabrication(&project, b),
-            (ui::TabAction::ExportPickPlace, Some(b)) => self.export_pick_place(&project, b),
+            (ui::TabAction::ExportPickPlace, Some(b)) => {
+                if let Some(dialog) =
+                    crate::dialogs::review::PickPlaceGeneratorDialog::new(&project, b)
+                {
+                    self.show_form_dialog(project, Box::new(dialog));
+                }
+            }
             (ui::TabAction::ExportD356Netlist, Some(b)) => self.export_netlist(&project, b),
-            (ui::TabAction::BillOfMaterials, b) => self.export_bom(&project, b),
+            (ui::TabAction::BillOfMaterials, b) => {
+                let dialog = crate::dialogs::review::BomReviewDialog::new(&project, b);
+                self.show_form_dialog(project, Box::new(dialog));
+            }
             (
                 ui::TabAction::Print | ui::TabAction::ExportSpecctra,
                 _,
@@ -211,7 +220,16 @@ impl State {
         action: ui::ProjectAction,
     ) -> bool {
         match action {
-            ui::ProjectAction::BillOfMaterials => self.export_bom(project, None),
+            ui::ProjectAction::BillOfMaterials => {
+                // Upstream: the board if the project has only one.
+                let board = {
+                    let p = project.shared().lock();
+                    let boards = p.project().boards();
+                    (boards.len() == 1).then(|| boards[0].id())
+                };
+                let dialog = crate::dialogs::review::BomReviewDialog::new(project, board);
+                self.show_form_dialog(Rc::clone(project), Box::new(dialog));
+            }
             ui::ProjectAction::ExportLppz => self.export_lppz(project),
             ui::ProjectAction::OpenOutputJobs => {
                 let unit = crate::dialogs::default_unit(project);

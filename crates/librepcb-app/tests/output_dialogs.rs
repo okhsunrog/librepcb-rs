@@ -1,7 +1,7 @@
-//! The graphics export and output jobs dialogs (M3b) without a Slint
-//! platform: fields edited like the UI does, the resulting jobs run with
-//! the application's output job runner, and the output jobs stored as one
-//! undo step.
+//! The graphics export, output jobs, BOM review and pick&place generator
+//! dialogs (M3b) without a Slint platform: fields edited like the UI does,
+//! the resulting jobs run with the application's output job runner, and
+//! project changes stored as one undo step.
 
 mod common;
 
@@ -180,4 +180,57 @@ fn output_jobs() {
     assert_eq!(d.apply(&DialogContext::new(&project)), Ok(Applied::Nothing));
     project.shared().lock().editor.undo().unwrap();
     assert_eq!(project.shared().lock().project().output_jobs().len(), initial);
+}
+
+#[test]
+fn bom_review() {
+    use librepcb_app::dialogs::review::BomReviewDialog;
+    let dir = tempfile::tempdir().unwrap();
+    let (project, _, board) = create_project(dir.path());
+    let mut dialog = BomReviewDialog::new(&project, Some(board));
+    assert_eq!(dialog.form().get_index("board"), Some(1));
+    let (header, rows) = dialog.table();
+    assert!(header.len() >= 3, "{header:?}");
+    // R1 and R2 have the same device: one row.
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert!(rows[0].iter().any(|c| c.contains("R1") && c.contains("R2")), "{rows:?}");
+    edit(&mut dialog, &project, "attributes", |f| f.text = "MPN, Foo".into());
+    let (header2, _) = dialog.table();
+    assert_eq!(header2.len(), header.len() + 2, "{header2:?}");
+    let index = undo_index(&project);
+    assert_eq!(dialog.apply(&DialogContext::new(&project)), Ok(Applied::Project));
+    assert_eq!(undo_index(&project), index + 1);
+    assert_eq!(
+        project.shared().lock().project().settings().custom_bom_attributes,
+        vec!["MPN", "Foo"]
+    );
+    assert_eq!(dialog.apply(&DialogContext::new(&project)), Ok(Applied::Nothing));
+}
+
+#[test]
+fn pick_place_generator() {
+    use librepcb_app::dialogs::review::PickPlaceGeneratorDialog;
+    let dir = tempfile::tempdir().unwrap();
+    let (project, _, board) = create_project(dir.path());
+    let mut dialog = PickPlaceGeneratorDialog::new(&project, board).unwrap();
+    assert_eq!(
+        dialog.form().field("data").unwrap().items.row_count(),
+        2
+    );
+    let jobs = match dialog.apply(&DialogContext::new(&project)) {
+        Ok(Applied::RunJobs { jobs, .. }) => jobs,
+        other => panic!("jobs expected: {other:?}"),
+    };
+    let mut files = run(&project, &jobs);
+    files.sort();
+    assert_eq!(files.len(), 2, "{files:?}");
+    assert!(files[0].ends_with("_BOT.csv"), "{files:?}");
+    // Gerber X3 changes the file extensions.
+    edit(&mut dialog, &project, "format", |f| f.index = 2);
+    assert!(dialog.form().get_text("top_path").ends_with("_TOP.gbr"));
+    edit(&mut dialog, &project, "bottom", |f| f.checked = false);
+    let job = dialog.job().unwrap();
+    let files = run(&project, &[job]);
+    assert_eq!(files.len(), 1, "{files:?}");
+    assert!(files[0].ends_with("_TOP.gbr"), "{files:?}");
 }

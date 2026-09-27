@@ -189,5 +189,25 @@ fn dialogs_in_the_application() {
     save(&headless, "dialog_graphics_export.png");
     forms.invoke_form_button(-2);
     headless.settle(5);
+    backend.invoke_trigger_project(0, ui::ProjectAction::BillOfMaterials);
+    headless.settle(10);
+    assert!(forms.get_form_shown());
+    save(&headless, "dialog_bom_review.png");
+    forms.invoke_form_button(-2);
+    headless.settle(5);
+    let board_tab = {
+        let state = app.state().borrow();
+        state.sections()[0]
+            .tabs()
+            .iter()
+            .position(|t| matches!(t, librepcb_app::tabs::Tab::Board2d(_)))
+            .unwrap() as i32
+    };
+    backend.invoke_trigger_tab(0, board_tab, ui::TabAction::ExportPickPlace);
+    headless.settle(10);
+    assert!(forms.get_form_shown());
+    save(&headless, "dialog_pick_place.png");
+    forms.invoke_form_button(-2);
+    headless.settle(5);
     assert!(!forms.get_form_shown());
 }

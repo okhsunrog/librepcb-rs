@@ -39,6 +39,7 @@ pub mod form;
 pub mod geometry;
 pub mod move_align;
 pub mod output;
+pub mod review;
 pub mod schematic;
 pub mod setup;
 
