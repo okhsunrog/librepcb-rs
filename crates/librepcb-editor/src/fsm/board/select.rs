@@ -948,6 +948,21 @@ impl SelectState {
                 }
                 true
             }
+            ContextAction::ChangeDevice(device) => {
+                let BoardItemRef::Device(c) = item else {
+                    return false;
+                };
+                let board = cx.board_id();
+                if let Err(e) = cx.exec(crate::commands::ReplaceDevice {
+                    component: c.into(),
+                    board: Some(board),
+                    device,
+                    footprint: None,
+                }) {
+                    cx.error(e);
+                }
+                true
+            }
             ContextAction::ChangeModel(model) => {
                 let BoardItemRef::Device(c) = item else {
                     return false;
@@ -1482,6 +1497,19 @@ fn context_menu(cx: &Cx<'_, '_>, item: BoardItemRef, pos: Point) -> Vec<ContextM
                 ContextAction::ResetTexts,
                 tr!("EditorCommandSet", "Reset All Texts"),
             ));
+            // Devices of the component (upstream "Change Device" menu).
+            let devices = device_menu_items(cx, c);
+            if !devices.is_empty() {
+                m.push(separator());
+                for (uuid, name) in devices {
+                    let current = uuid == d.lib_device();
+                    m.push(ContextMenuItem {
+                        enabled: !current,
+                        checked: current.then_some(true),
+                        ..entry(ContextAction::ChangeDevice(uuid), name)
+                    });
+                }
+            }
             // Footprints and 3D models of the package.
             let lib = cx.project().library();
             if let Some(pkg) = lib
@@ -1957,4 +1985,55 @@ fn float_to_string(value: f64, decimals: usize) -> String {
         s
     };
     if s == "-0" { "0".to_owned() } else { s }
+}
+
+/// The devices of the component of a board device from the library
+/// element source, as (UUID, "device name [package name]") sorted by name
+/// (upstream `getDeviceMenuItems()`); devices of the component's assembly
+/// options are marked with a check mark.
+fn device_menu_items(
+    cx: &Cx<'_, '_>,
+    component: librepcb_core::project::ComponentInstanceId,
+) -> Vec<(Uuid, String)> {
+    use crate::commands::library::open_element;
+    use crate::undo_stack::LibraryElement;
+    use librepcb_core::project::LibraryElementKind;
+    let p = cx.project();
+    let Some(instance) = p.circuit().component_instance(component) else {
+        return Vec::new();
+    };
+    let compatible = instance.compatible_devices();
+    let source = cx.ctx.editor.source();
+    let mut items: Vec<(Uuid, String)> = source
+        .component_devices(&instance.lib_component())
+        .into_iter()
+        .filter_map(|uuid| {
+            let dir = source.element_directory(LibraryElementKind::Device, &uuid)?;
+            let LibraryElement::Device(device) =
+                open_element(LibraryElementKind::Device, &dir).ok()?
+            else {
+                return None;
+            };
+            let pkg_name = source
+                .element_directory(LibraryElementKind::Package, &device.package_uuid())
+                .and_then(|dir| open_element(LibraryElementKind::Package, &dir).ok())
+                .and_then(|e| match e {
+                    LibraryElement::Package(pkg) => {
+                        Some(pkg.metadata().names().default_value().to_string())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let mut name = format!(
+                "{} [{pkg_name}]",
+                device.metadata().names().default_value()
+            );
+            if compatible.contains(&uuid) {
+                name += " \u{2714}";
+            }
+            Some((uuid, name))
+        })
+        .collect();
+    items.sort_by(|a, b| toolbox::compare_numeric(&a.1, &b.1));
+    items
 }

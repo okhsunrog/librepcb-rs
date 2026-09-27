@@ -242,6 +242,9 @@ pub enum ContextAction {
     Lock(bool),
     /// Reset all texts of the device.
     ResetTexts,
+    /// Change the device (library device from the library element
+    /// source, upstream "Change Device" menu).
+    ChangeDevice(Uuid),
     /// Change the footprint of the device.
     ChangeFootprint(Uuid),
     /// Change the 3D model of the device.

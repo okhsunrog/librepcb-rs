@@ -1095,3 +1095,45 @@ fn add_tht_and_smt_pads() {
     assert!(h.editor.undo().unwrap());
     assert_eq!(pads(&h).len(), 1);
 }
+
+#[test]
+fn change_device_from_context_menu() {
+    use librepcb_editor::fsm::board::ContextAction;
+    let mut h = build(true);
+    let r1 = h.component("R1");
+    assert_eq!(h.board().device(r1).unwrap().lib_device(), lib::r0805());
+    let pos = h.board().device(r1).unwrap().position();
+    let pad = h.pad_pos("R1", "1");
+    h.input(BoardFsmInput::RightReleased(PointerEvent::new(pad)));
+    let menu = h
+        .requests
+        .iter()
+        .find_map(|e| match e {
+            BoardRequest::ContextMenu { items, .. } => Some(items.clone()),
+            _ => None,
+        })
+        .unwrap();
+    // The devices of the resistor component from the library source: the
+    // current one is checked and disabled, the others can be chosen.
+    let current = menu
+        .iter()
+        .find(|i| i.action == Some(ContextAction::ChangeDevice(lib::r0805())))
+        .expect("current device listed");
+    assert_eq!(current.checked, Some(true));
+    assert!(!current.enabled);
+    let other = menu
+        .iter()
+        .find(|i| i.action == Some(ContextAction::ChangeDevice(lib::r0603())))
+        .expect("other device listed");
+    assert!(other.enabled);
+    assert!(other.text.contains('['), "{}", other.text);
+    h.input(BoardFsmInput::ContextMenu(ContextAction::ChangeDevice(
+        lib::r0603(),
+    )));
+    let dev = h.board().device(r1).unwrap();
+    assert_eq!(dev.lib_device(), lib::r0603());
+    assert_eq!(dev.position(), pos);
+    assert_eq!(h.undo_text().as_deref(), Some("Change Device"));
+    assert!(h.editor.undo().unwrap());
+    assert_eq!(h.board().device(r1).unwrap().lib_device(), lib::r0805());
+}

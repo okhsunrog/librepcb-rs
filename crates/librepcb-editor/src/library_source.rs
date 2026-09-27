@@ -27,6 +27,14 @@ pub trait LibraryElementSource: Send + Sync {
     /// Returns the directory of the latest version of the element, or
     /// `None` if it is unknown.
     fn element_directory(&self, kind: LibraryElementKind, uuid: &Uuid) -> Option<FilePath>;
+
+    /// Returns the devices of a component (upstream
+    /// `WorkspaceLibraryDb::getComponentDevices()`), e.g. for the "change
+    /// device" menu. The default implementation knows none.
+    fn component_devices(&self, component: &Uuid) -> Vec<Uuid> {
+        let _ = component;
+        Vec::new()
+    }
 }
 
 /// A source without any elements (only the project library can be used).
@@ -149,6 +157,23 @@ impl LibraryElementSource for DirectoryLibrarySource {
             .get(&(kind, *uuid))
             .map(|(_, dir)| dir.clone())
     }
+
+    /// Reads the component UUID of every known device (unreadable devices
+    /// are skipped).
+    fn component_devices(&self, component: &Uuid) -> Vec<Uuid> {
+        let kind = LibraryElementKind::Device;
+        self.elements
+            .iter()
+            .filter(|((k, _), _)| *k == kind)
+            .filter_map(|((_, uuid), (_, dir))| {
+                let file = dir.path_to(&format!("{}.lp", long_element_name(kind)));
+                let content = std::fs::read(file.as_path()).ok()?;
+                let root = SExpression::parse(&content, Some(file.as_path()), Mode::LibrePcb).ok()?;
+                let cmp: Uuid = root.child_value("component/@0").ok()?;
+                (cmp == *component).then_some(*uuid)
+            })
+            .collect()
+    }
 }
 
 /// The workspace library database (upstream `WorkspaceLibraryDb`): the
@@ -167,6 +192,16 @@ impl LibraryElementSource for LibraryDb {
             Err(e) => {
                 log::error!("Failed to query the workspace library database: {e}");
                 None
+            }
+        }
+    }
+
+    fn component_devices(&self, component: &Uuid) -> Vec<Uuid> {
+        match LibraryDb::component_devices(self, *component) {
+            Ok(devices) => devices.into_iter().collect(),
+            Err(e) => {
+                log::error!("Failed to query the workspace library database: {e}");
+                Vec::new()
             }
         }
     }
