@@ -558,12 +558,11 @@ fn paste(
                 .collect();
             for old in data.assembly_variants.iter() {
                 let id = AssemblyVariantId(old.uuid());
-                if !uuids.contains(&id) {
-                    if !result.remove(&id)
-                        && let Some(new) = variants.iter().find(|v| v.name() == old.name())
-                    {
-                        result.remove(&AssemblyVariantId(new.uuid()));
-                    }
+                if !uuids.contains(&id)
+                    && !result.remove(&id)
+                    && let Some(new) = variants.iter().find(|v| v.name() == old.name())
+                {
+                    result.remove(&AssemblyVariantId(new.uuid()));
                 }
             }
             result
@@ -664,12 +663,12 @@ fn paste(
                             continue;
                         };
                         let p = tx.project();
-                        let view = p
+                        let symbol = p
                             .schematic(schematic)
                             .and_then(|s| s.symbols().get(&new_symbol))
-                            .map(|s| s.pin(p.view(), pin))
-                            .transpose()?
-                            .flatten()
+                            .ok_or_else(|| Error::not_found("Symbol", new_symbol))?;
+                        let view = symbol
+                            .pin(p.view(), pin)?
                             .ok_or_else(|| Error::not_found("Pin", pin))?;
                         let signal = view.signal();
                         if view.net() != Some(net) {
