@@ -35,6 +35,7 @@ mod add_label;
 mod add_text;
 pub mod clipboard;
 mod drag;
+mod draw_bus;
 mod draw_polygon;
 mod draw_wire;
 mod hit_test;
@@ -47,7 +48,8 @@ use std::collections::BTreeSet;
 
 use librepcb_core::project::schematic::Schematic;
 use librepcb_core::project::{
-    BusSegmentId, ComponentInstanceId, NetSegmentId, Project, SchematicId, SymbolId,
+    BusId, BusSegmentId, ComponentInstanceId, NetSegmentId, NetSignalId, Project, SchematicId,
+    SymbolId,
 };
 use librepcb_core::types::{
     Angle, Layer, Length, LengthUnit, Orientation, Point, PositiveLength, UnsignedLength, Uuid,
@@ -153,6 +155,8 @@ pub enum SchematicTool {
     Select,
     /// Draw wires.
     Wire,
+    /// Draw buses.
+    Bus,
     /// Add net labels.
     Label,
     /// Add components.
@@ -169,8 +173,12 @@ pub enum SchematicTool {
 /// `SchematicTabData`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchematicToolData {
-    /// Wire mode (draw wire).
+    /// Wire mode (draw wire, draw bus).
     pub wire_mode: WireMode,
+    /// Buses to choose from, sorted by name (draw bus).
+    pub buses: Vec<(BusId, String)>,
+    /// The bus of new bus segments (draw bus; `None`: a new bus).
+    pub bus: Option<BusId>,
     /// Layer (draw polygon, add text).
     pub layer: Layer,
     /// Layers to choose from (draw polygon, add text).
@@ -191,6 +199,8 @@ impl Default for SchematicToolData {
     fn default() -> Self {
         Self {
             wire_mode: WireMode::HV,
+            buses: Vec::new(),
+            bus: None,
             layer: Layer::SCHEMATIC_GUIDE,
             available_layers: Vec::new(),
             line_width: UnsignedLength::new(Length::new(300_000)).unwrap_or_default(),
@@ -243,6 +253,36 @@ pub enum SchematicRequest {
     },
     /// Zoom to show all items (e.g. after adding a drawing frame).
     ZoomAll,
+    /// Show the menu of the bus members when a wire starts or ends at a bus
+    /// (upstream `determineNetForBusMember()`); the application calls
+    /// [`SchematicEditorFsm::choose_bus_member()`] with the choice ("Add
+    /// New Bus Member" is the default entry, "Cancel" is `None`).
+    BusMemberMenu {
+        /// The position (world coordinates).
+        pos: Point,
+        /// The nets of the bus.
+        nets: Vec<BusMemberNet>,
+    },
+}
+
+/// A net of the bus member menu, see [`SchematicRequest::BusMemberMenu`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BusMemberNet {
+    /// The net.
+    pub net: NetSignalId,
+    /// Its name.
+    pub name: String,
+    /// Whether it can be chosen (anonymous nets cannot).
+    pub enabled: bool,
+}
+
+/// The choice of the bus member menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BusMemberChoice {
+    /// "Add New Bus Member": a new net (with an automatic name).
+    NewMember,
+    /// An existing member of the bus.
+    Net(NetSignalId),
 }
 
 /// Settings of the schematic editor FSM.
@@ -364,6 +404,7 @@ enum StateKind {
     Idle,
     Select,
     DrawWire,
+    DrawBus,
     AddLabel,
     AddComponent,
     DrawPolygon,
@@ -447,6 +488,7 @@ pub(crate) trait State {
 struct States {
     select: select::SelectState,
     draw_wire: draw_wire::DrawWireState,
+    draw_bus: draw_bus::DrawBusState,
     add_label: add_label::AddLabelState,
     add_component: add_component::AddComponentState,
     draw_polygon: draw_polygon::DrawPolygonState,
@@ -460,6 +502,7 @@ impl States {
             StateKind::Idle => return None,
             StateKind::Select => &mut self.select,
             StateKind::DrawWire => &mut self.draw_wire,
+            StateKind::DrawBus => &mut self.draw_bus,
             StateKind::AddLabel => &mut self.add_label,
             StateKind::AddComponent => &mut self.add_component,
             StateKind::DrawPolygon => &mut self.draw_polygon,
@@ -601,6 +644,11 @@ impl SchematicEditorFsm {
         self.switch_to(ctx, StateKind::DrawWire)
     }
 
+    /// Switches to the draw bus tool.
+    pub fn draw_bus(&mut self, ctx: &mut SchematicContext<'_>) -> bool {
+        self.switch_to(ctx, StateKind::DrawBus)
+    }
+
     /// Switches to the add net label tool.
     pub fn add_net_label(&mut self, ctx: &mut SchematicContext<'_>) -> bool {
         self.switch_to(ctx, StateKind::AddLabel)
@@ -660,6 +708,27 @@ impl SchematicEditorFsm {
         }
         self.after_event(ctx);
         ok
+    }
+
+    /// The answer of [`SchematicRequest::BusMemberMenu`] (`None`: the menu
+    /// was canceled).
+    pub fn choose_bus_member(
+        &mut self,
+        ctx: &mut SchematicContext<'_>,
+        choice: Option<BusMemberChoice>,
+    ) -> bool {
+        let kind = self.ensure_entered(ctx);
+        let handled = kind == StateKind::DrawWire && {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states.draw_wire.choose_bus_member(&mut cx, choice)
+        };
+        self.after_event(ctx);
+        handled
     }
 
     /// Places the remaining gates of a component (or only `gate`), upstream
@@ -850,15 +919,27 @@ impl SchematicEditorFsm {
     pub fn set_wire_mode(&mut self, ctx: &mut SchematicContext<'_>, mode: WireMode) {
         let kind = self.ensure_entered(ctx);
         self.out.tool_data.wire_mode = mode;
-        if kind == StateKind::DrawWire {
+        {
             let mut cx = Cx {
                 ctx,
                 out: &mut self.out,
                 schematic: self.schematic,
                 settings: &self.settings,
             };
-            self.states.draw_wire.wire_mode_changed(&mut cx);
+            match kind {
+                StateKind::DrawWire => self.states.draw_wire.wire_mode_changed(&mut cx),
+                StateKind::DrawBus => self.states.draw_bus.wire_mode_changed(&mut cx),
+                _ => {}
+            }
         }
+        self.after_event(ctx);
+    }
+
+    /// Chooses the bus of new bus segments (draw bus tool, upstream
+    /// `selectBus()`; `None`: a new bus).
+    pub fn set_bus(&mut self, ctx: &mut SchematicContext<'_>, bus: Option<BusId>) {
+        self.ensure_entered(ctx);
+        self.out.tool_data.bus = bus;
         self.after_event(ctx);
     }
 

@@ -908,3 +908,345 @@ fn edit_upstream_projects_and_undo() {
     }
     assert!(pages >= 3, "{pages}");
 }
+
+// --- Buses ---
+
+impl Harness {
+    fn bus_segments(&self) -> Vec<librepcb_core::project::schematic::SchematicBusSegment> {
+        self.p()
+            .schematic(self.schematic)
+            .unwrap()
+            .bus_segments()
+            .values()
+            .cloned()
+            .collect()
+    }
+
+    fn press_mod(&mut self, pos: Point, modifiers: Modifiers) -> bool {
+        self.cursor = pos;
+        self.run(|fsm, ctx| fsm.left_pressed(ctx, PointerEvent::with_modifiers(pos, modifiers)))
+    }
+
+    /// Draws a bus from `a` to `b` (HV corner) and finishes it.
+    fn draw_bus(&mut self, a: Point, b: Point) {
+        assert!(self.run(|fsm, ctx| fsm.draw_bus(ctx)));
+        assert_eq!(self.fsm.tool(), SchematicTool::Bus);
+        self.move_to(a);
+        self.press(a);
+        self.move_to(b);
+        self.press(b);
+        self.run(|fsm, ctx| fsm.abort(ctx));
+        assert!(!self.editor.undo_stack().is_group_active());
+    }
+}
+
+#[test]
+fn draw_bus_extend_and_label() {
+    let mut h = Harness::new();
+    h.draw_bus(mm(0.0, 20.32), mm(20.32, 30.48));
+    let segs = h.bus_segments();
+    assert_eq!(segs.len(), 1);
+    assert_eq!(segs[0].lines().len(), 2, "HV corner: two lines");
+    let buses = h.p().circuit().buses();
+    assert_eq!(buses.len(), 1);
+    let bus = buses.values().next().unwrap();
+    assert_eq!(bus.name().to_string(), "B1");
+    assert!(bus.has_auto_name());
+
+    // A second bus line from the middle of the first line extends the
+    // segment (the line is split).
+    assert!(h.run(|fsm, ctx| fsm.draw_bus(ctx)));
+    h.move_to(mm(10.16, 20.32));
+    h.press(mm(10.16, 20.32));
+    h.move_to(mm(10.16, 10.16));
+    h.press(mm(10.16, 10.16));
+    h.run(|fsm, ctx| fsm.abort(ctx));
+    let segs = h.bus_segments();
+    assert_eq!(segs.len(), 1);
+    assert_eq!(segs[0].lines().len(), 4);
+    assert_eq!(h.p().circuit().buses().len(), 1);
+
+    // Add a bus label on the bus with the label tool.
+    assert!(h.run(|fsm, ctx| fsm.add_net_label(ctx)));
+    h.move_to(mm(5.08, 20.32));
+    h.press(mm(5.08, 20.32));
+    h.move_to(mm(7.62, 20.32));
+    h.press(mm(7.62, 20.32));
+    assert!(!h.editor.undo_stack().is_group_active());
+    let segs = h.bus_segments();
+    assert_eq!(segs[0].labels().len(), 1);
+    assert_eq!(
+        segs[0].labels().values().next().unwrap().position(),
+        mm(7.62, 20.32)
+    );
+    assert_eq!(
+        h.editor.undo_stack().undo_text(),
+        Some("Add Bus Label to Schematic")
+    );
+}
+
+#[test]
+fn draw_bus_with_chosen_bus_adds_label_and_combines() {
+    let mut h = Harness::new();
+    h.draw_bus(mm(0.0, 20.32), mm(20.32, 20.32));
+    let b1 = *h.p().circuit().buses().keys().next().unwrap();
+    // A new bus "DATA" (not auto named) chosen in the tool bar.
+    let data = h
+        .editor
+        .execute(ApplyMutations {
+            text: None,
+            mutations: vec![librepcb_core::project::Mutation::AddBus(
+                librepcb_core::project::circuit::Bus::new(
+                    Uuid::new_random(),
+                    librepcb_core::types::BusName::new("DATA").unwrap(),
+                    false,
+                    false,
+                    None,
+                ),
+            )],
+        })
+        .map(|_| {
+            *h.p()
+                .circuit()
+                .buses()
+                .iter()
+                .find(|(_, b)| b.name().to_string() == "DATA")
+                .unwrap()
+                .0
+        })
+        .unwrap();
+    assert!(h.run(|fsm, ctx| fsm.draw_bus(ctx)));
+    h.run(|fsm, ctx| fsm.set_bus(ctx, Some(data)));
+    assert_eq!(h.fsm.tool_data().bus, Some(data));
+    assert!(h.fsm.tool_data().buses.iter().any(|(id, _)| *id == data));
+    // From free space to the end junction of the B1 segment.
+    h.move_to(mm(20.32, 5.08));
+    h.press(mm(20.32, 5.08));
+    h.move_to(mm(20.32, 20.32));
+    h.press(mm(20.32, 20.32));
+    assert!(!h.editor.undo_stack().is_group_active());
+    let segs = h.bus_segments();
+    assert_eq!(segs.len(), 1, "combined into one segment");
+    // B1 had an automatic name: the segment moved to DATA, B1 is gone.
+    assert_eq!(segs[0].bus(), data);
+    assert!(h.p().circuit().bus(b1).is_none());
+    assert_eq!(segs[0].labels().len(), 1, "label at the start");
+    assert_eq!(
+        segs[0].labels().values().next().unwrap().position(),
+        mm(20.32, 5.08)
+    );
+}
+
+#[test]
+fn remove_bus_line_splits_segment() {
+    let mut h = Harness::new();
+    h.draw_bus(mm(0.0, 20.32), mm(20.32, 30.48));
+    assert!(h.run(|fsm, ctx| fsm.select_tool(ctx)));
+    // Select the vertical line and remove it.
+    h.click(mm(20.32, 25.4));
+    assert!(
+        h.fsm
+            .selection()
+            .iter()
+            .any(|i| matches!(i, SchematicItem::BusLine(..))),
+        "{:?}",
+        h.fsm.selection()
+    );
+    assert!(h.fsm.view_state().features.remove);
+    assert!(h.run(|fsm, ctx| fsm.remove(ctx)));
+    let segs = h.bus_segments();
+    assert_eq!(segs.len(), 1);
+    assert_eq!(segs[0].lines().len(), 1);
+    assert_eq!(segs[0].junctions().len(), 2);
+    // The remaining part has no label: it got a new bus; the old one is
+    // unused and removed.
+    assert_eq!(h.p().circuit().buses().len(), 1);
+    h.undo();
+    assert_eq!(h.bus_segments()[0].lines().len(), 2);
+}
+
+#[test]
+fn wires_from_and_to_bus_with_member_menu() {
+    use librepcb_editor::fsm::schematic::BusMemberChoice;
+    let mut h = Harness::new();
+    let r1_2 = h.pins("R1")[1].1;
+    let r2_1 = h.pins("R2")[0].1;
+    let y = mm(0.0, 10.16).y;
+    let bus_a = Point::new(r1_2.x, y);
+    let bus_b = Point::new(r2_1.x, y);
+    h.draw_bus(bus_a, bus_b);
+    assert_eq!(h.bus_segments().len(), 1);
+
+    // Start a wire at the bus: the member menu is requested.
+    assert!(h.run(|fsm, ctx| fsm.draw_wire(ctx)));
+    h.move_to(bus_a);
+    assert!(h.press(bus_a));
+    let menu = h
+        .requests
+        .iter()
+        .find_map(|r| match r {
+            SchematicRequest::BusMemberMenu { nets, .. } => Some(nets.clone()),
+            _ => None,
+        })
+        .expect("bus member menu");
+    assert!(menu.is_empty(), "no members yet");
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert!(h.run(|fsm, ctx| fsm.choose_bus_member(ctx, Some(BusMemberChoice::NewMember))));
+    assert!(h.editor.undo_stack().is_group_active());
+    h.move_to(r1_2);
+    h.press(r1_2);
+    assert!(!h.editor.undo_stack().is_group_active());
+    let p = h.p();
+    let s = p.schematic(h.schematic).unwrap();
+    let seg = s
+        .net_segments()
+        .values()
+        .find(|seg| !seg.connected_bus_junctions().is_empty())
+        .expect("net segment attached to the bus");
+    assert_eq!(seg.labels().len(), 1, "label at the end of the wire");
+    assert_eq!(seg.labels().values().next().unwrap().position(), r1_2);
+    let net = seg.net();
+
+    // A wire from R2 pin 1 to the bus: choose the existing member.
+    h.move_to(r2_1);
+    h.press(r2_1);
+    h.move_to(bus_b);
+    assert!(h.press(bus_b));
+    let menu = h
+        .requests
+        .iter()
+        .rev()
+        .find_map(|r| match r {
+            SchematicRequest::BusMemberMenu { nets, .. } => Some(nets.clone()),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(menu.len(), 1);
+    assert_eq!(menu[0].net, net);
+    assert!(menu[0].enabled);
+    h.run(|fsm, ctx| fsm.choose_bus_member(ctx, Some(BusMemberChoice::Net(net))));
+    assert!(!h.editor.undo_stack().is_group_active());
+    let p = h.p();
+    let s = p.schematic(h.schematic).unwrap();
+    let r2 = h.symbol("R2");
+    let pin = h.pins("R2")[0].0;
+    let pin_seg = s.pin_net_segment(r2, pin).unwrap();
+    assert_eq!(s.net_segments()[&pin_seg].net(), net, "same bus member");
+    assert_eq!(s.net_segments()[&pin_seg].labels().len(), 1);
+    assert_eq!(
+        s.net_segments()[&pin_seg]
+            .labels()
+            .values()
+            .next()
+            .unwrap()
+            .position(),
+        r2_1,
+        "label at the start of a wire ending at a bus"
+    );
+
+    // Moving the bus junction moves the attached wire end.
+    assert!(h.run(|fsm, ctx| fsm.select_tool(ctx)));
+    let seg_before = h.bus_segments()[0].clone();
+    let junction = *seg_before
+        .junctions()
+        .iter()
+        .find(|(_, j)| j.position() == bus_a)
+        .unwrap()
+        .0;
+    h.run(|fsm, _| fsm.set_selection([SchematicItem::BusJunction(seg_before.id(), junction)]));
+    assert!(h.run(|fsm, ctx| fsm.move_by(ctx, mm(0.0, 2.54))));
+    let seg_after = &h.bus_segments()[0];
+    assert!(
+        seg_after
+            .junctions()
+            .values()
+            .any(|j| j.position() == bus_a + mm(0.0, 2.54))
+    );
+}
+
+#[test]
+fn wire_to_bus_with_control_skips_menu() {
+    let mut h = Harness::new();
+    let r1_2 = h.pins("R1")[1].1;
+    let bus_a = Point::new(r1_2.x, mm(0.0, 10.16).y);
+    h.draw_bus(bus_a, bus_a + mm(10.16, 0.0));
+    assert!(h.run(|fsm, ctx| fsm.draw_wire(ctx)));
+    h.move_to(bus_a);
+    h.press_mod(bus_a, Modifiers::CONTROL);
+    assert!(
+        !h.requests
+            .iter()
+            .any(|r| matches!(r, SchematicRequest::BusMemberMenu { .. }))
+    );
+    h.move_to(r1_2);
+    h.press(r1_2);
+    let p = h.p();
+    let s = p.schematic(h.schematic).unwrap();
+    let seg = s
+        .net_segments()
+        .values()
+        .find(|seg| !seg.connected_bus_junctions().is_empty())
+        .unwrap();
+    assert!(seg.labels().is_empty(), "no label without the menu");
+}
+
+#[test]
+fn symbol_texts_are_selectable() {
+    let mut h = Harness::new();
+    let r1 = h.symbol("R1");
+    let (text_uuid, text_pos) = {
+        let s = h.p().schematic(h.schematic).unwrap();
+        let t = s.symbols()[&r1].texts().values().next().unwrap();
+        (t.uuid(), t.position())
+    };
+    let symbol_pos = h.p().schematic(h.schematic).unwrap().symbols()[&r1].position();
+    // Find a point on the rendered text (scan its bounding box).
+    let hit = {
+        let canvas = h.scene.scene();
+        let (_, item) = canvas
+            .items()
+            .find(|(id, _)| h.scene.object(*id) == Some(SchematicObject::SymbolText(r1, text_uuid)))
+            .expect("text item");
+        let bbox = item.bounding_box();
+        let steps = 40;
+        (0..=steps * steps)
+            .map(|i| {
+                KPoint::new(
+                    bbox.x0 + bbox.width() * f64::from(i % steps) / f64::from(steps),
+                    bbox.y0 + bbox.height() * f64::from(i / steps) / f64::from(steps),
+                )
+            })
+            .find(|p| item.hit(*p, 0.0))
+            .map(|p| mm(p.x, p.y))
+            .expect("text hit")
+    };
+    let _ = text_pos;
+    h.move_to(hit);
+    h.press(hit);
+    assert!(
+        h.fsm
+            .selection()
+            .contains(&SchematicItem::SymbolText(r1, text_uuid)),
+        "{:?}",
+        h.fsm.selection()
+    );
+    h.move_to(hit + mm(2.54, 2.54));
+    h.release(hit + mm(2.54, 2.54));
+    let s = h.p().schematic(h.schematic).unwrap();
+    assert_eq!(s.symbols()[&r1].position(), symbol_pos, "symbol not moved");
+    assert_eq!(
+        s.symbols()[&r1].texts()[&text_uuid].position(),
+        text_pos + mm(2.54, 2.54)
+    );
+    // Double click requests the text properties.
+    h.run(|fsm, ctx| fsm.left_double_clicked(ctx, PointerEvent::new(hit + mm(2.54, 2.54))));
+    assert!(h.requests.iter().any(|r| matches!(
+        r,
+        SchematicRequest::SymbolTextProperties(s, t) if *s == r1 && *t == text_uuid
+    )));
+    // Remove only the text.
+    assert!(h.run(|fsm, ctx| fsm.remove(ctx)));
+    let s = h.p().schematic(h.schematic).unwrap();
+    assert!(!s.symbols()[&r1].texts().contains_key(&text_uuid));
+    assert!(s.symbols().contains_key(&r1));
+}

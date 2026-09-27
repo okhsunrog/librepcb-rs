@@ -1,5 +1,5 @@
 //! Port of libs/librepcb/editor/project/schematic/fsm/schematiceditorstate_addlabel.{h,cpp}
-//! (net labels; bus labels are not ported).
+//! (net labels on net lines, bus labels on bus lines).
 
 use librepcb_core::geometry::NetLabel;
 use librepcb_core::types::{Angle, Orientation, Point};
@@ -8,7 +8,7 @@ use librepcb_i18n::tr;
 use super::drag::DragSelection;
 use super::hit_test::{FindFlags, find_items_at};
 use super::{Cx, SchematicItem, SchematicTool, State};
-use crate::commands::{AddNetLabel, ApplyMutations};
+use crate::commands::{AddBusLabel, AddNetLabel, ApplyMutations};
 use crate::fsm::{CursorShape, Features, PointerEvent};
 
 /// The add net label state.
@@ -34,9 +34,62 @@ impl AddLabelState {
         }
     }
 
-    /// Starts placing a label on the net line under the cursor (upstream
-    /// `addLabel()`).
+    /// Starts placing a bus label on the bus line under the cursor.
+    fn add_bus_label(
+        &mut self,
+        cx: &mut Cx<'_, '_>,
+        segment: librepcb_core::project::BusSegmentId,
+        pos: Point,
+    ) -> bool {
+        let pos = pos.mapped_to_grid(cx.grid());
+        if let Err(e) = cx.ctx.editor.begin_group(tr!(
+            "SchematicEditorState_AddLabel",
+            "Add Bus Label to Schematic"
+        )) {
+            cx.error(e);
+            return false;
+        }
+        match cx.ctx.editor.execute(AddBusLabel {
+            segment,
+            position: pos,
+            rotation: Angle::DEG0,
+            mirrored: false,
+        }) {
+            Ok(uuid) => {
+                let base = cx.ctx.editor.active_group_len().unwrap_or(0);
+                let label = NetLabel::new(uuid, pos, Angle::DEG0, false);
+                self.placing = Some((
+                    DragSelection::for_bus_label(cx.schematic, segment, label),
+                    base,
+                ));
+                cx.out.view.features = Features {
+                    rotate: true,
+                    mirror: true,
+                    ..Features::default()
+                };
+                true
+            }
+            Err(e) => {
+                cx.error(e);
+                self.abort_command(cx);
+                false
+            }
+        }
+    }
+
+    /// Starts placing a label on the bus or net line under the cursor
+    /// (upstream `addLabel()`).
     fn add_label(&mut self, cx: &mut Cx<'_, '_>, pos: Point) -> bool {
+        let bus_flags = FindFlags {
+            bus_lines: true,
+            ..FindFlags::NONE
+        }
+        .within_grid();
+        if let Some(SchematicItem::BusLine(segment, _)) =
+            find_items_at(cx, pos, bus_flags, &[]).into_iter().next()
+        {
+            return self.add_bus_label(cx, segment, pos);
+        }
         let flags = FindFlags {
             net_lines: true,
             ..FindFlags::NONE

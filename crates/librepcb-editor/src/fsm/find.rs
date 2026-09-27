@@ -226,11 +226,20 @@ fn wildcard_match(pattern: &str, text: &str) -> bool {
     p[pi..].iter().all(|c| *c == '*')
 }
 
-/// The candidates of all nets which are not anonymous (upstream
-/// `!NetSignal::isAnonymous()`: the name is forced by a pin or the net has
-/// net labels), sorted later by [`SearchContext::set_candidates()`].
+/// The candidates of all nets which are not anonymous (see
+/// [`named_nets()`]), sorted later by [`SearchContext::set_candidates()`].
 pub(crate) fn net_candidates(p: &Project) -> Vec<FindCandidate> {
-    let mut named: BTreeSet<NetSignalId> = BTreeSet::new();
+    named_nets(p)
+        .into_iter()
+        .filter_map(|id| p.circuit().net_signal(id))
+        .map(|n| FindCandidate::net(n.name().to_string()))
+        .collect()
+}
+
+/// The nets which are not anonymous (upstream `!NetSignal::isAnonymous()`:
+/// the name is forced by a pin or the net has net labels).
+pub(crate) fn named_nets(p: &Project) -> BTreeSet<NetSignalId> {
+    let mut named = forced_nets(p);
     for s in p.schematics() {
         for seg in s.net_segments().values() {
             if !seg.labels().is_empty() {
@@ -238,6 +247,13 @@ pub(crate) fn net_candidates(p: &Project) -> Vec<FindCandidate> {
             }
         }
     }
+    named
+}
+
+/// The nets whose name is forced by a connected component signal (upstream
+/// `NetSignal::isNameForced()`).
+pub(crate) fn forced_nets(p: &Project) -> BTreeSet<NetSignalId> {
+    let mut named: BTreeSet<NetSignalId> = BTreeSet::new();
     for c in p.circuit().component_instances().values() {
         let Some(lib) = p.library().component(&c.lib_component()) else {
             continue;
@@ -254,10 +270,6 @@ pub(crate) fn net_candidates(p: &Project) -> Vec<FindCandidate> {
         }
     }
     named
-        .into_iter()
-        .filter_map(|id| p.circuit().net_signal(id))
-        .map(|n| FindCandidate::net(n.name().to_string()))
-        .collect()
 }
 
 /// Resolves the found candidates to components and nets.
