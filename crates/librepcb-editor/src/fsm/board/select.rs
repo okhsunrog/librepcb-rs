@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 
 use librepcb_core::geometry::{Path, TraceAnchor, Vertex};
 use librepcb_core::library::LibraryBaseElement;
-use librepcb_core::project::board::BoardItem;
+use librepcb_core::project::board::{BoardItem, BoardNetSegment};
 use librepcb_core::project::{BoardMutation, Mutation, NetSegmentId, NetSignalId};
 use librepcb_core::types::{Angle, Length, Orientation, Point, UnsignedLength, Uuid};
 use librepcb_core::utils::toolbox;
@@ -212,11 +212,35 @@ impl SelectState {
         };
         let board = cx.board_id();
         cx.selection.clear();
+        let before: std::collections::BTreeMap<NetSegmentId, BoardNetSegment> = cx
+            .board()
+            .map(|b| {
+                b.net_segments()
+                    .iter()
+                    .map(|(id, s)| (*id, s.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         match cx.exec(RemoveBoardItems {
             board: Some(board),
             selection,
         }) {
-            Ok(_) => true,
+            Ok(_) => {
+                // Upstream: `CmdSimplifyBoardNetSegments` of the modified
+                // segments as a separate undo step.
+                let modified: Vec<NetSegmentId> = cx
+                    .board()
+                    .map(|b| {
+                        b.net_segments()
+                            .iter()
+                            .filter(|(id, s)| before.get(id) != Some(*s))
+                            .map(|(id, _)| *id)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                super::draw_trace::simplify_segments(cx, modified);
+                true
+            }
             Err(e) => {
                 cx.error(e);
                 false

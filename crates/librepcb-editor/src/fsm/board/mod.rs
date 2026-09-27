@@ -53,11 +53,13 @@ mod clipboard;
 mod context;
 mod output;
 mod selection;
+mod simplify;
 mod transform;
 mod view;
 
 mod add_device;
 mod add_hole;
+mod add_pad;
 mod add_stroke_text;
 mod add_via;
 mod draw_polygon;
@@ -76,10 +78,11 @@ pub use clipboard::{
 };
 pub use context::BoardContext;
 pub use output::{
-    BoardRequest, BoardTool, BoardToolData, ContextAction, ContextMenuItem, ToolNet, ToolSetting,
-    WireMode,
+    BoardRequest, BoardTool, BoardToolData, ContextAction, ContextMenuItem, ToolNet, ToolPadShape,
+    ToolSetting, WireMode,
 };
 pub use selection::{BoardSelection, SelectionQuery};
+pub use simplify::SimplifyBoardNetSegments;
 pub use transform::DragItems;
 pub use view::{BoardItemRef, BoardView, FindFilter, FindFlags, find_items_at_pos};
 
@@ -208,6 +211,9 @@ struct States {
     draw_plane: draw_polygon::DrawPlaneState,
     draw_zone: draw_polygon::DrawZoneState,
     add_hole: add_hole::AddHoleState,
+    add_tht_pad: add_pad::AddPadState,
+    add_smt_pads:
+        std::collections::BTreeMap<librepcb_core::geometry::PadFunction, add_pad::AddPadState>,
     add_stroke_text: add_stroke_text::AddStrokeTextState,
     add_device: add_device::AddDeviceState,
     measure: measure::MeasureState,
@@ -223,6 +229,11 @@ impl States {
             BoardTool::DrawPlane => &mut self.draw_plane,
             BoardTool::DrawZone => &mut self.draw_zone,
             BoardTool::AddHole => &mut self.add_hole,
+            BoardTool::AddThtPad => &mut self.add_tht_pad,
+            BoardTool::AddSmtPad(f) => self
+                .add_smt_pads
+                .entry(f)
+                .or_insert_with(|| add_pad::AddPadState::smt(f)),
             BoardTool::AddStrokeText => &mut self.add_stroke_text,
             BoardTool::AddDevice => &mut self.add_device,
             BoardTool::Measure => &mut self.measure,
@@ -238,6 +249,11 @@ impl States {
             BoardTool::DrawPlane => &self.draw_plane,
             BoardTool::DrawZone => &self.draw_zone,
             BoardTool::AddHole => &self.add_hole,
+            BoardTool::AddThtPad => &self.add_tht_pad,
+            BoardTool::AddSmtPad(f) => match self.add_smt_pads.get(&f) {
+                Some(s) => s,
+                None => &self.select,
+            },
             BoardTool::AddStrokeText => &self.add_stroke_text,
             BoardTool::AddDevice => &self.add_device,
             BoardTool::Measure => &self.measure,
@@ -279,6 +295,8 @@ impl BoardEditorFsm {
                 draw_plane: draw_polygon::DrawPlaneState::default(),
                 draw_zone: draw_polygon::DrawZoneState::default(),
                 add_hole: add_hole::AddHoleState::default(),
+                add_tht_pad: add_pad::AddPadState::tht(),
+                add_smt_pads: Default::default(),
                 add_stroke_text: add_stroke_text::AddStrokeTextState::default(),
                 add_device: add_device::AddDeviceState::default(),
                 measure: measure::MeasureState::default(),

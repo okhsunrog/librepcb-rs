@@ -946,3 +946,152 @@ fn open_upstream(dir: &std::path::Path) -> Project {
         .open(directory, &lpp)
         .unwrap()
 }
+
+#[test]
+fn draw_trace_simplifies_collinear_traces() {
+    use librepcb_editor::fsm::board::WireMode;
+    let mut h = build(false);
+    h.tool(BoardTool::DrawTrace);
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::WireMode(
+        WireMode::Straight,
+    )));
+    // Three collinear points in free space.
+    h.click(mm(2.54, 15.24));
+    h.move_to(mm(5.08, 15.24));
+    h.press(mm(5.08, 15.24));
+    h.move_to(mm(7.62, 15.24));
+    h.press(mm(7.62, 15.24));
+    // Finishing the trace simplifies the segment: one straight trace.
+    h.input(BoardFsmInput::Abort);
+    assert!(!h.editor.undo_stack().is_group_active());
+    let traces = h.traces();
+    assert_eq!(traces.len(), 1, "{traces:?}");
+    assert_eq!(
+        h.undo_text().as_deref(),
+        Some("Simplify Board Net Segments")
+    );
+    let seg = h.board().net_segments().values().next().unwrap();
+    assert_eq!(seg.junctions().len(), 2);
+    // Undo restores the two traces.
+    assert!(h.editor.undo().unwrap());
+    assert_eq!(h.traces().len(), 2);
+}
+
+#[test]
+fn remove_trace_simplifies_segment() {
+    use librepcb_editor::fsm::board::WireMode;
+    let mut h = build(false);
+    h.tool(BoardTool::DrawTrace);
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::WireMode(
+        WireMode::Straight,
+    )));
+    // A T junction: a line with a stub at its middle.
+    h.click(mm(2.54, 15.24));
+    h.move_to(mm(5.08, 15.24));
+    h.press(mm(5.08, 15.24));
+    h.move_to(mm(7.62, 15.24));
+    h.press(mm(7.62, 15.24));
+    h.input(BoardFsmInput::Abort);
+    h.click(mm(5.08, 15.24));
+    h.move_to(mm(5.08, 17.78));
+    h.press(mm(5.08, 17.78));
+    h.input(BoardFsmInput::Abort);
+    h.tool(BoardTool::Select);
+    assert_eq!(h.traces().len(), 3);
+    // Remove the stub: the remaining two collinear traces are merged.
+    h.click(mm(5.08, 16.5));
+    assert!(
+        h.fsm
+            .selection()
+            .items()
+            .iter()
+            .any(|i| matches!(i, BoardItemRef::Trace(..)))
+    );
+    h.input(BoardFsmInput::Remove);
+    assert_eq!(h.traces().len(), 1, "{:?}", h.traces());
+    assert_eq!(
+        h.undo_text().as_deref(),
+        Some("Simplify Board Net Segments")
+    );
+}
+
+#[test]
+fn add_tht_and_smt_pads() {
+    use librepcb_core::geometry::{ComponentSide, PadFunction};
+    use librepcb_editor::fsm::board::{ToolNet, ToolPadShape};
+    let mut h = build(false);
+    let vcc = h.net("VCC");
+    h.move_to(mm(2.54, 2.54));
+    h.tool(BoardTool::AddThtPad);
+    assert_eq!(h.fsm.tool(), BoardTool::AddThtPad);
+    assert!(h.editor.undo_stack().is_group_active());
+    let pads = |h: &Harness| -> Vec<librepcb_core::project::board::BoardPadData> {
+        h.board()
+            .net_segments()
+            .values()
+            .flat_map(|s| s.pads().values().cloned())
+            .collect()
+    };
+    assert_eq!(pads(&h).len(), 1, "preview pad");
+    let data = h.fsm.tool_data().clone();
+    assert_eq!(data.drill.unwrap().to_mm(), 0.8);
+    assert_eq!(data.press_fit, Some(false));
+    assert!(data.component_side.is_none());
+    // Tool bar: net, shape, larger drill (grows the pad).
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::Net(ToolNet {
+        auto: false,
+        net: Some(vcc),
+    })));
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::PadShape(
+        ToolPadShape::Octagon,
+    )));
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::HoleDiameter(
+        librepcb_core::types::PositiveLength::new(Length::from_mm(1.5).unwrap()).unwrap(),
+    )));
+    assert!(h.fsm.highlighted_nets().contains(&vcc));
+    h.move_to(mm(5.08, 5.08));
+    h.input(BoardFsmInput::Rotate(Angle::DEG90));
+    h.press(mm(5.08, 5.08));
+    // The next pad follows the cursor.
+    assert!(h.editor.undo_stack().is_group_active());
+    h.input(BoardFsmInput::Abort);
+    assert_eq!(h.undo_text().as_deref(), Some("Add Pad to Board"));
+    assert_eq!(h.fsm.tool(), BoardTool::Select);
+    let placed = pads(&h);
+    assert_eq!(placed.len(), 1);
+    let pad = placed[0].pad();
+    assert_eq!(pad.position(), mm(5.08, 5.08));
+    assert_eq!(pad.rotation(), Angle::DEG90);
+    assert!(pad.is_tht());
+    assert_eq!(pad.holes().first().unwrap().diameter().to_mm(), 1.5);
+    assert!(pad.height().to_mm() >= 1.5);
+    let seg = h
+        .board()
+        .net_segments()
+        .values()
+        .find(|s| !s.pads().is_empty())
+        .unwrap();
+    assert_eq!(seg.net(), Some(vcc));
+
+    // SMT fiducial on the bottom side.
+    h.tool(BoardTool::AddSmtPad(PadFunction::GlobalFiducial));
+    assert!(h.fsm.tool_data().fiducial);
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::ComponentSide(
+        ComponentSide::Bottom,
+    )));
+    h.move_to(mm(10.16, 2.54));
+    h.press(mm(10.16, 2.54));
+    h.input(BoardFsmInput::Abort);
+    let placed = pads(&h);
+    assert_eq!(placed.len(), 2);
+    let fid = placed
+        .iter()
+        .find(|p| p.pad().function() == PadFunction::GlobalFiducial)
+        .unwrap();
+    assert!(!fid.pad().is_tht());
+    assert_eq!(fid.pad().component_side(), ComponentSide::Bottom);
+    assert_eq!(fid.pad().width().to_mm(), 1.0);
+    // Undo removes the fiducial.
+    assert!(h.editor.undo().unwrap());
+    assert_eq!(pads(&h).len(), 1);
+}
