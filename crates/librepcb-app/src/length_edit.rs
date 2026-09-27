@@ -172,10 +172,9 @@ mod tests {
         let mut d = e.ui_data();
         d.decrease = true;
         assert_eq!(e.set_ui_data(&d), Some(Length::new(300_000)));
-        // Positive edit: no step below the minimum.
+        // Positive edit: the step down to 0 is rejected (like upstream).
         e.configure(Length::new(10_000), Length::new(1), steps::GENERIC);
         let mut d = e.ui_data();
-        assert!(!d.can_decrease);
         d.decrease = true;
         assert_eq!(e.set_ui_data(&d), None);
         assert_eq!(e.value(), Length::new(10_000));

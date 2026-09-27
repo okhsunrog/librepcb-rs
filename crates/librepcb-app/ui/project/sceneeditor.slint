@@ -98,6 +98,8 @@ export component ComponentChooser inherits Rectangle {
         filter-edt := LineEdit {
             text: SceneEditor.chooser-filter;
             placeholder-text: @tr("Search...");
+            height: 25px;
+            vertical-stretch: 0;
 
             init => {
                 self.focus();

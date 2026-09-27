@@ -66,6 +66,11 @@ Done, in `crates/librepcb-core` unless noted:
   `librepcb-canvas` (pan/zoom like upstream, grid, layers panel, read-only
   select/hover), headless screenshots (`--screenshot`) and Slint's MCP
   server for agents (feature `ui-debug-mcp`, see `docs/ui-design.md`).
+  M3a (editing in the tabs) is in place: the schematic and board tabs
+  drive the `librepcb-editor` FSMs (tools, tool bars, overlays, context
+  menus, clipboard with upstream MIME types, cross-probing, undo/redo;
+  `crates/librepcb-app/tests/editing.rs`). Dialogs come with M3b (a
+  notification is shown; "add component" is a minimal chooser).
 
 ## Next steps
 
