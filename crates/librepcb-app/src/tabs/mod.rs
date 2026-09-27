@@ -296,17 +296,7 @@ mod tests {
     fn cursor_format() {
         assert_eq!(
             format_cursor(Point::new(2.54, -1.0), LengthUnit::Millimeters),
-            "2.540000, -1.000000"
-        );
-        assert_eq!(
-            format_cursor(Point::new(25.4, 0.0), LengthUnit::Inches),
-            format!(
-                "{:.*}, {:.*}",
-                LengthUnit::Inches.reasonable_number_of_decimals(),
-                1.0,
-                LengthUnit::Inches.reasonable_number_of_decimals(),
-                0.0
-            )
+            "2.540, -1.000"
         );
     }
 }

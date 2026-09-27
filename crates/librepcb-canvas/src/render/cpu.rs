@@ -536,13 +536,13 @@ fn draw_grid(ctx: &mut RenderContext, grid: &Grid, xf: Affine, r: PxRect, scale:
         GridStyle::Lines => {
             for x in xs.clone() {
                 let px = to_device(x, 0).x.round();
-                let line = Rect::new(px - 0.5, region.y0, px + 0.5, region.y1);
+                let line = Rect::new(px, region.y0, px + 1.0, region.y1);
                 let path = if x % 10 == 0 { &mut major } else { &mut minor };
                 path.extend(kurbo::Shape::path_elements(&line, 0.1));
             }
             for y in ys {
                 let py = to_device(0, y).y.round();
-                let line = Rect::new(region.x0, py - 0.5, region.x1, py + 0.5);
+                let line = Rect::new(region.x0, py, region.x1, py + 1.0);
                 let path = if y % 10 == 0 { &mut major } else { &mut minor };
                 path.extend(kurbo::Shape::path_elements(&line, 0.1));
             }

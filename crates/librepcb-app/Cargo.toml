@@ -37,3 +37,6 @@ thiserror = "2.0.21"
 # documentation, "Debugging the UI with agents"). Equivalent to
 # `--features slint/mcp`; never enable it by default.
 ui-debug-mcp = ["slint/mcp"]
+
+[dev-dependencies]
+tempfile = "3.27.0"
