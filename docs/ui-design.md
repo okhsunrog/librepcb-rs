@@ -60,7 +60,9 @@ need new Slint dialogs (M3, batched per area) and a new 3D renderer (M5).
      The app only translates Slint events to FSM events and FSM outputs
      (overlays, cursor, tool bar data) to `Data`.
 3. **State and threading:** one UI thread owns the open projects as
-   `Arc<parking_lot::Mutex<librepcb_editor::ProjectEditor>>`. Long jobs
+   `librepcb_editor::SharedProject` (`Arc<parking_lot::Mutex<OpenProject>>`,
+   an `OpenProject` holds the `ProjectEditor` and the directory lock); the
+   embedded MCP server gets the same handles via `McpState::set_project()`. Long jobs
    (DRC, plane fragments, exports, library scan, Freerouting) run on worker
    threads on snapshots (as in core) and post results back with
    `slint::invoke_from_event_loop`. After each command the tab pulls
