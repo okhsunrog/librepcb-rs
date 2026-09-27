@@ -44,6 +44,7 @@ mod editor;
 mod error;
 mod freerouting;
 pub mod fsm;
+pub mod library_editor;
 mod library_source;
 mod open_project;
 mod undo_stack;

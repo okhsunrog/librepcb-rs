@@ -43,7 +43,13 @@ Done, in `crates/librepcb-core` unless noted:
   jobs fail like an upstream build without OpenCascade).
 - **`crates/librepcb-editor`:** undo stack and intent-level commands
   (components, wiring with forced net names, devices, traces, vias,
-  planes, outline, autorouting) used by MCP and later the UI.
+  planes, outline, autorouting) used by MCP and later the UI. M4b
+  groundwork: `library_editor` (element editor with snapshot undo stack,
+  dirty state, interface check, save; commands for symbols, packages,
+  components and devices; check fixes) and `fsm::library` (symbol and
+  package editor FSMs with all upstream tools except images/DXF),
+  headless scenarios in `tests/editor/library_editor_test.rs`; the Slint
+  element tabs are still to be wired.
 - **`crates/librepcb-autoroute`:** built-in grid A* router with rip-up and
   exact clearance verification.
 - **`crates/librepcb-scene`:** scene builders for schematics, boards,
