@@ -31,9 +31,8 @@ use crate::library::org::Organization;
 use crate::library::pkg::Package;
 use crate::library::sym::Symbol;
 use crate::library::{BaseMetadata, Library, LibraryBaseElement, LibraryElement, read_file_format};
-use crate::serialization::{SExpression, file_format_migrations};
+use crate::serialization::file_format_migrations;
 use crate::sqlite_database::SqliteDatabase;
-use crate::types::Uuid;
 
 /// Progress events of a scan (upstream scanner signals).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -566,19 +565,15 @@ impl ScanElement for Organization {
             (OutputJobKind::User, self.user_output_jobs()),
         ] {
             for job in jobs {
-                let (uuid, job_type, name) = output_job_info(job)?;
-                writer.add_organization_output_job(id, kind, uuid, &job_type, &name)?;
+                writer.add_organization_output_job(
+                    id,
+                    kind,
+                    job.uuid(),
+                    job.type_name(),
+                    job.name().as_str(),
+                )?;
             }
         }
         Ok(id)
     }
-}
-
-/// Extracts UUID, type and name of a raw output job node.
-fn output_job_info(job: &SExpression) -> Result<(Uuid, String, String)> {
-    Ok((
-        job.child_value("@0")?,
-        job.child_value("type/@0")?,
-        job.child_value("name/@0")?,
-    ))
 }
