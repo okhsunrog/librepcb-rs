@@ -60,9 +60,9 @@ impl ViaData {
     /// Via data of an existing via.
     fn from_via(via: &ContextVia<'_>) -> Self {
         Self {
-            drill: via.drill,
+            drill: via.props.drill_diameter,
             auto_drill: via.via.drill_diameter().is_none(),
-            size: via.size,
+            size: via.props.size,
             auto_size: via.via.size().is_none(),
             start_layer: via.via.start_layer(),
             end_layer: via.via.end_layer(),
