@@ -1,8 +1,6 @@
 //! In-process tests of the tool implementations on a session (no MCP
 //! transport), using the upstream test data.
 
-mod common;
-
 use std::path::Path;
 
 use librepcb_mcp::tools::circuit::{self, ComponentGetArgs, NetListArgs};
@@ -20,7 +18,7 @@ use librepcb_mcp::{ErrorKind, Session, resolve};
 use serde_json::{Value, json};
 
 fn open_project(dir: &Path, name: &str) -> (Session, std::path::PathBuf) {
-    let lpp = common::copy_test_project(name, dir);
+    let lpp = crate::common::copy_test_project(name, dir);
     let mut session = Session::new();
     project::project_open(
         &mut session,
@@ -59,7 +57,7 @@ fn workspace_library_tools() {
     )
     .unwrap();
     let libraries_path = out.result["libraries_path"].as_str().unwrap().to_owned();
-    common::install_populated_library(Path::new(&libraries_path));
+    crate::common::install_populated_library(Path::new(&libraries_path));
 
     let out = library::library_rescan(&session).unwrap();
     assert_eq!(out.result["library_count"], 1);
@@ -222,8 +220,9 @@ fn workspace_library_tools() {
     project::project_close(&mut session, ProjectCloseArgs::default()).unwrap();
 
     // The created project opens in upstream LibrePCB.
-    if let Some(cli) = common::upstream_cli() {
-        let (ok, output) = common::run_cli(&cli, &["open-project", "--erc", lpp.to_str().unwrap()]);
+    if let Some(cli) = crate::common::upstream_cli() {
+        let (ok, output) =
+            crate::common::run_cli(&cli, &["open-project", "--erc", lpp.to_str().unwrap()]);
         assert!(ok, "{output}");
     }
 }
@@ -608,7 +607,7 @@ fn mutations_revisions_and_locking() {
 #[test]
 fn migrated_project_is_reported() {
     let tmp = tempfile::tempdir().unwrap();
-    let lpp = common::copy_test_project("v0.1", tmp.path());
+    let lpp = crate::common::copy_test_project("v0.1", tmp.path());
     let mut session = Session::new();
     let out = project::project_open(
         &mut session,

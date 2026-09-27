@@ -3,8 +3,6 @@
 //! change notices and the revision channel, host decisions (refused close,
 //! delegated open), and the HTTP transport on localhost (feature `http`).
 
-mod common;
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -133,7 +131,7 @@ fn schematic_names(project: &SharedProject) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 async fn host_project_shared_between_ui_and_mcp() {
     let tmp = tempfile::tempdir().unwrap();
-    let lpp = common::copy_test_project("Project With Two Boards", tmp.path());
+    let lpp = crate::common::copy_test_project("Project With Two Boards", tmp.path());
     let shared = open_shared(&lpp);
     let host = Arc::new(TestHost::default());
     let state = McpState::new(host.clone());
@@ -248,7 +246,7 @@ async fn host_project_shared_between_ui_and_mcp() {
 #[tokio::test(flavor = "multi_thread")]
 async fn host_refuses_project_close() {
     let tmp = tempfile::tempdir().unwrap();
-    let lpp = common::copy_test_project("Project With Two Boards", tmp.path());
+    let lpp = crate::common::copy_test_project("Project With Two Boards", tmp.path());
     let shared = open_shared(&lpp);
     let host = Arc::new(TestHost {
         refuse_close: true,
@@ -276,7 +274,7 @@ async fn host_refuses_project_close() {
 #[tokio::test(flavor = "multi_thread")]
 async fn host_opens_project_itself() {
     let tmp = tempfile::tempdir().unwrap();
-    let lpp = common::copy_test_project("Project With Two Boards", tmp.path());
+    let lpp = crate::common::copy_test_project("Project With Two Boards", tmp.path());
     let host = Arc::new(TestHost {
         delegate_open: true,
         ..Default::default()
@@ -326,7 +324,7 @@ fn http_end_to_end_on_localhost() {
     use rmcp::transport::StreamableHttpClientTransport;
 
     let tmp = tempfile::tempdir().unwrap();
-    let lpp = common::copy_test_project("Project With Two Boards", tmp.path());
+    let lpp = crate::common::copy_test_project("Project With Two Boards", tmp.path());
     let shared = open_shared(&lpp);
     let host = Arc::new(TestHost::default());
     let state = McpState::new(host.clone());

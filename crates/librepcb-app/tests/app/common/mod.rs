@@ -1,7 +1,12 @@
 //! Helpers shared by the integration tests: a small project with two
-//! resistors on a schematic and a board, and simulated pointer input.
+//! resistors on a schematic and a board, simulated pointer input and the UI
+//! thread with Slint's headless platform.
 
 #![allow(dead_code)]
+
+mod headless;
+
+pub use headless::with_headless;
 
 use std::path::Path;
 use std::rc::Rc;

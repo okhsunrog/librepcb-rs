@@ -5,12 +5,14 @@
 //! `librepcb --screenshot out.png --project X.lpp --tab board` uses it.
 //!
 //! [`install_platform()`] must run before the first Slint component is
-//! created (Slint's platform can be set once per process). Timers (the
-//! deferred actions of [`App`](crate::App)) and closures posted from other
-//! threads with `slint::invoke_from_event_loop()` (worker results, the
-//! embedded MCP server) are processed by [`Headless::settle()`] and
-//! [`Headless::run_until()`].
+//! created (Slint's platform can be set once per process, on the thread
+//! that uses it); [`Headless::reset()`] starts over with a new window.
+//! Timers (the deferred actions of [`App`](crate::App)) and closures posted
+//! from other threads with `slint::invoke_from_event_loop()` (worker
+//! results, the embedded MCP server) are processed by
+//! [`Headless::settle()`] and [`Headless::run_until()`].
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::rc::Rc;
@@ -39,15 +41,19 @@ pub enum ScreenshotError {
 /// Closures posted with `slint::invoke_from_event_loop()`.
 type EventQueue = Arc<Mutex<VecDeque<Box<dyn FnOnce() + Send>>>>;
 
+/// The window of the next Slint component, shared by the platform and
+/// [`Headless`] (replaced by [`Headless::reset()`]).
+type WindowSlot = Rc<RefCell<Rc<MinimalSoftwareWindow>>>;
+
 struct HeadlessPlatform {
-    window: Rc<MinimalSoftwareWindow>,
+    window: WindowSlot,
     start: Instant,
     queue: EventQueue,
 }
 
 impl Platform for HeadlessPlatform {
     fn create_window_adapter(&self) -> Result<Rc<dyn WindowAdapter>, PlatformError> {
-        Ok(self.window.clone())
+        Ok(self.window.borrow().clone())
     }
 
     fn duration_since_start(&self) -> Duration {
@@ -83,7 +89,7 @@ impl EventLoopProxy for HeadlessProxy {
 
 /// The headless window.
 pub struct Headless {
-    window: Rc<MinimalSoftwareWindow>,
+    window: WindowSlot,
     size: PhysicalSize,
     queue: EventQueue,
 }
@@ -91,10 +97,12 @@ pub struct Headless {
 /// Installs the headless platform with a window of `width` × `height`
 /// pixels (scale factor 1).
 pub fn install_platform(width: u32, height: u32) -> Result<Headless, ScreenshotError> {
-    let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+    let window = Rc::new(RefCell::new(MinimalSoftwareWindow::new(
+        RepaintBufferType::NewBuffer,
+    )));
     let queue = EventQueue::default();
     slint::platform::set_platform(Box::new(HeadlessPlatform {
-        window: window.clone(),
+        window: Rc::clone(&window),
         start: Instant::now(),
         queue: Arc::clone(&queue),
     }))?;
@@ -107,6 +115,16 @@ pub fn install_platform(width: u32, height: u32) -> Result<Headless, ScreenshotE
 }
 
 impl Headless {
+    /// Starts over for the next Slint component (e.g. another test on the
+    /// same thread): it gets a new window of `width` × `height` pixels, and
+    /// closures posted so far are dropped. The platform itself can be
+    /// installed only once per process.
+    pub fn reset(&mut self, width: u32, height: u32) {
+        *self.window.borrow_mut() = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+        self.size = PhysicalSize::new(width, height);
+        self.queue.lock().clear();
+    }
+
     /// Runs the closures posted from other threads (in order, including
     /// closures posted meanwhile). Returns whether any ran.
     pub fn process_events(&self) -> bool {
@@ -146,7 +164,8 @@ impl Headless {
     /// until nothing changes anymore (at most `rounds` frames). Returns the
     /// last frame.
     pub fn settle(&self, rounds: usize) -> Vec<Rgb8Pixel> {
-        self.window.set_size(self.size);
+        let window = self.window.borrow().clone();
+        window.set_size(self.size);
         let (w, h) = (self.size.width as usize, self.size.height as usize);
         let mut buffer = vec![Rgb8Pixel::new(0, 0, 0); w * h];
         let mut last = buffer.clone();
@@ -155,15 +174,15 @@ impl Headless {
             std::thread::sleep(Duration::from_millis(2));
             let events = self.process_events();
             slint::platform::update_timers_and_animations();
-            let drawn = self.window.draw_if_needed(|renderer| {
+            let drawn = window.draw_if_needed(|renderer| {
                 renderer.render(&mut buffer, w);
             });
             if drawn {
                 last.clone_from(&buffer);
-            } else if round > 2 && !events && !self.window.has_active_animations() {
+            } else if round > 2 && !events && !window.has_active_animations() {
                 break;
             }
-            self.window.request_redraw();
+            window.request_redraw();
         }
         last
     }

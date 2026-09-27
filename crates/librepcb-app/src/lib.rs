@@ -74,11 +74,11 @@
 //! ```
 //!
 //! renders the main window with Slint's software renderer into a PNG
-//! without a display ([`screenshot`]). The test `tests/screenshot.rs` does
-//! the same with an upstream test project; `tests/live_mcp.rs` drives the
-//! embedded MCP server with an HTTP client while the headless UI follows
-//! (and runs the ERC, DRC and exports). Both run Slint's timers and the
-//! closures posted with `slint::invoke_from_event_loop()` through
+//! without a display ([`screenshot`]). The test `tests/app/screenshot.rs`
+//! does the same with an upstream test project; `tests/app/live_mcp.rs`
+//! drives the embedded MCP server with an HTTP client while the headless UI
+//! follows (and runs the ERC, DRC and exports). Both run Slint's timers and
+//! the closures posted with `slint::invoke_from_event_loop()` through
 //! [`screenshot::Headless::settle()`] and
 //! [`screenshot::Headless::run_until()`].
 //!

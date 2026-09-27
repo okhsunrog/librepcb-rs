@@ -7,6 +7,9 @@ license.workspace = true
 [[bin]]
 name = "librepcb-mcp"
 path = "src/main.rs"
+# The binary has no unit tests (they live in the library): do not link an
+# empty test harness of the whole dependency tree.
+test = false
 
 [features]
 default = []

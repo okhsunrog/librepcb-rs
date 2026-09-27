@@ -163,11 +163,9 @@ impl Checker<'_> {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         counter.1 += weight;
-        let percent = if counter.0 > 0 {
-            (20 + (counter.1 * 80) / counter.0).min(100)
-        } else {
-            100
-        };
+        let percent = (counter.1 * 80)
+            .checked_div(counter.0)
+            .map_or(100, |p| (20 + p).min(100));
         drop(counter);
         self.percent(percent);
         result

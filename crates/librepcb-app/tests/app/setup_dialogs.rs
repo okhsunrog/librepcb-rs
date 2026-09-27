@@ -3,11 +3,9 @@
 //! project setup dialogs (fields edited like the UI does, applied as one
 //! undo group and undone again).
 
-mod common;
-
 use std::rc::Rc;
 
-use common::*;
+use crate::common::*;
 use librepcb_app::dialogs::setup::{BoardSetupDialog, ProjectSetupDialog};
 use librepcb_app::dialogs::{self, Applied, DialogContext, FieldEvent, FormDialog, ListAction};
 use librepcb_app::helpers::length_to_ui;

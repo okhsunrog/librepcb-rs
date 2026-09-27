@@ -72,6 +72,13 @@ migrations, library checks, exports. Tests take it from `LIBREPCB_CLI` or the
 - Port upstream unit tests from the upstream `tests/unittests/` alongside the
   code, keeping the same test vectors. Test data is never copied into this
   repository; reference it through `LIBREPCB_UPSTREAM_DIR`.
+- One integration test binary per crate: `tests/<name>/main.rs` with one
+  module per topic (`tests/unittests/main.rs` in core, `tests/app/main.rs`
+  in the app, ...). Never add another `tests/*.rs` file or test directory:
+  each test binary links the whole dependency tree again (up to 500 MB on
+  disk). Tests needing process-wide state share it within the binary (e.g.
+  the app's UI thread with Slint's headless platform,
+  `common::with_headless()`). Binaries without unit tests set `test = false`.
 - Errors: one `thiserror` enum per module/area, `Result` everywhere. No panics
   on user/file input; `unwrap`/`expect` only in tests or for true invariants
   with a comment explaining why.

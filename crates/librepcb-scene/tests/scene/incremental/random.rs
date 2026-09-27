@@ -13,7 +13,7 @@ use librepcb_core::project::{
 use librepcb_core::types::{Angle, CircuitIdentifier, Point};
 use librepcb_editor::commands::*;
 
-use crate::helpers::{Harness, mm, projects, upstream_editor};
+use super::helpers::{Harness, mm, projects, upstream_editor};
 
 fn pick<T: Clone>(rng: &mut Rng, items: &[T]) -> Option<T> {
     if items.is_empty() {

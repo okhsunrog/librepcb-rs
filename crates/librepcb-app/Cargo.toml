@@ -11,6 +11,9 @@ path = "src/lib.rs"
 [[bin]]
 name = "librepcb"
 path = "src/main.rs"
+# The binary has no unit tests (they live in the library): do not link an
+# empty test harness of the whole dependency tree.
+test = false
 
 [lints]
 workspace = true

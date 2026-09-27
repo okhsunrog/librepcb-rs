@@ -62,7 +62,9 @@ fn projects() -> Vec<PathBuf> {
 fn painted_pixels(img: &RgbaImage, background: Color) -> usize {
     let bg = background.to_rgba8();
     img.data
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .filter(|px| {
             px.iter()
                 .zip([bg.r, bg.g, bg.b, bg.a])

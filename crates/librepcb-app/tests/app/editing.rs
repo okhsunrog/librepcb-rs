@@ -6,11 +6,9 @@
 //! The tabs work without a Slint window (the scene is rendered into an
 //! image), so no platform is needed.
 
-mod common;
-
 use std::rc::Rc;
 
-use common::*;
+use crate::common::*;
 use librepcb_app::project::AppProject;
 use librepcb_app::tabs::{Board2dTab, SchematicTab, TabRequest};
 use librepcb_app::ui;
