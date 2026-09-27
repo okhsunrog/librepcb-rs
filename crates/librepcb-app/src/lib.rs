@@ -22,17 +22,33 @@
 //! - **Scenes:** the schematic and board tabs build `librepcb-scene`
 //!   scenes and render them with `librepcb-canvas` (vello_cpu) into a
 //!   `slint::Image` for `Backend.render-scene`; [`canvas_view::CanvasView`]
-//!   ports upstream's pan/zoom behavior. Scenes are rebuilt when the
-//!   project's revision changes (incremental updates come with M2c).
+//!   ports upstream's pan/zoom behavior. Scenes are updated incrementally
+//!   from the project's change journal (`librepcb_scene::SceneSync`) when
+//!   the project changes.
+//! - **Embedded MCP server** ([`mcp`]): LibrePCB's MCP server runs inside
+//!   the application on the same workspace and project (the project of the
+//!   active tab), so agent edits appear live, share the undo stack
+//!   ([`history`]: undo/redo/save buttons) and the UI can follow the agent
+//!   to the schematic or board it edits.
+//! - **Rule checks** ([`rule_check`]): the ERC runs automatically after
+//!   changes, the DRC on demand in a worker thread; the rule check panel
+//!   lists the messages, approves them and zooms to their location.
+//! - **Outputs** ([`outputs`]): PDF, Gerber/Excellon, pick&place, netlist,
+//!   BOM, `*.lppz` and output jobs from the menus, in worker threads with
+//!   progress notifications.
 //!
 //! # Running
 //!
 //! ```text
-//! cargo run -p librepcb-app -- [--workspace DIR] [--project FILE.lpp] [FILE.lpp...]
+//! cargo run -p librepcb-app -- [--workspace DIR] [--project FILE.lpp] [--mcp[=ADDR]] [FILE.lpp...]
 //! ```
 //!
 //! Without `--workspace`, the workspace is chosen like upstream (see
-//! [`startup`]).
+//! [`startup`]). `--mcp` starts the embedded MCP server on
+//! `127.0.0.1:8766` (`http://127.0.0.1:8766/mcp`, streamable HTTP); it can
+//! also be started and stopped with the "AI" button in the status bar.
+//! Point an MCP client at it, e.g. `claude mcp add --transport http
+//! librepcb http://127.0.0.1:8766/mcp`.
 //!
 //! # Headless screenshots
 //!
@@ -42,7 +58,12 @@
 //!
 //! renders the main window with Slint's software renderer into a PNG
 //! without a display ([`screenshot`]). The test `tests/screenshot.rs` does
-//! the same with an upstream test project.
+//! the same with an upstream test project; `tests/live_mcp.rs` drives the
+//! embedded MCP server with an HTTP client while the headless UI follows
+//! (and runs the ERC, DRC and exports). Both run Slint's timers and the
+//! closures posted with `slint::invoke_from_event_loop()` through
+//! [`screenshot::Headless::settle()`] and
+//! [`screenshot::Headless::run_until()`].
 //!
 //! # Debugging the UI with agents
 //!
@@ -73,16 +94,22 @@
 //! `dispatch_pointer_scroll` and `dispatch_key_event`. The scene touch
 //! areas have the ids `SchematicTab::ta` and `Board2dTab::ta`.
 //! `docs/ui-design.md` ("Debugging the UI with agents") has a complete
-//! example session.
+//! example session. Combined with `--mcp`, an agent can edit the design
+//! through LibrePCB's MCP server (port 8766) and watch the result through
+//! Slint's (port 8765).
 
 pub mod app;
 pub mod canvas_view;
 pub mod helpers;
+pub mod history;
 pub mod icons;
 pub mod libraries;
+pub mod mcp;
 pub mod models;
 pub mod notifications;
+pub mod outputs;
 pub mod project;
+pub mod rule_check;
 pub mod screenshot;
 pub mod section;
 pub mod startup;

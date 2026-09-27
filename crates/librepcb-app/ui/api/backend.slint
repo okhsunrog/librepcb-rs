@@ -361,4 +361,8 @@ export global Backend {
 
     // Toggle UI theme (only for development)
     pure callback toggle-theme();
+
+    // Start or stop the embedded LibrePCB MCP server (librepcb-rs, no
+    // upstream counterpart; executed asynchronously in the backend).
+    pure callback toggle-mcp-server();
 }

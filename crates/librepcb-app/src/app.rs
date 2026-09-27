@@ -19,6 +19,7 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 use std::time::Duration;
 
 use librepcb_app_ui as ui;
@@ -32,6 +33,7 @@ use slint::{ComponentHandle, Model, ModelRc, SharedString};
 
 use crate::helpers;
 use crate::libraries;
+use crate::mcp::{McpController, SharedWorkspace};
 use crate::models::{UiModel, defer, model_rc, vec_model};
 use crate::notifications::{Notification, Notifications};
 use crate::project::AppProject;
@@ -72,18 +74,20 @@ pub struct App {
 
 /// Application and main window state.
 pub struct State {
-    window: slint::Weak<ui::AppWindow>,
-    this: Weak<RefCell<State>>,
-    workspace: Workspace,
-    theme: UiTheme,
-    projects: Vec<Rc<AppProject>>,
-    projects_model: Rc<UiModel<ui::ProjectData>>,
-    notifications: Rc<RefCell<Notifications>>,
-    quick_access: Rc<RefCell<QuickAccess>>,
-    file_tree: Rc<RefCell<FileSystemTree>>,
-    sections: Vec<WindowSection>,
-    sections_model: Rc<UiModel<ui::WindowSectionData>>,
-    status_timer: slint::Timer,
+    pub(crate) window: slint::Weak<ui::AppWindow>,
+    pub(crate) this: Weak<RefCell<State>>,
+    pub(crate) workspace: SharedWorkspace,
+    pub(crate) theme: UiTheme,
+    pub(crate) projects: Vec<Rc<AppProject>>,
+    pub(crate) projects_model: Rc<UiModel<ui::ProjectData>>,
+    pub(crate) notifications: Rc<RefCell<Notifications>>,
+    pub(crate) quick_access: Rc<RefCell<QuickAccess>>,
+    pub(crate) file_tree: Rc<RefCell<FileSystemTree>>,
+    pub(crate) sections: Vec<WindowSection>,
+    pub(crate) sections_model: Rc<UiModel<ui::WindowSectionData>>,
+    pub(crate) status_timer: slint::Timer,
+    /// The embedded MCP server (see [`crate::mcp`]).
+    pub(crate) mcp: McpController,
 }
 
 thread_local! {
@@ -95,7 +99,7 @@ thread_local! {
 
 /// Runs `f` with the state of the application on the calling UI thread, if
 /// it is not busy.
-fn with_current_state(f: impl FnOnce(&mut State)) {
+pub(crate) fn with_current_state(f: impl FnOnce(&mut State)) {
     let state = CURRENT.with(|c| c.borrow().upgrade());
     if let Some(s) = state
         && let Ok(mut s) = s.try_borrow_mut()
@@ -105,7 +109,7 @@ fn with_current_state(f: impl FnOnce(&mut State)) {
 }
 
 /// Runs `f` with the state, deferred (see the module documentation).
-fn deferred(state: &Weak<RefCell<State>>, f: impl FnOnce(&mut State) + 'static) {
+pub(crate) fn deferred(state: &Weak<RefCell<State>>, f: impl FnOnce(&mut State) + 'static) {
     let state = state.clone();
     defer(move || {
         if let Some(s) = state.upgrade() {
@@ -137,7 +141,7 @@ impl App {
             RefCell::new(State {
                 window: window.as_weak(),
                 this: this.clone(),
-                workspace,
+                workspace: Arc::new(parking_lot::Mutex::new(workspace)),
                 theme,
                 projects: Vec::new(),
                 projects_model: UiModel::shared(Vec::new()),
@@ -147,6 +151,7 @@ impl App {
                 sections: Vec::new(),
                 sections_model: UiModel::shared(Vec::new()),
                 status_timer: slint::Timer::default(),
+                mcp: McpController::default(),
             })
         });
         let app = Self {
@@ -180,7 +185,7 @@ impl App {
         d.set_window_title(format!("LibrePCB {APP_VERSION}").into());
         d.set_window_ids(vec_model(vec![1]));
         d.set_about_librepcb_details(about_details().into());
-        d.set_workspace_path(s.workspace.path().to_native().into());
+        d.set_workspace_path(s.workspace.lock().path().to_native().into());
         d.set_theme(s.theme.to_ui());
         d.set_notifications(model_rc(s.notifications.borrow().model()));
         d.set_notifications_unread(0);
@@ -297,10 +302,10 @@ impl App {
             .set_on_dont_show_again(move |key| {
                 let key = key.to_owned();
                 deferred(&dismiss_weak, move |s| {
-                    let mut keys = s.workspace.settings().dismissed_messages.get().clone();
+                    let mut keys = s.workspace.lock().settings().dismissed_messages.get().clone();
                     keys.insert(key);
-                    s.workspace.settings_mut().dismissed_messages.set(keys);
-                    if let Err(e) = s.workspace.save_settings() {
+                    s.workspace.lock().settings_mut().dismissed_messages.set(keys);
+                    if let Err(e) = s.workspace.lock().save_settings() {
                         log::error!("Failed to save the workspace settings: {e}");
                     }
                 });
@@ -347,7 +352,7 @@ impl App {
                 if action == ui::BoardAction::Open2d {
                     s.open_board_tab(project, board, true);
                 } else {
-                    s.not_implemented(&format!("{action:?}"));
+                    s.trigger_board_action(project, board, action);
                 }
             });
         });
@@ -428,6 +433,8 @@ impl App {
         });
         let w = weak.clone();
         b.on_toggle_theme(move || deferred(&w, |s| s.set_theme(s.theme.next())));
+        let w = weak.clone();
+        b.on_toggle_mcp_server(move || deferred(&w, State::toggle_mcp_server));
     }
 
     /// Opens a project file (like the command line argument or the open
@@ -463,6 +470,15 @@ impl App {
         let s = self.state.borrow();
         s.notifications.borrow_mut().push(n);
     }
+
+    /// Starts the embedded LibrePCB MCP server (see [`crate::mcp`]) on
+    /// `addr` (e.g. [`crate::mcp::default_address()`]); returns its URL.
+    pub fn start_mcp_server(
+        &self,
+        addr: std::net::SocketAddr,
+    ) -> Result<String, crate::mcp::McpError> {
+        self.state.borrow_mut().start_mcp_server(addr)
+    }
 }
 
 /// Makes a path absolute (relative to the working directory).
@@ -495,7 +511,7 @@ fn about_details() -> String {
 }
 
 impl State {
-    fn window(&self) -> Option<ui::AppWindow> {
+    pub(crate) fn window(&self) -> Option<ui::AppWindow> {
         self.window.upgrade()
     }
 
@@ -509,13 +525,15 @@ impl State {
         &self.sections
     }
 
-    /// The workspace.
-    pub fn workspace(&self) -> &Workspace {
+    /// The workspace (shared with the embedded MCP server; lock order:
+    /// workspace before project, never lock it while holding a project
+    /// lock).
+    pub fn workspace(&self) -> &SharedWorkspace {
         &self.workspace
     }
 
     /// Adds a section at `index` (upstream `MainWindow::addSection()`).
-    fn add_section(&mut self, index: usize) {
+    pub(crate) fn add_section(&mut self, index: usize) {
         let index = index.min(self.sections.len());
         let section = WindowSection::new();
         self.connect_section(&section);
@@ -531,7 +549,7 @@ impl State {
 
     /// Connects the handlers of a section's models; they find the section
     /// by its tab models (sections may move).
-    fn connect_section(&self, section: &WindowSection) {
+    pub(crate) fn connect_section(&self, section: &WindowSection) {
         let (tabs, schematic, board) = section.models();
         let tabs_ptr = Rc::as_ptr(tabs) as usize;
         let find = move |s: &State| {
@@ -579,7 +597,7 @@ impl State {
 
     /// Keeps the home tab in the first section only (upstream
     /// `MainWindow::updateHomeTabSection()`).
-    fn update_home_tab_section(&mut self) {
+    pub(crate) fn update_home_tab_section(&mut self) {
         for i in 0..self.sections.len() {
             let has = self.sections[i].has_home_tab();
             if i == 0 && !has {
@@ -591,21 +609,23 @@ impl State {
         }
     }
 
-    fn update_section_row(&self, index: usize) {
+    pub(crate) fn update_section_row(&self, index: usize) {
         if let Some(section) = self.sections.get(index) {
             self.sections_model.set(index, section.ui_data());
         }
     }
 
     /// Upstream `Data.current-tab-changed()`.
-    fn current_tab_changed(&self) {
+    pub(crate) fn current_tab_changed(&self) {
         if let Some(w) = self.window() {
             w.global::<ui::Data>().invoke_current_tab_changed();
         }
+        // The agent works on the project of the active tab.
+        self.mcp_active_project_changed();
     }
 
     /// Makes a tab current (from the UI or the backend).
-    fn set_current_tab(&mut self, section: usize, tab: i32, make_section_current: bool) {
+    pub(crate) fn set_current_tab(&mut self, section: usize, tab: i32, make_section_current: bool) {
         let Some(sec) = self.sections.get_mut(section) else {
             return;
         };
@@ -623,7 +643,7 @@ impl State {
     }
 
     /// Adds a tab to the current section and makes it current.
-    fn add_tab(&mut self, tab: Tab) {
+    pub(crate) fn add_tab(&mut self, tab: Tab) {
         let section = self
             .window()
             .map_or(0, |w| w.global::<ui::Data>().get_current_section_index())
@@ -643,7 +663,7 @@ impl State {
         self.current_tab_changed();
     }
 
-    fn connect_layers(&self, tab: &Board2dTab) {
+    pub(crate) fn connect_layers(&self, tab: &Board2dTab) {
         let id = tab.id();
         let w = self.this.clone();
         tab.layers_model()
@@ -659,7 +679,7 @@ impl State {
             });
     }
 
-    fn find_tab(&self, id: TabId) -> Option<(usize, usize)> {
+    pub(crate) fn find_tab(&self, id: TabId) -> Option<(usize, usize)> {
         self.sections
             .iter()
             .enumerate()
@@ -667,7 +687,7 @@ impl State {
     }
 
     /// Applies what a tab reported after an event or action.
-    fn apply_update(&mut self, section: usize, tab: usize, update: TabUpdate) {
+    pub(crate) fn apply_update(&mut self, section: usize, tab: usize, update: TabUpdate) {
         if update.close {
             self.close_tab(section, tab);
             return;
@@ -695,7 +715,7 @@ impl State {
         }
     }
 
-    fn close_tab(&mut self, section: usize, tab: usize) {
+    pub(crate) fn close_tab(&mut self, section: usize, tab: usize) {
         let Some(sec) = self.sections.get_mut(section) else {
             return;
         };
@@ -709,7 +729,7 @@ impl State {
 
     /// Opens a file from the home tab or the command line (upstream
     /// `GuiApplication::openFile()`).
-    fn open_file(&mut self, fp: &FilePath) {
+    pub(crate) fn open_file(&mut self, fp: &FilePath) {
         if matches!(fp.suffix(), "lpp" | "lppz") {
             self.open_project(fp);
         } else if let Err(e) = open::that_detached(fp.as_path()) {
@@ -719,7 +739,7 @@ impl State {
 
     /// Opens a project and its first schematic and board (upstream
     /// `GuiApplication::openProject()`); returns its index.
-    fn open_project(&mut self, fp: &FilePath) -> Option<usize> {
+    pub(crate) fn open_project(&mut self, fp: &FilePath) -> Option<usize> {
         if let Some(i) = self.projects.iter().position(|p| p.path() == fp) {
             self.switch_to_project(i);
             return Some(i);
@@ -728,7 +748,7 @@ impl State {
             self.not_implemented("*.lppz");
             return None;
         }
-        let source = self.workspace.shared_library_db();
+        let source = self.workspace.lock().shared_library_db();
         let project = match AppProject::open(fp, source) {
             Ok(p) => Rc::new(p),
             Err(e) => {
@@ -771,7 +791,7 @@ impl State {
         Some(index)
     }
 
-    fn switch_to_project(&self, index: usize) {
+    pub(crate) fn switch_to_project(&self, index: usize) {
         if let Some(w) = self.window() {
             let d = w.global::<ui::Data>();
             d.invoke_set_current_project(index as i32);
@@ -780,7 +800,7 @@ impl State {
     }
 
     /// Opens (or switches to) the tab of a schematic.
-    fn open_schematic_tab(&mut self, project: i32, schematic: i32, switch_to: bool) {
+    pub(crate) fn open_schematic_tab(&mut self, project: i32, schematic: i32, switch_to: bool) {
         let Some(prj) = usize::try_from(project)
             .ok()
             .and_then(|i| self.projects.get(i))
@@ -803,13 +823,13 @@ impl State {
             }
             return;
         }
-        let style = *self.workspace.settings().schematic_grid_style.get();
+        let style = *self.workspace.lock().settings().schematic_grid_style.get();
         let tab = Tab::Schematic(Box::new(SchematicTab::new(prj, id, style)));
         self.add_tab_maybe_current(tab, switch_to);
     }
 
     /// Opens (or switches to) the 2D tab of a board.
-    fn open_board_tab(&mut self, project: i32, board: i32, switch_to: bool) {
+    pub(crate) fn open_board_tab(&mut self, project: i32, board: i32, switch_to: bool) {
         let Some(prj) = usize::try_from(project)
             .ok()
             .and_then(|i| self.projects.get(i))
@@ -829,12 +849,12 @@ impl State {
             }
             return;
         }
-        let style = *self.workspace.settings().board_grid_style.get();
+        let style = *self.workspace.lock().settings().board_grid_style.get();
         let tab = Tab::Board2d(Box::new(Board2dTab::new(prj, id, style)));
         self.add_tab_maybe_current(tab, switch_to);
     }
 
-    fn add_tab_maybe_current(&mut self, tab: Tab, switch_to: bool) {
+    pub(crate) fn add_tab_maybe_current(&mut self, tab: Tab, switch_to: bool) {
         if switch_to {
             self.add_tab(tab);
         } else {
@@ -853,7 +873,7 @@ impl State {
         }
     }
 
-    fn find_tab_where(&self, f: impl Fn(&Tab) -> bool) -> Option<(usize, usize)> {
+    pub(crate) fn find_tab_where(&self, f: impl Fn(&Tab) -> bool) -> Option<(usize, usize)> {
         self.sections
             .iter()
             .enumerate()
@@ -861,7 +881,7 @@ impl State {
     }
 
     /// `Backend.trigger()` (upstream `MainWindow::trigger()`).
-    fn trigger(&mut self, action: ui::Action) {
+    pub(crate) fn trigger(&mut self, action: ui::Action) {
         match action {
             ui::Action::Quit | ui::Action::WindowClose => {
                 if let Err(e) = slint::quit_event_loop() {
@@ -875,14 +895,14 @@ impl State {
         }
     }
 
-    fn open_project_dialog(&mut self) {
+    pub(crate) fn open_project_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
             .set_title(tr!("GuiApplication", "Open Project"))
             .add_filter(
                 tr!("GuiApplication", "LibrePCB project files ({0})", "*.lpp"),
                 &["lpp"],
             )
-            .set_directory(self.workspace.projects_path().as_path());
+            .set_directory(self.workspace.lock().projects_path().as_path());
         if let Some(path) = dialog.pick_file()
             && let Some(fp) = absolute_file_path(&path)
         {
@@ -891,7 +911,7 @@ impl State {
     }
 
     /// `Backend.trigger-section()`.
-    fn trigger_section(&mut self, section: i32, action: ui::WindowSectionAction) {
+    pub(crate) fn trigger_section(&mut self, section: i32, action: ui::WindowSectionAction) {
         let Ok(section) = usize::try_from(section) else {
             return;
         };
@@ -916,10 +936,16 @@ impl State {
     }
 
     /// `Backend.trigger-tab()`.
-    fn trigger_tab(&mut self, section: i32, tab: i32, action: ui::TabAction) {
+    pub(crate) fn trigger_tab(&mut self, section: i32, tab: i32, action: ui::TabAction) {
         let (Ok(section), Ok(tab)) = (usize::try_from(section), usize::try_from(tab)) else {
             return;
         };
+        // Undo/redo/save and outputs (see `history.rs`, `outputs.rs`).
+        if self.trigger_tab_history(section, tab, action)
+            || self.trigger_tab_output(section, tab, action)
+        {
+            return;
+        }
         let update = match self.sections.get_mut(section).and_then(|s| s.tab_mut(tab)) {
             Some(t) => t.trigger(action),
             None => return,
@@ -928,7 +954,7 @@ impl State {
     }
 
     /// `Backend.trigger-project()`.
-    fn trigger_project(&mut self, index: i32, action: ui::ProjectAction) {
+    pub(crate) fn trigger_project(&mut self, index: i32, action: ui::ProjectAction) {
         let Some(project) = usize::try_from(index)
             .ok()
             .and_then(|i| self.projects.get(i))
@@ -957,11 +983,15 @@ impl State {
                     log::warn!("Failed to open {}: {e}", dir.to_native());
                 }
             }
-            other => self.not_implemented(&format!("{other:?}")),
+            other => {
+                if !self.trigger_project_output(&project, other) {
+                    self.not_implemented(&format!("{other:?}"));
+                }
+            }
         }
     }
 
-    fn refresh_project(&mut self, project: &Rc<AppProject>) {
+    pub(crate) fn refresh_project(&mut self, project: &Rc<AppProject>) {
         if let Some(i) = self.projects.iter().position(|p| Rc::ptr_eq(p, project)) {
             self.projects_model.set(i, project.ui_data());
         }
@@ -972,7 +1002,7 @@ impl State {
 
     /// Closes a project and its tabs (upstream `ProjectEditor::requestClose()`;
     /// unsaved changes are discarded, the viewer does not modify projects).
-    fn close_project(&mut self, project: &Rc<AppProject>) {
+    pub(crate) fn close_project(&mut self, project: &Rc<AppProject>) {
         for si in 0..self.sections.len() {
             while let Some(ti) = self.sections[si]
                 .tabs()
@@ -993,7 +1023,7 @@ impl State {
         self.current_tab_changed();
     }
 
-    fn scene_pointer_event(
+    pub(crate) fn scene_pointer_event(
         &mut self,
         section: i32,
         pos: Point,
@@ -1015,7 +1045,7 @@ impl State {
         }
     }
 
-    fn scene_scrolled(
+    pub(crate) fn scene_scrolled(
         &mut self,
         section: i32,
         pos: Point,
@@ -1041,26 +1071,36 @@ impl State {
         handled
     }
 
-    /// Rebuilds scenes of projects modified from elsewhere.
-    fn poll_projects(&mut self) {
+    /// Rebuilds scenes of projects modified from elsewhere (a fallback: the
+    /// embedded MCP server notifies about its changes right away) and
+    /// schedules the ERC of modified projects.
+    pub(crate) fn poll_projects(&mut self) {
         for si in 0..self.sections.len() {
             for ti in 0..self.sections[si].tabs().len() {
+                // Do not wait for projects locked by a worker (exports).
+                let busy = self.sections[si].tabs()[ti]
+                    .project()
+                    .is_some_and(|p| p.shared().try_lock().is_none());
+                if busy {
+                    continue;
+                }
                 let update = self.sections[si].tabs_mut()[ti].project_modified();
                 if update != TabUpdate::default() {
                     self.apply_update(si, ti, update);
                 }
             }
         }
+        self.schedule_rule_checks();
     }
 
-    fn set_theme(&mut self, theme: UiTheme) {
+    pub(crate) fn set_theme(&mut self, theme: UiTheme) {
         self.theme = theme;
-        self.workspace
-            .settings_mut()
-            .ui_theme
-            .set(theme.id.to_owned());
-        if let Err(e) = self.workspace.save_settings() {
-            log::warn!("Failed to save the workspace settings: {e}");
+        {
+            let mut ws = self.workspace.lock();
+            ws.settings_mut().ui_theme.set(theme.id.to_owned());
+            if let Err(e) = ws.save_settings() {
+                log::warn!("Failed to save the workspace settings: {e}");
+            }
         }
         if let Some(w) = self.window() {
             w.global::<ui::Data>().set_theme(theme.to_ui());
@@ -1069,12 +1109,13 @@ impl State {
 
     /// Updates the installed libraries (`Data.local-libraries`,
     /// `Data.remote-libraries`) from the library database.
-    fn refresh_libraries(&mut self) {
+    pub(crate) fn refresh_libraries(&mut self) {
         let Some(w) = self.window() else { return };
         let d = w.global::<ui::Data>();
-        let db = self.workspace.library_db();
-        let remote_dir = self.workspace.remote_libraries_path();
-        let locales = self.workspace.settings().library_locale_order.get().clone();
+        let ws = self.workspace.lock();
+        let db = ws.library_db();
+        let remote_dir = ws.remote_libraries_path();
+        let locales = ws.settings().library_locale_order.get().clone();
         let local = libraries::installed_libraries(db, &remote_dir, false, &locales);
         let remote = libraries::installed_libraries(db, &remote_dir, true, &locales);
         d.set_local_libraries_data(libraries::list_data(&local, false));
@@ -1084,12 +1125,12 @@ impl State {
     }
 
     /// Starts a background rescan of the workspace libraries.
-    fn start_library_scan(&mut self) {
+    pub(crate) fn start_library_scan(&mut self) {
         if let Some(w) = self.window() {
             w.global::<ui::Data>()
                 .set_libraries_rescan_in_progress(true);
         }
-        libraries::start_rescan(self.workspace.library_db().scanner(), |ok| {
+        libraries::start_rescan(self.workspace.lock().library_db().scanner(), |ok| {
             with_current_state(|s| {
                 if let Some(w) = s.window() {
                     w.global::<ui::Data>()
@@ -1105,22 +1146,27 @@ impl State {
     /// Changes the schematic or board grid style of the workspace settings
     /// (like upstream, a grid style change applies to all tabs and is
     /// stored in the workspace settings).
-    fn set_grid_style_setting(&mut self, schematic: bool, style: GridStyle) {
-        let settings = self.workspace.settings_mut();
-        let item = if schematic {
-            &mut settings.schematic_grid_style
-        } else {
-            &mut settings.board_grid_style
+    pub(crate) fn set_grid_style_setting(&mut self, schematic: bool, style: GridStyle) {
+        let (sch, brd) = {
+            let mut ws = self.workspace.lock();
+            let settings = ws.settings_mut();
+            let item = if schematic {
+                &mut settings.schematic_grid_style
+            } else {
+                &mut settings.board_grid_style
+            };
+            if *item.get() == style {
+                return;
+            }
+            item.set(style);
+            if let Err(e) = ws.save_settings() {
+                log::warn!("Failed to save the workspace settings: {e}");
+            }
+            (
+                *ws.settings().schematic_grid_style.get(),
+                *ws.settings().board_grid_style.get(),
+            )
         };
-        if *item.get() == style {
-            return;
-        }
-        item.set(style);
-        if let Err(e) = self.workspace.save_settings() {
-            log::warn!("Failed to save the workspace settings: {e}");
-        }
-        let sch = *self.workspace.settings().schematic_grid_style.get();
-        let brd = *self.workspace.settings().board_grid_style.get();
         self.apply_grid_styles(sch, brd);
     }
 
@@ -1135,7 +1181,7 @@ impl State {
     }
 
     /// Shows a status bar message, cleared after `timeout_ms` (0: never).
-    fn show_status(&self, message: &str, timeout_ms: u64) {
+    pub(crate) fn show_status(&self, message: &str, timeout_ms: u64) {
         let Some(w) = self.window() else { return };
         w.global::<ui::Data>()
             .set_status_bar_message(message.into());
@@ -1157,7 +1203,7 @@ impl State {
         }
     }
 
-    fn not_implemented(&self, what: &str) {
+    pub(crate) fn not_implemented(&self, what: &str) {
         log::info!("Not implemented yet: {what}");
         self.show_status(
             &tr!("MainWindow", "Not available yet in this version: {0}", what),

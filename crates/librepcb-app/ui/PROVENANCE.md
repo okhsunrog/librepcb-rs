@@ -57,3 +57,9 @@ same style.
    sample data of `CreateLibraryTabData` (the struct has no such field;
    Slint 1.18.1 warns about it).
 3. License files of the icon sets and fonts added under `resources/`.
+4. Embedded MCP server (librepcb-rs only): `api/data.slint` properties
+   `mcp-server-running`, `mcp-server-url`, `mcp-agent-active`,
+   `mcp-agent-status`, `mcp-follow-agent`; `api/backend.slint` callback
+   `toggle-mcp-server()`; `statusbar.slint` button with popup (enable
+   the server, "show what the agent edits") left of the notifications
+   button.

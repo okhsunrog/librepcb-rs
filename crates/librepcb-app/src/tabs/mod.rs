@@ -103,11 +103,15 @@ impl Tab {
 
     /// The base UI data (`TabData`).
     pub fn ui_data(&self) -> ui::TabData {
-        match self {
-            Self::Home(_) => home::ui_data(),
+        let mut data = match self {
+            Self::Home(_) => return home::ui_data(),
             Self::Schematic(t) => t.ui_data(),
             Self::Board2d(t) => t.ui_data(),
-        }
+        };
+        // The graphics export (PDF) is handled by the application (see
+        // `outputs.rs`).
+        data.features.export_graphics = ui::FeatureState::Enabled;
+        data
     }
 
     /// Applies base UI data written by the UI (e.g. the find term).
