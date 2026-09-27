@@ -1,0 +1,218 @@
+//! Notifications shown in the notifications popup of the status bar.
+//!
+//! Port of libs/librepcb/editor/notificationsmodel.{h,cpp} and
+//! libs/librepcb/editor/notification.{h,cpp}: notifications are sorted by
+//! unread state and severity, can be dismissed, and those with a dismiss key
+//! can be suppressed permanently ("don't show again", stored in the
+//! workspace setting `dismissed_messages`).
+
+use std::cell::RefCell;
+use std::rc::{Rc, Weak};
+
+use librepcb_app_ui as ui;
+
+use crate::models::UiModel;
+
+/// A notification to push.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Notification {
+    /// Severity (or progress).
+    pub kind: ui::NotificationType,
+    /// Title.
+    pub title: String,
+    /// Description.
+    pub description: String,
+    /// Key for "don't show again" (empty: not supported).
+    pub dismiss_key: String,
+    /// Whether the popup opens automatically.
+    pub auto_popup: bool,
+}
+
+impl Notification {
+    /// A notification without "don't show again" support.
+    pub fn new(
+        kind: ui::NotificationType,
+        title: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind,
+            title: title.into(),
+            description: description.into(),
+            dismiss_key: String::new(),
+            auto_popup: false,
+        }
+    }
+
+    fn to_ui(&self) -> ui::NotificationData {
+        ui::NotificationData {
+            r#type: self.kind,
+            title: self.title.as_str().into(),
+            description: self.description.as_str().into(),
+            button_text: Default::default(),
+            progress: 0,
+            supports_dont_show_again: !self.dismiss_key.is_empty(),
+            unread: true,
+            button_clicked: false,
+            dismissed: false,
+            dont_show_again: false,
+        }
+    }
+}
+
+/// Severity rank for sorting (the enum is ordered by severity).
+fn severity(t: ui::NotificationType) -> u8 {
+    match t {
+        ui::NotificationType::Progress => 0,
+        ui::NotificationType::Tip => 1,
+        ui::NotificationType::Info => 2,
+        ui::NotificationType::Warning => 3,
+        ui::NotificationType::Critical => 4,
+    }
+}
+
+/// Summary for the `Data` globals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct NotificationsState {
+    /// Unread notifications (without progress notifications).
+    pub unread: i32,
+    /// Index of the first progress notification, -1 if none.
+    pub progress_index: i32,
+}
+
+/// The notifications model (`Data.notifications`).
+pub struct Notifications {
+    items: Vec<Notification>,
+    model: Rc<UiModel<ui::NotificationData>>,
+    dismissed_keys: Vec<String>,
+    on_changed: Option<Rc<dyn Fn(NotificationsState, bool)>>,
+    /// Keys the user chose not to show again, to store in the settings.
+    on_dont_show_again: Option<Rc<dyn Fn(&str)>>,
+}
+
+impl Notifications {
+    /// Creates an empty model; `dismissed_keys` come from the workspace
+    /// settings.
+    pub fn new(dismissed_keys: Vec<String>) -> Rc<RefCell<Self>> {
+        let this = Rc::new(RefCell::new(Self {
+            items: Vec::new(),
+            model: UiModel::shared(Vec::new()),
+            dismissed_keys,
+            on_changed: None,
+            on_dont_show_again: None,
+        }));
+        let weak: Weak<RefCell<Self>> = Rc::downgrade(&this);
+        this.borrow().model.set_handler(move |row, data| {
+            if let Some(n) = weak.upgrade() {
+                n.borrow_mut().row_written(row, data);
+            }
+        });
+        this
+    }
+
+    /// Sets the callback for state changes (the flag requests the popup).
+    pub fn set_on_changed(&mut self, f: impl Fn(NotificationsState, bool) + 'static) {
+        self.on_changed = Some(Rc::new(f));
+    }
+
+    /// Sets the callback for "don't show again".
+    pub fn set_on_dont_show_again(&mut self, f: impl Fn(&str) + 'static) {
+        self.on_dont_show_again = Some(Rc::new(f));
+    }
+
+    /// The model for `Data.notifications`.
+    pub fn model(&self) -> &Rc<UiModel<ui::NotificationData>> {
+        &self.model
+    }
+
+    /// The current state.
+    pub fn state(&self) -> NotificationsState {
+        let rows = self.model.to_vec();
+        NotificationsState {
+            unread: rows
+                .iter()
+                .filter(|r| r.unread && r.r#type != ui::NotificationType::Progress)
+                .count() as i32,
+            progress_index: rows
+                .iter()
+                .position(|r| r.r#type == ui::NotificationType::Progress)
+                .map_or(-1, |i| i as i32),
+        }
+    }
+
+    /// Adds a notification (unless suppressed by its dismiss key).
+    pub fn push(&mut self, n: Notification) {
+        if !n.dismiss_key.is_empty() && self.dismissed_keys.contains(&n.dismiss_key) {
+            return;
+        }
+        let popup = n.auto_popup;
+        // Existing rows keep their state (e.g. read).
+        let mut rows: Vec<(Notification, ui::NotificationData)> =
+            self.items.drain(..).zip(self.model.to_vec()).collect();
+        let data = n.to_ui();
+        rows.insert(0, (n, data));
+        rows.sort_by(|(_, a), (_, b)| {
+            b.unread
+                .cmp(&a.unread)
+                .then_with(|| severity(b.r#type).cmp(&severity(a.r#type)))
+        });
+        self.items = rows.iter().map(|(n, _)| n.clone()).collect();
+        self.model
+            .replace_all(rows.into_iter().map(|(_, d)| d).collect());
+        self.changed(popup);
+    }
+
+    fn row_written(&mut self, row: usize, data: ui::NotificationData) {
+        if data.dont_show_again
+            && let Some(n) = self.items.get(row)
+            && !n.dismiss_key.is_empty()
+        {
+            self.dismissed_keys.push(n.dismiss_key.clone());
+            if let Some(f) = &self.on_dont_show_again {
+                f(&n.dismiss_key);
+            }
+        }
+        if data.dismissed && row < self.items.len() {
+            self.items.remove(row);
+            self.model.remove(row);
+        }
+        self.changed(false);
+    }
+
+    fn changed(&self, popup: bool) {
+        if let Some(f) = &self.on_changed {
+            f(self.state(), popup);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sorted_by_severity() {
+        let n = Notifications::new(vec!["X".into()]);
+        let mut m = n.borrow_mut();
+        m.push(Notification::new(ui::NotificationType::Info, "a", ""));
+        m.push(Notification::new(ui::NotificationType::Critical, "b", ""));
+        m.push(Notification::new(ui::NotificationType::Tip, "c", ""));
+        let mut suppressed = Notification::new(ui::NotificationType::Warning, "d", "");
+        suppressed.dismiss_key = "X".into();
+        m.push(suppressed);
+        let titles: Vec<_> = m
+            .model()
+            .to_vec()
+            .iter()
+            .map(|r| r.title.to_string())
+            .collect();
+        assert_eq!(titles, ["b", "a", "c"]);
+        assert_eq!(
+            m.state(),
+            NotificationsState {
+                unread: 3,
+                progress_index: -1
+            }
+        );
+    }
+}

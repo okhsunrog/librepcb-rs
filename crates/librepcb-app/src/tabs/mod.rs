@@ -1,0 +1,312 @@
+//! Window tabs.
+//!
+//! Port of libs/librepcb/editor/windowtab.{h,cpp}: the base behavior of all
+//! tabs (UI data, actions, scene rendering and events). Upstream uses a
+//! class hierarchy; here [`Tab`] is an enum over the tab kinds, which keeps
+//! the per-kind data (`SchematicTabData`, `Board2dTabData`, ...) in the tab
+//! types.
+//!
+//! Ported tab kinds: [`HomeTab`](home), [`SchematicTab`] and
+//! [`Board2dTab`]. Library editor tabs, the 3D view and the project library
+//! tab follow in later milestones (their `.slint` files are already
+//! there).
+
+pub mod board_2d;
+pub mod home;
+pub mod schematic;
+
+use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use librepcb_app_ui as ui;
+use librepcb_canvas::kurbo::Point;
+use librepcb_canvas::{Modifiers, PointerButton, PointerKind};
+use librepcb_core::types::{GridStyle, Length, LengthUnit};
+use slint::language::{PointerEvent, PointerEventButton, PointerEventKind};
+
+pub use board_2d::Board2dTab;
+pub use schematic::SchematicTab;
+
+use crate::project::AppProject;
+
+/// A unique identifier of a tab (stable while tabs move between sections).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TabId(u64);
+
+impl TabId {
+    /// A new unique identifier.
+    pub fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+impl Default for TabId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A window tab.
+pub enum Tab {
+    /// The home tab (upstream `HomeTab`).
+    Home(TabId),
+    /// A schematic page.
+    Schematic(Box<SchematicTab>),
+    /// A board (2D view).
+    Board2d(Box<Board2dTab>),
+}
+
+/// What an event or action changed in a tab.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TabUpdate {
+    /// The scene must be repainted (the tab's frame counter is bumped).
+    pub repaint: bool,
+    /// The tab's UI data changed.
+    pub data_changed: bool,
+    /// New cursor position (world coordinates) with the unit to show it.
+    pub cursor: Option<(Point, LengthUnit)>,
+    /// A status bar message (empty to clear it).
+    pub status: Option<String>,
+    /// The tab wants to be closed.
+    pub close: bool,
+}
+
+impl TabUpdate {
+    /// Only a repaint.
+    pub fn repaint() -> Self {
+        Self {
+            repaint: true,
+            ..Self::default()
+        }
+    }
+}
+
+impl Tab {
+    /// The unique identifier.
+    pub fn id(&self) -> TabId {
+        match self {
+            Self::Home(id) => *id,
+            Self::Schematic(t) => t.id(),
+            Self::Board2d(t) => t.id(),
+        }
+    }
+
+    /// The project shown by the tab, if any.
+    pub fn project(&self) -> Option<&Rc<AppProject>> {
+        match self {
+            Self::Home(_) => None,
+            Self::Schematic(t) => Some(t.project()),
+            Self::Board2d(t) => Some(t.project()),
+        }
+    }
+
+    /// The base UI data (`TabData`).
+    pub fn ui_data(&self) -> ui::TabData {
+        match self {
+            Self::Home(_) => home::ui_data(),
+            Self::Schematic(t) => t.ui_data(),
+            Self::Board2d(t) => t.ui_data(),
+        }
+    }
+
+    /// Applies base UI data written by the UI (e.g. the find term).
+    pub fn set_ui_data(&mut self, _data: &ui::TabData) {}
+
+    /// The schematic tab data (default for other tabs).
+    pub fn schematic_data(&self, projects: &[Rc<AppProject>]) -> ui::SchematicTabData {
+        match self {
+            Self::Schematic(t) => t.derived_ui_data(projects),
+            _ => ui::SchematicTabData::default(),
+        }
+    }
+
+    /// The board tab data (default for other tabs).
+    pub fn board_data(&self, projects: &[Rc<AppProject>]) -> ui::Board2dTabData {
+        match self {
+            Self::Board2d(t) => t.derived_ui_data(projects),
+            _ => ui::Board2dTabData::default(),
+        }
+    }
+
+    /// Handles a tab action.
+    pub fn trigger(&mut self, action: ui::TabAction) -> TabUpdate {
+        let update = match self {
+            Self::Home(_) => TabUpdate::default(),
+            Self::Schematic(t) => t.trigger(action),
+            Self::Board2d(t) => t.trigger(action),
+        };
+        if action == ui::TabAction::Close && !matches!(self, Self::Home(_)) {
+            return TabUpdate {
+                close: true,
+                ..update
+            };
+        }
+        update
+    }
+
+    /// Renders the scene for `Backend.render-scene`.
+    pub fn render_scene(&mut self, width: f32, height: f32, scale_factor: f32) -> slint::Image {
+        match self {
+            Self::Home(_) => slint::Image::default(),
+            Self::Schematic(t) => t.render_scene(width, height, scale_factor),
+            Self::Board2d(t) => t.render_scene(width, height, scale_factor),
+        }
+    }
+
+    /// Handles `Backend.scene-pointer-event`.
+    pub fn pointer_event(&mut self, pos: Point, event: &PointerEvent) -> TabUpdate {
+        let (kind, button, _) = convert_pointer_event(event);
+        match self {
+            Self::Home(_) => TabUpdate::default(),
+            Self::Schematic(t) => t.pointer_event(kind, button, pos),
+            Self::Board2d(t) => t.pointer_event(kind, button, pos),
+        }
+    }
+
+    /// Handles `Backend.scene-scrolled`; returns whether it was handled.
+    pub fn scrolled(&mut self, pos: Point, delta: (f64, f64), modifiers: Modifiers) -> bool {
+        match self {
+            Self::Home(_) => false,
+            Self::Schematic(t) => t.canvas_mut().scroll_event(pos, delta.into(), modifiers),
+            Self::Board2d(t) => t.canvas_mut().scroll_event(pos, delta.into(), modifiers),
+        }
+    }
+
+    /// Applies derived schematic data written by the UI.
+    pub fn set_schematic_data(&mut self, data: &ui::SchematicTabData) -> TabUpdate {
+        match self {
+            Self::Schematic(t) => t.set_derived_ui_data(data),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// Applies derived board data written by the UI.
+    pub fn set_board_data(&mut self, data: &ui::Board2dTabData) -> TabUpdate {
+        match self {
+            Self::Board2d(t) => t.set_derived_ui_data(data),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// Applies layer data written by the UI (layers panel).
+    pub fn set_layer_data(&mut self, row: usize, data: &ui::GraphicsLayerData) -> TabUpdate {
+        match self {
+            Self::Board2d(t) => t.set_layer_visible(row, data.visible),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// Bumps the frame counter of scene tabs (the UI then requests a new
+    /// image).
+    pub fn bump_frame(&mut self) {
+        match self {
+            Self::Home(_) => {}
+            Self::Schematic(t) => t.bump_frame(),
+            Self::Board2d(t) => t.bump_frame(),
+        }
+    }
+
+    /// Applies the schematic or board grid style (workspace settings).
+    pub fn set_grid_styles(&mut self, schematic: GridStyle, board: GridStyle) -> TabUpdate {
+        match self {
+            Self::Home(_) => TabUpdate::default(),
+            Self::Schematic(t) => t.set_grid_style(schematic),
+            Self::Board2d(t) => t.set_grid_style(board),
+        }
+    }
+
+    /// Called when the project changed (e.g. through MCP): rebuild scenes.
+    pub fn project_modified(&mut self) -> TabUpdate {
+        match self {
+            Self::Home(_) => TabUpdate::default(),
+            Self::Schematic(t) => t.rebuild_if_modified(),
+            Self::Board2d(t) => t.rebuild_if_modified(),
+        }
+    }
+}
+
+/// Converts Slint's pointer event.
+pub fn convert_pointer_event(e: &PointerEvent) -> (PointerKind, PointerButton, Modifiers) {
+    let kind = match e.kind {
+        PointerEventKind::Down => PointerKind::Down,
+        PointerEventKind::Up => PointerKind::Up,
+        PointerEventKind::Cancel => PointerKind::Cancel,
+        _ => PointerKind::Move,
+    };
+    let button = match e.button {
+        PointerEventButton::Left => PointerButton::Left,
+        PointerEventButton::Right => PointerButton::Right,
+        PointerEventButton::Middle => PointerButton::Middle,
+        _ => PointerButton::Other,
+    };
+    (kind, button, convert_modifiers(&e.modifiers))
+}
+
+/// Converts Slint's keyboard modifiers.
+pub fn convert_modifiers(m: &slint::language::KeyboardModifiers) -> Modifiers {
+    Modifiers {
+        shift: m.shift,
+        control: m.control,
+        alt: m.alt,
+        meta: m.meta,
+    }
+}
+
+/// The index of a project in the application's project list (for the UI
+/// data), -1 if not found.
+pub fn project_index(projects: &[Rc<AppProject>], project: &Rc<AppProject>) -> i32 {
+    projects
+        .iter()
+        .position(|p| Rc::ptr_eq(p, project))
+        .map_or(-1, |i| i as i32)
+}
+
+/// Formats a cursor position like upstream `MainWindow` (both coordinates
+/// in the grid unit with its reasonable number of decimals).
+pub fn format_cursor(pos: Point, unit: LengthUnit) -> String {
+    let conv = |mm: f64| {
+        Length::from_mm(mm)
+            .map(|l| unit.convert_to_unit(l))
+            .unwrap_or(0.0)
+    };
+    let decimals = unit.reasonable_number_of_decimals();
+    format!(
+        "{:.decimals$}, {:.decimals$}",
+        conv(pos.x),
+        conv(pos.y),
+        decimals = decimals
+    )
+}
+
+/// Upstream `toFs()`: a feature that is supported and enabled or disabled.
+pub fn feature(enabled: bool) -> ui::FeatureState {
+    if enabled {
+        ui::FeatureState::Enabled
+    } else {
+        ui::FeatureState::Disabled
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cursor_format() {
+        assert_eq!(
+            format_cursor(Point::new(2.54, -1.0), LengthUnit::Millimeters),
+            "2.540000, -1.000000"
+        );
+        assert_eq!(
+            format_cursor(Point::new(25.4, 0.0), LengthUnit::Inches),
+            format!(
+                "{:.*}, {:.*}",
+                LengthUnit::Inches.reasonable_number_of_decimals(),
+                1.0,
+                LengthUnit::Inches.reasonable_number_of_decimals(),
+                0.0
+            )
+        );
+    }
+}

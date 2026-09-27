@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "tools/*"]
+members = ["crates/*", "crates/librepcb-app/ui", "tools/*"]
 exclude = ["spikes"]
 
 [workspace.package]

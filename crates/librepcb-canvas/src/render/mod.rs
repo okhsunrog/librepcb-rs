@@ -14,7 +14,7 @@
 
 mod cpu;
 
-pub use cpu::{CpuRenderer, CpuRendererSettings};
+pub use cpu::{CpuRenderer, CpuRendererSettings, Grid, GridStyle};
 
 use crate::{Scene, View};
 
