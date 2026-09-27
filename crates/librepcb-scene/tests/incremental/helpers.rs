@@ -217,7 +217,8 @@ impl Harness {
     /// Updates air wires and planes like the editor would after a command.
     fn update_derived(&mut self) {
         let boards: Vec<BoardId> = self.project().boards().iter().map(|b| b.id()).collect();
-        let planes = self.plane_interval > 0 && self.stats.steps % self.plane_interval == 0;
+        let planes =
+            self.plane_interval > 0 && self.stats.steps.is_multiple_of(self.plane_interval);
         self.editor
             .update_derived_data(|p| {
                 for b in &boards {

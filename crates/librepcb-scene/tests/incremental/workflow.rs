@@ -7,7 +7,7 @@ use librepcb_core::project::{BoardId, SchematicId};
 use librepcb_core::types::{Angle, CircuitIdentifier, ElementName, Layer, Length, PositiveLength};
 use librepcb_editor::commands::*;
 
-use crate::helpers::{Harness, create_editor, lib, mm};
+use crate::helpers::{Harness, create_editor, dump_board, dump_schematic, lib, mm};
 
 fn name(s: &str) -> ElementName {
     ElementName::new(s).unwrap()
@@ -328,4 +328,29 @@ fn test_build_modify_undo_redo() {
         "workflow: {} steps, {} incremental updates, {} + {} full rebuilds",
         h.stats.steps, h.stats.incremental, built_rebuilds, h.stats.rebuilds
     );
+}
+
+#[test]
+fn test_resync_rebuilds() {
+    use librepcb_core::project::ChangesSince;
+    use librepcb_scene::{BoardScene, BoardSide, ColorScheme, SceneSync, SchematicScene};
+
+    let tmp = tempfile::tempdir().unwrap();
+    let mut h = Harness::new(create_editor(&tmp.path().join("project")));
+    let (schematic, board) = build_demo(&mut h);
+    let p = h.project();
+    let mut sch = SchematicScene::build(p, schematic, &ColorScheme::SCHEMATIC_LIGHT).unwrap();
+    let mut brd = BoardScene::build(p, board, BoardSide::Top, &ColorScheme::BOARD_DARK).unwrap();
+    let (sch_before, brd_before) = (dump_schematic(&sch), dump_board(&brd));
+    assert!(sch.apply_changes(p, ChangesSince::Resync).unwrap());
+    assert!(brd.apply_changes(p, ChangesSince::Resync).unwrap());
+    assert_eq!(dump_schematic(&sch), sch_before);
+    assert_eq!(dump_board(&brd), brd_before);
+    // No changes: nothing to do.
+    assert!(!sch.apply_changes(p, ChangesSince::Changes(&[])).unwrap());
+    // A cursor ahead of the journal (e.g. another project) resyncs.
+    let mut sync = SceneSync::at(p.revision() + 10);
+    assert!(sync.sync(p, &mut brd).unwrap());
+    assert_eq!(sync.cursor(), p.revision());
+    assert!(!sync.sync(p, &mut brd).unwrap());
 }
