@@ -94,9 +94,6 @@ including the upstream comparisons.
   `Mutation`s; `librepcb-editor`'s undo stack makes them undoable.
 - `Board::updateDrcMessageApprovals()` (obsolete approval cleanup) is not
   ported.
-- Some `tr!` contexts in core/network (`OutputDirectoryWriter`,
-  `TransactionalFileSystem`, `FileDownload`, ...) lack the `librepcb::`
-  prefix the catalogs use, so they are not translated.
 - Direct ZIP downloads from codeload.github.com are blocked in the cloud
   sandbox; official libraries can be cloned with git instead.
 - Upstream bugs found along the way, which could be reported upstream:
