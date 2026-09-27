@@ -20,6 +20,7 @@
 //!   inverses always succeed), the already applied steps are rolled back and
 //!   the whole history is cleared, since it no longer matches the model.
 
+use librepcb_core::fileio::TransactionalFileSystem;
 use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::library::cmp::Component;
 use librepcb_core::library::dev::Device;
@@ -84,6 +85,16 @@ pub enum Operation {
         /// UUID of the element.
         uuid: Uuid,
     },
+    /// Writes (`Some`) or removes (`None`) a file of the project directory
+    /// (upstream: the file handling of `CmdSchematicImageAdd` and
+    /// `CmdSchematicImageRemove`); the path is relative to the project
+    /// directory.
+    WriteFile {
+        /// The path of the file.
+        path: String,
+        /// The new content, `None` to remove the file.
+        content: Option<Vec<u8>>,
+    },
 }
 
 impl Operation {
@@ -92,6 +103,18 @@ impl Operation {
     pub fn apply(self, project: &mut Project) -> Result<Operation> {
         Ok(match self {
             Self::Mutation(m) => Self::Mutation(project.apply(m)?),
+            Self::WriteFile { path, content } => {
+                let dir = project.directory();
+                let fs = dir.file_system();
+                let full = TransactionalFileSystem::clean_path(&format!("{}/{path}", dir.path()));
+                let old = fs.read_if_exists(&full)?;
+                match &content {
+                    Some(data) => fs.write(&full, data)?,
+                    None if old.is_some() => fs.remove_file(&full)?,
+                    None => {}
+                }
+                Self::WriteFile { path, content: old }
+            }
             Self::AddLibraryElement(element) => {
                 let (kind, uuid) = (element.kind(), element.uuid());
                 match *element {

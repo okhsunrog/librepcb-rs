@@ -4,9 +4,9 @@
 //!
 //! The grab areas come from the view ([`SchematicView::items_at()`], asked
 //! with the exact position, the near tolerance and the grid distance),
-//! the priorities and distances from the model. Junctions are tested on
-//! the model with upstream's 1.2 mm square grab area (upstream:
-//! `SGI_NetPoint` bounding rect), visible or not.
+//! the priorities and distances from the model. Net and bus junctions are
+//! tested on the model with upstream's 1.2 mm square grab area (upstream:
+//! `SGI_NetPoint`/`SGI_BusJunction` bounding rect), visible or not.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -136,6 +136,18 @@ pub(crate) fn find_items_at(
         .max(tolerance * 2)
         .max(Length::ZERO);
     let mut junction_hits: BTreeMap<SchematicItem, Length> = BTreeMap::new();
+    if flags.bus_junctions {
+        for (seg_id, seg) in s.bus_segments() {
+            for j in seg.junctions().values() {
+                let d = distance_to_square(pos, j.position(), JUNCTION_GRAB_RADIUS);
+                if d <= max_distance {
+                    let item = SchematicItem::BusJunction(*seg_id, j.uuid());
+                    candidates.insert(item);
+                    junction_hits.insert(item, d);
+                }
+            }
+        }
+    }
     if flags.net_points {
         for (seg_id, seg) in s.net_segments() {
             for j in seg.junctions().values() {
@@ -159,13 +171,16 @@ pub(crate) fn find_items_at(
 
     let mut result: Vec<((i64, i64), SchematicItem)> = Vec::new();
     // Upstream `processItem()`.
+    // `item` is the item whose grab area is tested, `returned` the item
+    // returned (upstream: a locked symbol text returns its symbol).
     let mut process = |item: SchematicItem,
+                       returned: SchematicItem,
                        nearest: Point,
                        priority: i64,
                        large: bool,
                        max_distance: Option<Length>|
      -> bool {
-        if except.contains(&item) {
+        if except.contains(&returned) {
             return false;
         }
         let distance = (nearest - pos).length().get();
@@ -174,7 +189,7 @@ pub(crate) fn find_items_at(
         }
         let distance_px = px(distance);
         if hit(&item, &exact, Length::ZERO) {
-            result.push(((priority, distance_px), item));
+            result.push(((priority, distance_px), returned));
             return true;
         }
         let (near_set, near_tol) = if large {
@@ -185,7 +200,7 @@ pub(crate) fn find_items_at(
         if (flags.accept_near_match || flags.accept_nearest_within_grid)
             && hit(&item, near_set, near_tol)
         {
-            result.push(((priority + 1000, distance_px), item));
+            result.push(((priority + 1000, distance_px), returned));
             return true;
         }
         if flags.accept_nearest_within_grid
@@ -193,7 +208,7 @@ pub(crate) fn find_items_at(
             && hit(&item, set, d)
         {
             // Swapped order like upstream!
-            result.push(((distance_px + 2000, priority), item));
+            result.push(((distance_px + 2000, priority), returned));
             return true;
         }
         false
@@ -208,7 +223,14 @@ pub(crate) fn find_items_at(
                 let seg = &s.net_segments()[&seg_id];
                 let position = seg.junctions()[&j].position();
                 let visible = seg.is_visible_junction(NetLineAnchor::Junction(j));
-                process(item, position, if visible { 0 } else { 10 }, false, None);
+                process(
+                    item,
+                    item,
+                    position,
+                    if visible { 0 } else { 10 },
+                    false,
+                    None,
+                );
             }
             SchematicItem::NetLine(seg_id, l) if flags.net_lines => {
                 let seg = &s.net_segments()[&seg_id];
@@ -216,55 +238,94 @@ pub(crate) fn find_items_at(
                 let p = |a| s.net_line_anchor_position(seg_id, a, cx.project().view());
                 if let (Some(p1), Some(p2)) = (p(line.p1()), p(line.p2())) {
                     let nearest = toolbox::nearest_point_on_line(pos_on_grid, p1, p2);
-                    process(item, nearest, 20, true, None);
+                    process(item, item, nearest, 20, true, None);
                 }
             }
             SchematicItem::NetLabel(seg_id, l) if flags.net_labels => {
                 let label = &s.net_segments()[&seg_id].labels()[&l];
-                process(item, label.position(), 30, false, None);
+                process(item, item, label.position(), 30, false, None);
             }
             SchematicItem::BusJunction(seg_id, j) if flags.bus_junctions => {
                 if let Some(junction) = s.bus_segments()[&seg_id].junctions().get(&j) {
-                    process(item, junction.position(), 15, false, None);
+                    process(item, item, junction.position(), 15, false, None);
                 }
             }
-            SchematicItem::BusLine(..) if flags.bus_lines => {
-                process(item, pos, 34, true, None);
+            SchematicItem::BusLine(seg_id, l) if flags.bus_lines => {
+                let seg = &s.bus_segments()[&seg_id];
+                let line = &seg.lines()[&l];
+                if let (Some(p1), Some(p2)) = (
+                    seg.junction_position(line.p1()),
+                    seg.junction_position(line.p2()),
+                ) {
+                    let nearest = toolbox::nearest_point_on_line(pos_on_grid, p1, p2);
+                    process(item, item, nearest, 34, true, None);
+                }
             }
             SchematicItem::BusLabel(seg_id, l) if flags.bus_labels => {
                 if let Some(label) = s.bus_segments()[&seg_id].labels().get(&l) {
-                    process(item, label.position(), 36, false, None);
+                    process(item, item, label.position(), 36, false, None);
                 }
             }
             SchematicItem::SymbolPin(symbol, pin) if flags.symbol_pins => {
                 if let Some(position) = pin_position(cx, s, symbol, pin) {
-                    process(item, position, 40, false, None);
+                    process(item, item, position, 40, false, None);
                 }
             }
             SchematicItem::Symbol(id) if flags.symbols => {
                 let position = s.symbols()[&id].position();
-                if !process(item, position, 50, false, Some(SYMBOL_ORIGIN_DISTANCE)) {
-                    process(item, position, 70, false, None);
+                if !process(
+                    item,
+                    item,
+                    position,
+                    50,
+                    false,
+                    Some(SYMBOL_ORIGIN_DISTANCE),
+                ) {
+                    process(item, item, position, 70, false, None);
                 }
             }
             SchematicItem::Polygon(id) if flags.polygons => {
                 let nearest = s.polygons()[&id]
                     .path()
                     .calc_nearest_point_between_vertices(pos);
-                process(item, nearest, 80, true, None);
+                process(item, item, nearest, 80, true, None);
             }
             SchematicItem::Text(id) if flags.texts => {
-                process(item, s.texts()[&id].position(), 60, false, None);
+                let text = &s.texts()[&id];
+                if !text.locked() || cx.settings.ignore_locks {
+                    process(item, item, text.position(), 60, false, None);
+                }
+            }
+            SchematicItem::SymbolText(symbol, id) => {
+                let text = &s.symbols()[&symbol].texts()[&id];
+                if flags.texts && (!text.locked() || cx.settings.ignore_locks) {
+                    process(item, item, text.position(), 60, false, None);
+                } else if flags.symbols {
+                    // A locked text is part of the symbol's grab area.
+                    process(
+                        item,
+                        SchematicItem::Symbol(symbol),
+                        text.position(),
+                        70,
+                        false,
+                        None,
+                    );
+                }
             }
             SchematicItem::Image(id) if flags.images => {
-                process(item, s.images()[&id].position(), 90, false, None);
+                process(item, item, s.images()[&id].position(), 90, false, None);
             }
             _ => {}
         }
     }
     // Stable sort: equal priorities keep the (deterministic) item order.
     result.sort_by_key(|(prio, _)| *prio);
-    result.into_iter().map(|(_, item)| item).collect()
+    let mut seen = BTreeSet::new();
+    result
+        .into_iter()
+        .map(|(_, item)| item)
+        .filter(|item| seen.insert(*item))
+        .collect()
 }
 
 /// Returns the position of a symbol pin.

@@ -11,6 +11,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["std", "clo
 clipper = { version = "0.1.0", path = "../clipper" }
 csv = "1.4.0"
 dunce = "1.0.5"
+dxf = "0.6.1"
 evalexpr = "13.1.0"
 glob = "0.3.4"
 html-escape = "0.2.15"

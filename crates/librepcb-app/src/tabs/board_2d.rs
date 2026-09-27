@@ -1331,15 +1331,29 @@ impl Board2dTab {
             A::ToolbarViaDrillSaveInNetclass => {
                 self.run(setting(ToolSetting::SaveViaDrillInNetClass));
             }
-            A::ToolPadTht
-            | A::ToolPadSmt
+            A::ToolPadTht => {
+                self.run(tool(BoardTool::AddThtPad));
+            }
+            A::ToolPadSmt
             | A::ToolPadThermal
             | A::ToolPadBga
             | A::ToolPadEdgeConnector
             | A::ToolPadTestPoint
             | A::ToolPadLocalFiducial
-            | A::ToolPadGlobalFiducial
-            | A::ImportDxf => {
+            | A::ToolPadGlobalFiducial => {
+                use librepcb_core::geometry::PadFunction as F;
+                let function = match action {
+                    A::ToolPadThermal => F::ThermalPad,
+                    A::ToolPadBga => F::BgaPad,
+                    A::ToolPadEdgeConnector => F::EdgeConnectorPad,
+                    A::ToolPadTestPoint => F::TestPad,
+                    A::ToolPadLocalFiducial => F::LocalFiducial,
+                    A::ToolPadGlobalFiducial => F::GlobalFiducial,
+                    _ => F::StandardPad,
+                };
+                self.run(tool(BoardTool::AddSmtPad(function)));
+            }
+            A::ImportDxf => {
                 extra.status = Some(tr!(
                     "MainWindow",
                     "Not available yet in this version: {0}",
@@ -1496,6 +1510,8 @@ fn tool_to_ui(tool: BoardTool) -> ui::EditorTool {
         BoardTool::DrawPlane => ui::EditorTool::Plane,
         BoardTool::DrawZone => ui::EditorTool::Zone,
         BoardTool::AddHole => ui::EditorTool::Hole,
+        BoardTool::AddThtPad => ui::EditorTool::PadTht,
+        BoardTool::AddSmtPad(_) => ui::EditorTool::PadSmt,
         BoardTool::AddStrokeText => ui::EditorTool::Text,
         BoardTool::Measure => ui::EditorTool::Measure,
     }

@@ -42,22 +42,25 @@
 //!   [`BoardEditorFsm::set_line_width()`]).
 //! - Tool bar values are polled ([`BoardToolData`]) instead of signals;
 //!   changes are [`ToolSetting`]s.
-//! - Not ported: the add-pad tools (standalone THT/SMT pads), DXF import,
-//!   the "change device" context menu entries (need the workspace library
-//!   database), `CmdSimplifyBoardNetSegments` after drawing and removing
-//!   traces, the "find" feature and cross-probing to the schematic
-//!   (highlighted nets are reported), aborting blocking tools in other
-//!   editors (the application must abort them before switching tabs).
+//! - Cross-probing is reported through [`BoardEditorFsm::cross_probe()`]
+//!   and [`BoardEditorFsm::highlighted_nets()`]; the application forwards
+//!   it to the schematic editors.
+//! - Not ported: aborting blocking tools in other editors (the
+//!   application must abort them before switching tabs) and the plane
+//!   visibility of the context menu (a view setting of the application).
 
 mod clipboard;
 mod context;
+mod find;
 mod output;
 mod selection;
+mod simplify;
 mod transform;
 mod view;
 
 mod add_device;
 mod add_hole;
+mod add_pad;
 mod add_stroke_text;
 mod add_via;
 mod draw_polygon;
@@ -76,10 +79,11 @@ pub use clipboard::{
 };
 pub use context::BoardContext;
 pub use output::{
-    BoardRequest, BoardTool, BoardToolData, ContextAction, ContextMenuItem, ToolNet, ToolSetting,
-    WireMode,
+    BoardRequest, BoardTool, BoardToolData, ContextAction, ContextMenuItem, ToolNet, ToolPadShape,
+    ToolSetting, WireMode,
 };
 pub use selection::{BoardSelection, SelectionQuery};
+pub use simplify::SimplifyBoardNetSegments;
 pub use transform::DragItems;
 pub use view::{BoardItemRef, BoardView, FindFilter, FindFlags, find_items_at_pos};
 
@@ -176,8 +180,31 @@ pub enum BoardFsmInput {
     RightReleased(PointerEvent),
     /// A context menu entry was chosen.
     ContextMenu(ContextAction),
+    /// Import a DXF file (select tool, upstream `processImportDxf()` with
+    /// the choices of the DXF import dialog).
+    ImportDxf(DxfImportSettings),
     /// A tool bar value was changed.
     ToolSetting(ToolSetting),
+}
+
+/// The choices of the DXF import dialog (upstream `DxfImportDialog`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DxfImportSettings {
+    /// The DXF file.
+    pub file: librepcb_core::fileio::FilePath,
+    /// Layer of the imported polygons.
+    pub layer: librepcb_core::types::Layer,
+    /// Line width of the imported polygons.
+    pub line_width: UnsignedLength,
+    /// Factor the coordinates are multiplied with.
+    pub scale_factor: f64,
+    /// Join tangent polylines to (closed) paths.
+    pub join_tangent_polylines: bool,
+    /// Import circles as (non-plated) holes instead of polygons.
+    pub circles_as_drills: bool,
+    /// Fixed placement offset; `None`: the items follow the cursor until
+    /// the next click (like pasting).
+    pub placement: Option<Point>,
 }
 
 /// Interface of the states (upstream `BoardEditorState`).
@@ -208,6 +235,9 @@ struct States {
     draw_plane: draw_polygon::DrawPlaneState,
     draw_zone: draw_polygon::DrawZoneState,
     add_hole: add_hole::AddHoleState,
+    add_tht_pad: add_pad::AddPadState,
+    add_smt_pads:
+        std::collections::BTreeMap<librepcb_core::geometry::PadFunction, add_pad::AddPadState>,
     add_stroke_text: add_stroke_text::AddStrokeTextState,
     add_device: add_device::AddDeviceState,
     measure: measure::MeasureState,
@@ -223,6 +253,11 @@ impl States {
             BoardTool::DrawPlane => &mut self.draw_plane,
             BoardTool::DrawZone => &mut self.draw_zone,
             BoardTool::AddHole => &mut self.add_hole,
+            BoardTool::AddThtPad => &mut self.add_tht_pad,
+            BoardTool::AddSmtPad(f) => self
+                .add_smt_pads
+                .entry(f)
+                .or_insert_with(|| add_pad::AddPadState::smt(f)),
             BoardTool::AddStrokeText => &mut self.add_stroke_text,
             BoardTool::AddDevice => &mut self.add_device,
             BoardTool::Measure => &mut self.measure,
@@ -238,6 +273,11 @@ impl States {
             BoardTool::DrawPlane => &self.draw_plane,
             BoardTool::DrawZone => &self.draw_zone,
             BoardTool::AddHole => &self.add_hole,
+            BoardTool::AddThtPad => &self.add_tht_pad,
+            BoardTool::AddSmtPad(f) => match self.add_smt_pads.get(&f) {
+                Some(s) => s,
+                None => &self.select,
+            },
             BoardTool::AddStrokeText => &self.add_stroke_text,
             BoardTool::AddDevice => &self.add_device,
             BoardTool::Measure => &self.measure,
@@ -260,6 +300,7 @@ pub struct BoardEditorFsm {
     selection: BoardSelection,
     cursor_pos: Option<Point>,
     left_button: bool,
+    search: crate::fsm::find::SearchContext,
 }
 
 impl BoardEditorFsm {
@@ -279,6 +320,8 @@ impl BoardEditorFsm {
                 draw_plane: draw_polygon::DrawPlaneState::default(),
                 draw_zone: draw_polygon::DrawZoneState::default(),
                 add_hole: add_hole::AddHoleState::default(),
+                add_tht_pad: add_pad::AddPadState::tht(),
+                add_smt_pads: Default::default(),
                 add_stroke_text: add_stroke_text::AddStrokeTextState::default(),
                 add_device: add_device::AddDeviceState::default(),
                 measure: measure::MeasureState::default(),
@@ -287,6 +330,7 @@ impl BoardEditorFsm {
             selection: BoardSelection::default(),
             cursor_pos: None,
             left_button: false,
+            search: crate::fsm::find::SearchContext::new(),
         }
     }
 
@@ -330,6 +374,13 @@ impl BoardEditorFsm {
     /// Nets to highlight (upstream cross probing of the current tool).
     pub fn highlighted_nets(&self) -> &BTreeSet<NetSignalId> {
         &self.out.highlighted_nets
+    }
+
+    /// The selected objects to highlight in the schematic editors
+    /// (upstream `fsmCrossProbe()` of the select tool: nets, components of
+    /// devices and component signals of pads).
+    pub fn cross_probe(&self) -> &crate::fsm::CrossProbe {
+        &self.out.cross_probe
     }
 
     /// The item under the cursor (select tool, idle).
@@ -486,6 +537,12 @@ impl BoardEditorFsm {
     /// Requests the properties dialog of the selection.
     pub fn edit_properties(&mut self, ctx: &mut BoardContext<'_>) -> bool {
         self.process(ctx, BoardFsmInput::EditProperties)
+    }
+
+    /// Imports a DXF file (upstream `processImportDxf()`): its polygons
+    /// (and holes) are pasted.
+    pub fn import_dxf(&mut self, ctx: &mut BoardContext<'_>, settings: DxfImportSettings) -> bool {
+        self.process(ctx, BoardFsmInput::ImportDxf(settings))
     }
 
     /// A context menu entry was chosen.

@@ -6,11 +6,15 @@
 
 use std::collections::BTreeSet;
 
-use librepcb_core::geometry::{Path, TraceAnchor, Vertex};
+use librepcb_core::geometry::{NonEmptyPath, Path, TraceAnchor, Vertex};
+use librepcb_core::import::DxfReader;
 use librepcb_core::library::LibraryBaseElement;
-use librepcb_core::project::board::BoardItem;
+use librepcb_core::project::board::{BoardHoleData, BoardPolygonData};
+use librepcb_core::project::board::{BoardItem, BoardNetSegment};
 use librepcb_core::project::{BoardMutation, Mutation, NetSegmentId, NetSignalId};
+use librepcb_core::types::MaskConfig;
 use librepcb_core::types::{Angle, Length, Orientation, Point, UnsignedLength, Uuid};
+use librepcb_core::utils::tangent_path_joiner;
 use librepcb_core::utils::toolbox;
 use librepcb_i18n::{tr, trn};
 
@@ -20,9 +24,10 @@ use super::output::{BoardRequest, BoardToolData, ContextAction, ContextMenuItem}
 use super::selection::{SelectionQuery, all_items, segment_items};
 use super::transform::{DragItems, flip_mutations};
 use super::view::{BoardItemRef, FindFilter, FindFlags};
-use super::{BoardFsmInput, State};
+use super::{BoardFsmInput, DxfImportSettings, State};
 use crate::commands::{BoardSelection as RemoveSelection, RemoveBoardItems};
-use crate::fsm::Features;
+use crate::fsm::{CrossProbe, Features};
+use crate::library_editor::commands::{FootprintClipboardData, footprint_clipboard_mime_type};
 
 /// A running drag operation (upstream `mSelectedItemsDragCommand`).
 #[derive(Debug)]
@@ -212,11 +217,35 @@ impl SelectState {
         };
         let board = cx.board_id();
         cx.selection.clear();
+        let before: std::collections::BTreeMap<NetSegmentId, BoardNetSegment> = cx
+            .board()
+            .map(|b| {
+                b.net_segments()
+                    .iter()
+                    .map(|(id, s)| (*id, s.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         match cx.exec(RemoveBoardItems {
             board: Some(board),
             selection,
         }) {
-            Ok(_) => true,
+            Ok(_) => {
+                // Upstream: `CmdSimplifyBoardNetSegments` of the modified
+                // segments as a separate undo step.
+                let modified: Vec<NetSegmentId> = cx
+                    .board()
+                    .map(|b| {
+                        b.net_segments()
+                            .iter()
+                            .filter(|(id, s)| before.get(id) != Some(*s))
+                            .map(|(id, _)| *id)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                super::draw_trace::simplify_segments(cx, modified);
+                true
+            }
             Err(e) => {
                 cx.error(e);
                 false
@@ -245,17 +274,38 @@ impl SelectState {
     }
 
     fn paste(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        let mime = board_clipboard_mime_type(&cx.settings.app_version);
-        let Some(zip) = cx.ctx.clipboard.get(&mime) else {
+        let version = &cx.settings.app_version;
+        let result = if let Some(zip) = cx.ctx.clipboard.get(&board_clipboard_mime_type(version)) {
+            BoardClipboardData::from_zip(&zip)
+        } else if let Some(zip) = cx
+            .ctx
+            .clipboard
+            .get(&footprint_clipboard_mime_type(version))
+        {
+            // Graphical elements from the package editor.
+            FootprintClipboardData::from_bytes(&zip)
+                .and_then(|data| BoardClipboardData::from_footprint_data(&data))
+        } else {
             return false;
         };
-        let data = match BoardClipboardData::from_zip(&zip) {
+        let data = match result {
             Ok(data) => data,
             Err(e) => {
                 cx.error(e);
                 return false;
             }
         };
+        self.start_paste(cx, data, None)
+    }
+
+    /// Upstream `startPaste()`: pastes the items and lets them follow the
+    /// cursor, or places them at `fixed_offset` and finishes.
+    fn start_paste(
+        &mut self,
+        cx: &mut Cx<'_, '_>,
+        data: BoardClipboardData,
+        fixed_offset: Option<Point>,
+    ) -> bool {
         cx.selection.clear();
         if let Err(e) = cx.begin(tr!("BoardEditorState_Select", "Paste board elements")) {
             cx.error(e);
@@ -263,13 +313,22 @@ impl SelectState {
         }
         self.pasting = true;
         let start = cx.cursor_pos;
-        let offset = (start - data.cursor_pos).mapped_to_grid(cx.grid());
+        let offset =
+            fixed_offset.unwrap_or_else(|| (start - data.cursor_pos).mapped_to_grid(cx.grid()));
         let board = cx.board_id();
         match cx.exec(PasteBoardItems {
             board,
             data,
             offset,
         }) {
+            Ok(items) if !items.is_empty() && fixed_offset.is_some() => {
+                self.pasting = false;
+                if let Err(e) = cx.commit() {
+                    cx.error(e);
+                }
+                cx.selection.replace(items);
+                true
+            }
             Ok(items) if !items.is_empty() => {
                 cx.selection.replace(items);
                 let Some(mut query) = Self::query(cx, true) else {
@@ -289,6 +348,75 @@ impl SelectState {
                 self.pasting = false;
                 false
             }
+            Err(e) => {
+                cx.error(e);
+                self.abort_command(cx);
+                false
+            }
+        }
+    }
+
+    /// Upstream `processImportDxf()` (the dialog's choices are the
+    /// settings): reads the DXF file and pastes its polygons and holes.
+    fn import_dxf(&mut self, cx: &mut Cx<'_, '_>, settings: &DxfImportSettings) -> bool {
+        if self.busy() {
+            return false;
+        }
+        let result = (|| -> crate::error::Result<BoardClipboardData> {
+            let mut reader = DxfReader::new();
+            reader.set_scale_factor(settings.scale_factor);
+            reader
+                .parse_file(&settings.file)
+                .map_err(|e| crate::Error::InvalidArgument(e.to_string()))?;
+            let mut paths = reader.polygons().to_vec();
+            if settings.join_tangent_polylines {
+                paths =
+                    tangent_path_joiner::join(paths, Some(std::time::Duration::from_secs(2))).paths;
+            }
+            let board_uuid = cx.board()?.uuid();
+            let mut data = BoardClipboardData::new(board_uuid, Point::ORIGIN)?;
+            for path in paths {
+                data.polygons.push(BoardPolygonData::new(
+                    Uuid::new_random(),
+                    settings.layer,
+                    settings.line_width,
+                    path,
+                    false,
+                    false,
+                    false,
+                ));
+            }
+            for circle in reader.circles() {
+                if settings.circles_as_drills {
+                    data.holes.push(BoardHoleData::new(
+                        Uuid::new_random(),
+                        circle.diameter,
+                        NonEmptyPath::from_point(circle.position),
+                        MaskConfig::Automatic,
+                        false,
+                    ));
+                } else {
+                    data.polygons.push(BoardPolygonData::new(
+                        Uuid::new_random(),
+                        settings.layer,
+                        settings.line_width,
+                        Path::circle(circle.diameter).translated(circle.position),
+                        false,
+                        false,
+                        false,
+                    ));
+                }
+            }
+            if data.is_empty() {
+                return Err(crate::Error::InvalidArgument(tr!(
+                    "DxfImportDialog",
+                    "The selected file does not contain any objects to import."
+                )));
+            }
+            Ok(data)
+        })();
+        match result {
+            Ok(data) => self.start_paste(cx, data, settings.placement),
             Err(e) => {
                 cx.error(e);
                 self.abort_command(cx);
@@ -924,6 +1052,21 @@ impl SelectState {
                 }
                 true
             }
+            ContextAction::ChangeDevice(device) => {
+                let BoardItemRef::Device(c) = item else {
+                    return false;
+                };
+                let board = cx.board_id();
+                if let Err(e) = cx.exec(crate::commands::ReplaceDevice {
+                    component: c.into(),
+                    board: Some(board),
+                    device,
+                    footprint: None,
+                }) {
+                    cx.error(e);
+                }
+                true
+            }
             ContextAction::ChangeModel(model) => {
                 let BoardItemRef::Device(c) = item else {
                     return false;
@@ -1009,8 +1152,13 @@ impl SelectState {
             features.select = true;
             features.import_graphics = true;
         }
-        let mime = board_clipboard_mime_type(&cx.settings.app_version);
-        features.paste = cx.ctx.clipboard.get(&mime).is_some();
+        let version = &cx.settings.app_version;
+        features.paste = [
+            board_clipboard_mime_type(version),
+            footprint_clipboard_mime_type(version),
+        ]
+        .iter()
+        .any(|mime| cx.ctx.clipboard.get(mime).is_some());
         let grid = cx.grid();
         let Some(mut query) = Self::query(cx, true) else {
             return;
@@ -1103,11 +1251,12 @@ impl SelectState {
         {
             features.properties = true;
         }
-        let nets = info_box(&query, &mut info);
+        let probe = info_box(&query, &mut info);
         cx.out.view.features = features;
         cx.out.view.info_box = info;
         if cross_probe {
-            cx.highlight_nets(nets);
+            cx.highlight_nets(probe.nets.iter().copied());
+            cx.out.cross_probe = probe;
         }
     }
 }
@@ -1128,6 +1277,7 @@ impl State for SelectState {
         cx.out.view.rubber_band = None;
         cx.out.hovered = None;
         cx.highlight_nets([]);
+        cx.out.cross_probe = CrossProbe::default();
         true
     }
 
@@ -1256,6 +1406,7 @@ impl State for SelectState {
             }
             BoardFsmInput::RightReleased(e) => self.right_released(cx, e.pos),
             BoardFsmInput::ContextMenu(action) => self.context_action(cx, *action),
+            BoardFsmInput::ImportDxf(settings) => self.import_dxf(cx, settings),
             _ => false,
         };
         // Upstream updates the features on selection and undo stack changes
@@ -1458,6 +1609,19 @@ fn context_menu(cx: &Cx<'_, '_>, item: BoardItemRef, pos: Point) -> Vec<ContextM
                 ContextAction::ResetTexts,
                 tr!("EditorCommandSet", "Reset All Texts"),
             ));
+            // Devices of the component (upstream "Change Device" menu).
+            let devices = device_menu_items(cx, c);
+            if !devices.is_empty() {
+                m.push(separator());
+                for (uuid, name) in devices {
+                    let current = uuid == d.lib_device();
+                    m.push(ContextMenuItem {
+                        enabled: !current,
+                        checked: current.then_some(true),
+                        ..entry(ContextAction::ChangeDevice(uuid), name)
+                    });
+                }
+            }
             // Footprints and 3D models of the package.
             let lib = cx.project().library();
             if let Some(pkg) = lib
@@ -1682,7 +1846,7 @@ impl<T: PartialEq + Clone> InfoValue<T> {
 
 /// Builds the info box text of the selection and returns the nets to
 /// highlight (upstream `processSelection()`).
-fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignalId> {
+fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> CrossProbe {
     let p = query.project();
     let board = query.board();
     let total = query.devices.len()
@@ -1697,9 +1861,9 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         + query.stroke_texts.len()
         + query.device_texts.len()
         + query.holes.len();
-    let mut nets_to_highlight = BTreeSet::new();
+    let mut probe = CrossProbe::default();
     if total == 0 {
-        return nets_to_highlight;
+        return probe;
     }
     let unit = board.settings().grid_unit;
     let fmt = |l: Length| {
@@ -1722,6 +1886,19 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
     let mut position = None;
     let texts = query.stroke_texts.len() + query.device_texts.len();
     let pads = query.pads.len() + query.footprint_pads.len();
+    probe.components.extend(query.devices.iter().copied());
+    // Component signals of the selected footprint pads (upstream: only of
+    // a single selected pad or of pads selected with traces or vias).
+    let pad_signals = || {
+        query.footprint_pads.iter().filter_map(|(c, u)| {
+            board
+                .device(*c)?
+                .pad(u, p.library(), p.circuit())
+                .ok()
+                .flatten()?
+                .component_signal()
+        })
+    };
     if !query.devices.is_empty() {
         // Devices have priority, other objects are ignored.
         if query.devices.len() == 1
@@ -1751,6 +1928,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         }
     } else if pads == total {
         if pads == 1 {
+            probe.component_signals.extend(pad_signals());
             if let Some((c, u)) = query.footprint_pads.iter().next()
                 && let Some(d) = board.device(*c)
                 && let Ok(Some(pad)) = d.pad(u, p.library(), p.circuit())
@@ -1817,7 +1995,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
                 continue;
             };
             net.add(seg.net());
-            nets_to_highlight.extend(seg.net());
+            probe.nets.extend(seg.net());
             let rules = board.design_rules();
             let d = v
                 .drill_diameter()
@@ -1840,16 +2018,17 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         if !query.vias.is_empty() {
             layer.set_multiple();
         }
+        probe.component_signals.extend(pad_signals());
         for (s, _) in &query.vias {
             let n = board.net_segment(*s).and_then(|seg| seg.net());
             net.add(n);
-            nets_to_highlight.extend(n);
+            probe.nets.extend(n);
         }
         for id in &query.planes {
             if let Some(plane) = board.plane(*id) {
                 net.add(plane.net());
                 layer.add(plane.layer());
-                nets_to_highlight.extend(plane.net());
+                probe.nets.extend(plane.net());
             }
         }
         for (s, u) in &query.traces {
@@ -1860,7 +2039,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
                 net.add(seg.net());
                 layer.add(t.layer());
                 width.add(*t.width());
-                nets_to_highlight.extend(seg.net());
+                probe.nets.extend(seg.net());
             }
         }
     }
@@ -1920,7 +2099,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         })
         .collect();
     *text = lines.join("\n");
-    nets_to_highlight
+    probe
 }
 
 /// Formats a number with at most `decimals` decimals, without trailing
@@ -1933,4 +2112,52 @@ fn float_to_string(value: f64, decimals: usize) -> String {
         s
     };
     if s == "-0" { "0".to_owned() } else { s }
+}
+
+/// The devices of the component of a board device from the library
+/// element source, as (UUID, "device name [package name]") sorted by name
+/// (upstream `getDeviceMenuItems()`); devices of the component's assembly
+/// options are marked with a check mark.
+fn device_menu_items(
+    cx: &Cx<'_, '_>,
+    component: librepcb_core::project::ComponentInstanceId,
+) -> Vec<(Uuid, String)> {
+    use crate::commands::library::open_element;
+    use crate::undo_stack::LibraryElement;
+    use librepcb_core::project::LibraryElementKind;
+    let p = cx.project();
+    let Some(instance) = p.circuit().component_instance(component) else {
+        return Vec::new();
+    };
+    let compatible = instance.compatible_devices();
+    let source = cx.ctx.editor.source();
+    let mut items: Vec<(Uuid, String)> = source
+        .component_devices(&instance.lib_component())
+        .into_iter()
+        .filter_map(|uuid| {
+            let dir = source.element_directory(LibraryElementKind::Device, &uuid)?;
+            let LibraryElement::Device(device) =
+                open_element(LibraryElementKind::Device, &dir).ok()?
+            else {
+                return None;
+            };
+            let pkg_name = source
+                .element_directory(LibraryElementKind::Package, &device.package_uuid())
+                .and_then(|dir| open_element(LibraryElementKind::Package, &dir).ok())
+                .and_then(|e| match e {
+                    LibraryElement::Package(pkg) => {
+                        Some(pkg.metadata().names().default_value().to_string())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let mut name = format!("{} [{pkg_name}]", device.metadata().names().default_value());
+            if compatible.contains(&uuid) {
+                name += " \u{2714}";
+            }
+            Some((uuid, name))
+        })
+        .collect();
+    items.sort_by(|a, b| toolbox::compare_numeric(&a.1, &b.1));
+    items
 }

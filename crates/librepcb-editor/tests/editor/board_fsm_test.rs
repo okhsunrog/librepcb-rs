@@ -946,3 +946,409 @@ fn open_upstream(dir: &std::path::Path) -> Project {
         .open(directory, &lpp)
         .unwrap()
 }
+
+#[test]
+fn draw_trace_simplifies_collinear_traces() {
+    use librepcb_editor::fsm::board::WireMode;
+    let mut h = build(false);
+    h.tool(BoardTool::DrawTrace);
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::WireMode(
+        WireMode::Straight,
+    )));
+    // Three collinear points in free space.
+    h.click(mm(2.54, 15.24));
+    h.move_to(mm(5.08, 15.24));
+    h.press(mm(5.08, 15.24));
+    h.move_to(mm(7.62, 15.24));
+    h.press(mm(7.62, 15.24));
+    // Finishing the trace simplifies the segment: one straight trace.
+    h.input(BoardFsmInput::Abort);
+    assert!(!h.editor.undo_stack().is_group_active());
+    let traces = h.traces();
+    assert_eq!(traces.len(), 1, "{traces:?}");
+    assert_eq!(
+        h.undo_text().as_deref(),
+        Some("Simplify Board Net Segments")
+    );
+    let seg = h.board().net_segments().values().next().unwrap();
+    assert_eq!(seg.junctions().len(), 2);
+    // Undo restores the two traces.
+    assert!(h.editor.undo().unwrap());
+    assert_eq!(h.traces().len(), 2);
+}
+
+#[test]
+fn remove_trace_simplifies_segment() {
+    use librepcb_editor::fsm::board::WireMode;
+    let mut h = build(false);
+    h.tool(BoardTool::DrawTrace);
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::WireMode(
+        WireMode::Straight,
+    )));
+    // A T junction: a line with a stub at its middle.
+    h.click(mm(2.54, 15.24));
+    h.move_to(mm(5.08, 15.24));
+    h.press(mm(5.08, 15.24));
+    h.move_to(mm(7.62, 15.24));
+    h.press(mm(7.62, 15.24));
+    h.input(BoardFsmInput::Abort);
+    h.click(mm(5.08, 15.24));
+    h.move_to(mm(5.08, 17.78));
+    h.press(mm(5.08, 17.78));
+    h.input(BoardFsmInput::Abort);
+    h.tool(BoardTool::Select);
+    assert_eq!(h.traces().len(), 3);
+    // Remove the stub: the remaining two collinear traces are merged.
+    h.click(mm(5.08, 16.5));
+    assert!(
+        h.fsm
+            .selection()
+            .items()
+            .iter()
+            .any(|i| matches!(i, BoardItemRef::Trace(..)))
+    );
+    h.input(BoardFsmInput::Remove);
+    assert_eq!(h.traces().len(), 1, "{:?}", h.traces());
+    assert_eq!(
+        h.undo_text().as_deref(),
+        Some("Simplify Board Net Segments")
+    );
+}
+
+#[test]
+fn add_tht_and_smt_pads() {
+    use librepcb_core::geometry::{ComponentSide, PadFunction};
+    use librepcb_editor::fsm::board::{ToolNet, ToolPadShape};
+    let mut h = build(false);
+    let vcc = h.net("VCC");
+    h.move_to(mm(2.54, 2.54));
+    h.tool(BoardTool::AddThtPad);
+    assert_eq!(h.fsm.tool(), BoardTool::AddThtPad);
+    assert!(h.editor.undo_stack().is_group_active());
+    let pads = |h: &Harness| -> Vec<librepcb_core::project::board::BoardPadData> {
+        h.board()
+            .net_segments()
+            .values()
+            .flat_map(|s| s.pads().values().cloned())
+            .collect()
+    };
+    assert_eq!(pads(&h).len(), 1, "preview pad");
+    let data = h.fsm.tool_data().clone();
+    assert_eq!(data.drill.unwrap().to_mm(), 0.8);
+    assert_eq!(data.press_fit, Some(false));
+    assert!(data.component_side.is_none());
+    // Tool bar: net, shape, larger drill (grows the pad).
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::Net(ToolNet {
+        auto: false,
+        net: Some(vcc),
+    })));
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::PadShape(
+        ToolPadShape::Octagon,
+    )));
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::HoleDiameter(
+        librepcb_core::types::PositiveLength::new(Length::from_mm(1.5).unwrap()).unwrap(),
+    )));
+    assert!(h.fsm.highlighted_nets().contains(&vcc));
+    h.move_to(mm(5.08, 5.08));
+    h.input(BoardFsmInput::Rotate(Angle::DEG90));
+    h.press(mm(5.08, 5.08));
+    // The next pad follows the cursor.
+    assert!(h.editor.undo_stack().is_group_active());
+    h.input(BoardFsmInput::Abort);
+    assert_eq!(h.undo_text().as_deref(), Some("Add Pad to Board"));
+    assert_eq!(h.fsm.tool(), BoardTool::Select);
+    let placed = pads(&h);
+    assert_eq!(placed.len(), 1);
+    let pad = placed[0].pad();
+    assert_eq!(pad.position(), mm(5.08, 5.08));
+    assert_eq!(pad.rotation(), Angle::DEG90);
+    assert!(pad.is_tht());
+    assert_eq!(pad.holes().first().unwrap().diameter().to_mm(), 1.5);
+    assert!(pad.height().to_mm() >= 1.5);
+    let seg = h
+        .board()
+        .net_segments()
+        .values()
+        .find(|s| !s.pads().is_empty())
+        .unwrap();
+    assert_eq!(seg.net(), Some(vcc));
+
+    // SMT fiducial on the bottom side.
+    h.tool(BoardTool::AddSmtPad(PadFunction::GlobalFiducial));
+    assert!(h.fsm.tool_data().fiducial);
+    h.input(BoardFsmInput::ToolSetting(ToolSetting::ComponentSide(
+        ComponentSide::Bottom,
+    )));
+    h.move_to(mm(10.16, 2.54));
+    h.press(mm(10.16, 2.54));
+    h.input(BoardFsmInput::Abort);
+    let placed = pads(&h);
+    assert_eq!(placed.len(), 2);
+    let fid = placed
+        .iter()
+        .find(|p| p.pad().function() == PadFunction::GlobalFiducial)
+        .unwrap();
+    assert!(!fid.pad().is_tht());
+    assert_eq!(fid.pad().component_side(), ComponentSide::Bottom);
+    assert_eq!(fid.pad().width().to_mm(), 1.0);
+    // Undo removes the fiducial.
+    assert!(h.editor.undo().unwrap());
+    assert_eq!(pads(&h).len(), 1);
+}
+
+#[test]
+fn change_device_from_context_menu() {
+    use librepcb_editor::fsm::board::ContextAction;
+    let mut h = build(true);
+    let r1 = h.component("R1");
+    assert_eq!(h.board().device(r1).unwrap().lib_device(), lib::r0805());
+    let pos = h.board().device(r1).unwrap().position();
+    let pad = h.pad_pos("R1", "1");
+    h.input(BoardFsmInput::RightReleased(PointerEvent::new(pad)));
+    let menu = h
+        .requests
+        .iter()
+        .find_map(|e| match e {
+            BoardRequest::ContextMenu { items, .. } => Some(items.clone()),
+            _ => None,
+        })
+        .unwrap();
+    // The devices of the resistor component from the library source: the
+    // current one is checked and disabled, the others can be chosen.
+    let current = menu
+        .iter()
+        .find(|i| i.action == Some(ContextAction::ChangeDevice(lib::r0805())))
+        .expect("current device listed");
+    assert_eq!(current.checked, Some(true));
+    assert!(!current.enabled);
+    let other = menu
+        .iter()
+        .find(|i| i.action == Some(ContextAction::ChangeDevice(lib::r0603())))
+        .expect("other device listed");
+    assert!(other.enabled);
+    assert!(other.text.contains('['), "{}", other.text);
+    h.input(BoardFsmInput::ContextMenu(ContextAction::ChangeDevice(
+        lib::r0603(),
+    )));
+    let dev = h.board().device(r1).unwrap();
+    assert_eq!(dev.lib_device(), lib::r0603());
+    assert_eq!(dev.position(), pos);
+    assert_eq!(h.undo_text().as_deref(), Some("Change Device"));
+    assert!(h.editor.undo().unwrap());
+    assert_eq!(h.board().device(r1).unwrap().lib_device(), lib::r0805());
+}
+
+#[test]
+fn find_components_and_nets() {
+    use librepcb_editor::fsm::find::{FindCandidate, FindKind};
+    let mut h = build(true);
+    let r1 = h.component("R1");
+    let vcc = h.net("VCC");
+    let mut ctx = BoardContext::new(&mut h.editor, &h.view, &mut h.clipboard);
+    h.fsm.refresh_find_suggestions(&ctx);
+    // Components on the board and nets with labels (MID has none).
+    let names: Vec<(FindKind, String)> = h
+        .fsm
+        .search()
+        .suggestions()
+        .iter()
+        .map(|c| (c.kind, c.name.clone()))
+        .collect();
+    assert!(names.contains(&(FindKind::Component, "R1".into())));
+    assert!(names.contains(&(FindKind::Net, "VCC".into())));
+    assert!(!names.iter().any(|(_, n)| n == "MID"), "{names:?}");
+    h.fsm.set_find_term("r1");
+    assert_eq!(
+        h.fsm.search().suggestions(),
+        &[FindCandidate::component("R1")]
+    );
+    let result = h.fsm.find_next(&mut ctx);
+    assert_eq!(result.components, vec![r1]);
+    let (p1, p2) = result.zoom_rect.unwrap();
+    let pos = h
+        .editor
+        .project()
+        .board(h.board)
+        .unwrap()
+        .device(r1)
+        .unwrap()
+        .position();
+    assert!(p1.x < pos.x && p1.y < pos.y && p2.x > pos.x && p2.y > pos.y);
+    assert!(h.fsm.selection().contains(BoardItemRef::Device(r1)));
+
+    let mut ctx = BoardContext::new(&mut h.editor, &h.view, &mut h.clipboard);
+    h.fsm.set_find_term("VCC");
+    let result = h.fsm.find_next(&mut ctx);
+    assert_eq!(result.nets, vec![vcc]);
+    assert!(h.fsm.highlighted_nets().contains(&vcc));
+    assert!(
+        h.fsm
+            .selection()
+            .items()
+            .iter()
+            .any(|i| matches!(i, BoardItemRef::FootprintPad(c, _) if *c == r1))
+    );
+    assert!(!h.fsm.selection().contains(BoardItemRef::Device(r1)));
+}
+
+fn dxf_settings(
+    dir: &std::path::Path,
+    placement: Option<Point>,
+) -> librepcb_editor::fsm::board::DxfImportSettings {
+    let file = dir.join("import.dxf");
+    std::fs::write(
+        &file,
+        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+         0\nSECTION\n2\nENTITIES\n\
+         0\nLWPOLYLINE\n90\n4\n70\n1\n10\n0.0\n20\n0.0\n10\n10.0\n20\n0.0\n\
+         10\n10.0\n20\n5.0\n10\n0.0\n20\n5.0\n\
+         0\nCIRCLE\n10\n5.0\n20\n2.5\n40\n0.5\n\
+         0\nENDSEC\n0\nEOF\n",
+    )
+    .unwrap();
+    librepcb_editor::fsm::board::DxfImportSettings {
+        file: librepcb_core::fileio::FilePath::new(&file).unwrap(),
+        layer: Layer::BOARD_OUTLINES,
+        line_width: librepcb_core::types::UnsignedLength::default(),
+        scale_factor: 1.0,
+        join_tangent_polylines: true,
+        circles_as_drills: true,
+        placement,
+    }
+}
+
+#[test]
+fn import_dxf_fixed_and_interactive() {
+    let mut h = build(false);
+    let tmp = tempfile::tempdir().unwrap();
+    let polygons_before = h.board().polygons().len();
+    let holes_before = h.board().holes().len();
+    // Fixed placement: pasted and committed at once.
+    let settings = dxf_settings(tmp.path(), Some(mm(20.0, 5.0)));
+    assert!(h.input(BoardFsmInput::ImportDxf(settings)));
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(h.undo_text().as_deref(), Some("Paste board elements"));
+    assert_eq!(h.board().polygons().len(), polygons_before + 1);
+    assert_eq!(h.board().holes().len(), holes_before + 1);
+    let hole = h
+        .board()
+        .holes()
+        .values()
+        .find(|hole| hole.path().vertices()[0].pos == mm(25.0, 7.5))
+        .expect("hole at the circle center plus offset");
+    assert_eq!(hole.diameter().to_mm(), 1.0);
+    let polygon = h.board().polygons().values().find(|p| {
+        p.layer() == Layer::BOARD_OUTLINES && p.path().vertices()[0].pos == mm(20.0, 5.0)
+    });
+    assert!(polygon.is_some());
+
+    // Interactive placement: follows the cursor, a click places it.
+    let settings = dxf_settings(tmp.path(), None);
+    h.move_to(mm(0.0, 0.0));
+    assert!(h.input(BoardFsmInput::ImportDxf(settings)));
+    assert!(h.editor.undo_stack().is_group_active());
+    h.move_to(mm(2.54, 2.54));
+    h.press(mm(2.54, 2.54));
+    h.release(mm(2.54, 2.54));
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(h.board().holes().len(), holes_before + 2);
+    assert!(
+        h.board()
+            .holes()
+            .values()
+            .any(|hole| hole.path().vertices()[0].pos == mm(5.0 + 2.54, 2.5 + 2.54))
+    );
+
+    // A file without objects is an error.
+    let empty = tmp.path().join("empty.dxf");
+    std::fs::write(&empty, "").unwrap();
+    let mut settings = dxf_settings(tmp.path(), None);
+    settings.file = librepcb_core::fileio::FilePath::new(&empty).unwrap();
+    let mut ctx = BoardContext::new(&mut h.editor, &h.view, &mut h.clipboard);
+    assert!(!h.fsm.import_dxf(&mut ctx, settings));
+    assert!(
+        h.fsm
+            .take_requests()
+            .iter()
+            .any(|r| matches!(r, BoardRequest::ShowError(_)))
+    );
+}
+
+#[test]
+fn paste_graphics_from_package_editor() {
+    use librepcb_core::geometry::{Hole, NonEmptyPath, Path, Polygon};
+    use librepcb_core::library::pkg::PackagePadList;
+    use librepcb_core::types::{MaskConfig, PositiveLength, UnsignedLength, Uuid};
+    use librepcb_editor::library_editor::commands::{
+        FootprintClipboardData, footprint_clipboard_mime_type,
+    };
+    let mut h = build(false);
+    let polygons = h.board().polygons().len();
+    let holes = h.board().holes().len();
+    let mut data =
+        FootprintClipboardData::new(Uuid::new_random(), PackagePadList::new(), Point::ORIGIN);
+    data.polygons.push(Polygon::new(
+        Uuid::new_random(),
+        Layer::TOP_LEGEND,
+        UnsignedLength::new(Length::new(200_000)).unwrap(),
+        false,
+        false,
+        Path::rect(mm(0.0, 0.0), mm(2.54, 2.54)),
+    ));
+    data.holes.push(Hole::new(
+        Uuid::new_random(),
+        PositiveLength::new(Length::new(1_000_000)).unwrap(),
+        NonEmptyPath::from_point(mm(1.27, 1.27)),
+        MaskConfig::Automatic,
+    ));
+    let version = BoardEditorSettings::default().app_version;
+    h.clipboard.set(
+        &footprint_clipboard_mime_type(&version),
+        data.to_bytes().unwrap(),
+    );
+    let target = mm(20.32, 20.32);
+    h.move_to(target);
+    assert!(h.input(BoardFsmInput::Paste));
+    assert!(h.editor.undo_stack().is_group_active());
+    h.press(target);
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(h.board().polygons().len(), polygons + 1);
+    assert_eq!(h.board().holes().len(), holes + 1);
+    assert!(
+        h.board()
+            .holes()
+            .values()
+            .any(|hole| hole.path().first().pos == target + mm(1.27, 1.27))
+    );
+    assert!(h.editor.undo().unwrap());
+    assert_eq!(h.board().polygons().len(), polygons);
+    assert_eq!(h.board().holes().len(), holes);
+}
+
+#[test]
+fn selection_is_cross_probed() {
+    let mut h = build(true);
+    let r1 = h.component("R1");
+    // Clicking a pad of a device selects the device.
+    let pos = h.pad_pos("R1", "1");
+    h.click(pos);
+    assert_eq!(h.fsm.cross_probe().components, [r1].into_iter().collect());
+    assert!(h.fsm.cross_probe().nets.is_empty());
+    // A trace: its net.
+    let middle = (h.pad_pos("R1", "2") + h.pad_pos("R2", "1")) / 2;
+    h.click(middle);
+    assert!(
+        h.fsm
+            .selection()
+            .items()
+            .iter()
+            .any(|i| matches!(i, BoardItemRef::Trace(..)))
+    );
+    let mid = h.net("MID");
+    assert_eq!(h.fsm.cross_probe().nets, [mid].into_iter().collect());
+    assert!(h.fsm.cross_probe().components.is_empty());
+    assert!(h.fsm.highlighted_nets().contains(&mid));
+    // Nothing selected: nothing to cross-probe.
+    h.click(mm(35.0, 18.0));
+    assert!(h.fsm.cross_probe().is_empty());
+}

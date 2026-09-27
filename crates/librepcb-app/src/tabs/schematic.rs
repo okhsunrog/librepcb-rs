@@ -460,7 +460,10 @@ impl SchematicTab {
                     let item = schematic_item(object);
                     let selected = item.is_some_and(|i| selection.contains(&i))
                         || match item {
-                            Some(SchematicItem::SymbolPin(sym, _)) => symbols.contains(&sym),
+                            Some(
+                                SchematicItem::SymbolPin(sym, _)
+                                | SchematicItem::SymbolText(sym, _),
+                            ) => symbols.contains(&sym),
                             _ => false,
                         };
                     let probed = !self.probe.is_empty()
@@ -545,7 +548,7 @@ impl SchematicTab {
                         uuid,
                     )));
             }
-            SchematicRequest::ContextMenu { item, pos } => {
+            SchematicRequest::ContextMenu { item, pos, .. } => {
                 let entries = self.build_context_menu(item);
                 if !entries.is_empty() {
                     let screen = self.canvas.view().world_to_screen(point_to_world(pos));

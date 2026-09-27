@@ -666,7 +666,7 @@ impl DrawTraceState {
             .ok()
             .and_then(|b| anchor_position(cx.project(), b, p.segment, p.fixed));
         if !p.via_shown && fixed_pos == Some(self.target) {
-            self.abort_positioning(cx);
+            self.abort_positioning_impl(cx, true);
             return false;
         }
         let result = self.connect_target(cx, p);
@@ -691,7 +691,20 @@ impl DrawTraceState {
                 let target = self.target;
                 self.start_positioning(cx, target, true, Some(next))
             }
-            _ => true,
+            _ => {
+                // Upstream `abortPositioning(true, true)`: simplify the
+                // segment of the finished trace.
+                let segment = cx.board().ok().and_then(|b| {
+                    b.net_segments()
+                        .iter()
+                        .find(|(_, s)| s.traces().contains_key(&p.line1))
+                        .map(|(id, _)| *id)
+                });
+                if let Some(segment) = segment {
+                    simplify_segments(cx, [segment]);
+                }
+                true
+            }
         }
     }
 
@@ -1012,12 +1025,23 @@ impl DrawTraceState {
     /// Upstream `abortPositioning()` (without the segment simplification,
     /// which is not ported).
     fn abort_positioning(&mut self, cx: &mut Cx<'_, '_>) {
+        self.abort_positioning_impl(cx, false);
+    }
+
+    /// Upstream `abortPositioning(showErrMsgBox, simplifySegment)`: with
+    /// `simplify`, the current net segment is simplified afterwards
+    /// (`CmdSimplifyBoardNetSegments` as a separate undo step).
+    fn abort_positioning_impl(&mut self, cx: &mut Cx<'_, '_>, simplify: bool) {
+        let segment = self.pos.map(|p| p.segment);
         cx.highlight_nets([]);
         self.pos = None;
         self.add_via = false;
         self.via_layer = None;
         if cx.is_group_active() {
             cx.abort();
+        }
+        if simplify && let Some(segment) = segment {
+            simplify_segments(cx, [segment]);
         }
     }
 
@@ -1138,7 +1162,7 @@ impl State for DrawTraceState {
     }
 
     fn exit(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        self.abort_positioning(cx);
+        self.abort_positioning_impl(cx, true);
         cx.set_cursor(None);
         true
     }
@@ -1148,7 +1172,7 @@ impl State for DrawTraceState {
             BoardFsmInput::Abort => {
                 if self.pos.is_some() {
                     // Just finish the current trace, not the tool.
-                    self.abort_positioning(cx);
+                    self.abort_positioning_impl(cx, true);
                     true
                 } else {
                     false
@@ -1272,5 +1296,24 @@ impl State for DrawTraceState {
             auto_size: self.via.size.is_none(),
             ..Default::default()
         }
+    }
+}
+
+/// Simplifies net segments as a separate undo step (upstream
+/// `execCmd(new CmdSimplifyBoardNetSegments(...))`); errors are logged.
+pub(super) fn simplify_segments(
+    cx: &mut Cx<'_, '_>,
+    segments: impl IntoIterator<Item = NetSegmentId>,
+) {
+    let board = cx.board_id();
+    let segments = segments
+        .into_iter()
+        .filter(|s| cx.board().is_ok_and(|b| b.net_segment(*s).is_some()))
+        .collect::<std::collections::BTreeSet<_>>();
+    if segments.is_empty() {
+        return;
+    }
+    if let Err(e) = cx.exec(super::simplify::SimplifyBoardNetSegments { board, segments }) {
+        log::error!("Failed to simplify net segments: {e}");
     }
 }

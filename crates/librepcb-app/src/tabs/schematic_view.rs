@@ -22,6 +22,7 @@ pub fn schematic_item(o: SchematicObject) -> Option<SchematicItem> {
     Some(match o {
         SchematicObject::Symbol(id) => SchematicItem::Symbol(id),
         SchematicObject::SymbolPin(id, pin) => SchematicItem::SymbolPin(id, pin),
+        SchematicObject::SymbolText(id, text) => SchematicItem::SymbolText(id, text),
         SchematicObject::NetLine(seg, l) => SchematicItem::NetLine(seg, l),
         SchematicObject::NetJunction(seg, NetLineAnchor::Junction(j)) => {
             SchematicItem::NetPoint(seg, j)

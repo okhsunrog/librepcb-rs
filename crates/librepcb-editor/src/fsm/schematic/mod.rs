@@ -22,21 +22,22 @@
 //! - Interactive operations keep an undo group open and replace their live
 //!   preview inside it (`ProjectEditor::rollback_group_to()`) instead of
 //!   modifying the model without undo commands (`immediate` edits).
-//! - A drag (and paste) is one undo group including the simplification of
-//!   the modified net segments (upstream: two undo steps).
 //! - Error message boxes become [`SchematicRequest::ShowError`], the
 //!   context menu becomes [`SchematicRequest::ContextMenu`].
-//! - Not ported: buses (drawing, bus labels, splitting bus lines), images
-//!   (adding, resizing), moving polygon vertices, cross-probing, the "find"
-//!   feature, symbol texts as separately selectable items.
+//! - Cross-probing is reported through
+//!   [`cross_probe()`](SchematicEditorFsm::cross_probe); the application
+//!   forwards it to the board editors.
 
 mod add_component;
+mod add_image;
 mod add_label;
 mod add_text;
 pub mod clipboard;
 mod drag;
+mod draw_bus;
 mod draw_polygon;
 mod draw_wire;
+mod find;
 mod hit_test;
 mod measure;
 mod select;
@@ -47,7 +48,8 @@ use std::collections::BTreeSet;
 
 use librepcb_core::project::schematic::Schematic;
 use librepcb_core::project::{
-    BusSegmentId, ComponentInstanceId, NetSegmentId, Project, SchematicId, SymbolId,
+    BusId, BusSegmentId, ComponentInstanceId, NetSegmentId, NetSignalId, Project, SchematicId,
+    SymbolId,
 };
 use librepcb_core::types::{
     Angle, Layer, Length, LengthUnit, Orientation, Point, PositiveLength, UnsignedLength, Uuid,
@@ -57,6 +59,7 @@ use super::{Clipboard, CursorShape, KeyEvent, PointerEvent, ViewState};
 use crate::ProjectEditor;
 use crate::commands::WireMode;
 
+pub use super::CrossProbe;
 pub use clipboard::{SCHEMATIC_CLIPBOARD_MIME_PREFIX, SchematicClipboardData};
 pub use simplify::SimplifySchematicSegments;
 
@@ -68,6 +71,8 @@ pub enum SchematicItem {
     Symbol(SymbolId),
     /// A pin of a symbol (library pin UUID).
     SymbolPin(SymbolId, Uuid),
+    /// A text of a symbol (e.g. its name or value), selectable on its own.
+    SymbolText(SymbolId, Uuid),
     /// A junction of a net segment (upstream `SI_NetPoint`).
     NetPoint(NetSegmentId, Uuid),
     /// A net line.
@@ -151,6 +156,8 @@ pub enum SchematicTool {
     Select,
     /// Draw wires.
     Wire,
+    /// Draw buses.
+    Bus,
     /// Add net labels.
     Label,
     /// Add components.
@@ -159,6 +166,8 @@ pub enum SchematicTool {
     Polygon,
     /// Add texts.
     Text,
+    /// Add images.
+    Image,
     /// Measure distances.
     Measure,
 }
@@ -167,8 +176,12 @@ pub enum SchematicTool {
 /// `SchematicTabData`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SchematicToolData {
-    /// Wire mode (draw wire).
+    /// Wire mode (draw wire, draw bus).
     pub wire_mode: WireMode,
+    /// Buses to choose from, sorted by name (draw bus).
+    pub buses: Vec<(BusId, String)>,
+    /// The bus of new bus segments (draw bus; `None`: a new bus).
+    pub bus: Option<BusId>,
     /// Layer (draw polygon, add text).
     pub layer: Layer,
     /// Layers to choose from (draw polygon, add text).
@@ -183,12 +196,18 @@ pub struct SchematicToolData {
     pub value: String,
     /// Suggestions for [`value`](Self::value).
     pub value_suggestions: Vec<String>,
+    /// The first component attribute referenced by the value (add
+    /// component; upstream `getValueAttribute*()`), editable in the tool
+    /// bar (value and unit).
+    pub value_attribute: Option<librepcb_core::attribute::Attribute>,
 }
 
 impl Default for SchematicToolData {
     fn default() -> Self {
         Self {
             wire_mode: WireMode::HV,
+            buses: Vec::new(),
+            bus: None,
             layer: Layer::SCHEMATIC_GUIDE,
             available_layers: Vec::new(),
             line_width: UnsignedLength::new(Length::new(300_000)).unwrap_or_default(),
@@ -196,6 +215,7 @@ impl Default for SchematicToolData {
             filled: false,
             value: String::new(),
             value_suggestions: Vec::new(),
+            value_attribute: None,
         }
     }
 }
@@ -221,6 +241,11 @@ pub enum SchematicRequest {
     SymbolProperties(SymbolId),
     /// Open the rename dialog of the net segment of a net label.
     NetLabelProperties(NetSegmentId, Uuid),
+    /// Open the rename dialog of the bus segment of a bus label (upstream
+    /// `RenameBusSegmentDialog`).
+    BusLabelProperties(BusSegmentId, Uuid),
+    /// Open the properties dialog of a text of a symbol.
+    SymbolTextProperties(SymbolId, Uuid),
     /// Open the properties dialog of a polygon.
     PolygonProperties(Uuid),
     /// Open the properties dialog of a text.
@@ -233,9 +258,69 @@ pub enum SchematicRequest {
         item: SchematicItem,
         /// The position (world coordinates).
         pos: Point,
+        /// Polygons: whether vertices are at `pos` which can be removed
+        /// ("Remove Vertex", [`SchematicEditorFsm::remove_polygon_vertices()`]).
+        remove_vertex: Option<bool>,
+        /// Polygons: whether a line is at `pos` ("Add Vertex",
+        /// [`SchematicEditorFsm::add_polygon_vertex()`]).
+        add_vertex: bool,
     },
     /// Zoom to show all items (e.g. after adding a drawing frame).
     ZoomAll,
+    /// Open the image chooser dialog; the application calls
+    /// [`SchematicEditorFsm::add_image()`] with the chosen file.
+    ChooseImageFile,
+    /// Show the menu of the bus members when a wire starts or ends at a bus
+    /// (upstream `determineNetForBusMember()`); the application calls
+    /// [`SchematicEditorFsm::choose_bus_member()`] with the choice ("Add
+    /// New Bus Member" is the default entry, "Cancel" is `None`).
+    BusMemberMenu {
+        /// The position (world coordinates).
+        pos: Point,
+        /// The nets of the bus.
+        nets: Vec<BusMemberNet>,
+    },
+}
+
+/// An image to add (upstream: the data, format and basename passed to
+/// `processAddImage()`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImageData {
+    /// The file content.
+    pub data: Vec<u8>,
+    /// The format (file extension: `png`, `jpg` or `svg`).
+    pub format: String,
+    /// The base name for the new file (e.g. of the chosen file; empty:
+    /// `image`).
+    pub basename: String,
+}
+
+/// The MIME types of images the FSM pastes from the clipboard, with their
+/// format (upstream `ImageHelpers::getImageFromClipboard()`).
+pub const CLIPBOARD_IMAGE_TYPES: [(&str, &str); 3] = [
+    ("image/png", "png"),
+    ("image/jpeg", "jpg"),
+    ("image/svg+xml", "svg"),
+];
+
+/// A net of the bus member menu, see [`SchematicRequest::BusMemberMenu`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BusMemberNet {
+    /// The net.
+    pub net: NetSignalId,
+    /// Its name.
+    pub name: String,
+    /// Whether it can be chosen (anonymous nets cannot).
+    pub enabled: bool,
+}
+
+/// The choice of the bus member menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BusMemberChoice {
+    /// "Add New Bus Member": a new net (with an automatic name).
+    NewMember,
+    /// An existing member of the bus.
+    Net(NetSignalId),
 }
 
 /// Settings of the schematic editor FSM.
@@ -295,6 +380,8 @@ pub(crate) struct Output {
     pub leave_requested: bool,
     /// The last pointer position.
     pub last_pos: Option<Point>,
+    /// The objects to cross-probe.
+    pub cross_probe: CrossProbe,
 }
 
 /// What a state gets in its handlers.
@@ -357,10 +444,12 @@ enum StateKind {
     Idle,
     Select,
     DrawWire,
+    DrawBus,
     AddLabel,
     AddComponent,
     DrawPolygon,
     AddText,
+    AddImage,
     Measure,
 }
 
@@ -440,10 +529,12 @@ pub(crate) trait State {
 struct States {
     select: select::SelectState,
     draw_wire: draw_wire::DrawWireState,
+    draw_bus: draw_bus::DrawBusState,
     add_label: add_label::AddLabelState,
     add_component: add_component::AddComponentState,
     draw_polygon: draw_polygon::DrawPolygonState,
     add_text: add_text::AddTextState,
+    add_image: add_image::AddImageState,
     measure: measure::MeasureState,
 }
 
@@ -453,10 +544,12 @@ impl States {
             StateKind::Idle => return None,
             StateKind::Select => &mut self.select,
             StateKind::DrawWire => &mut self.draw_wire,
+            StateKind::DrawBus => &mut self.draw_bus,
             StateKind::AddLabel => &mut self.add_label,
             StateKind::AddComponent => &mut self.add_component,
             StateKind::DrawPolygon => &mut self.draw_polygon,
             StateKind::AddText => &mut self.add_text,
+            StateKind::AddImage => &mut self.add_image,
             StateKind::Measure => &mut self.measure,
         })
     }
@@ -473,6 +566,7 @@ pub struct SchematicEditorFsm {
     entered: bool,
     states: States,
     out: Output,
+    search: crate::fsm::find::SearchContext,
 }
 
 macro_rules! dispatch {
@@ -507,6 +601,7 @@ impl SchematicEditorFsm {
             entered: false,
             states: States::default(),
             out: Output::default(),
+            search: crate::fsm::find::SearchContext::new(),
         }
     }
 
@@ -569,6 +664,12 @@ impl SchematicEditorFsm {
         }
     }
 
+    /// The objects of the selection to highlight in the other editors
+    /// (cross-probing; updated in the select tool).
+    pub fn cross_probe(&self) -> &CrossProbe {
+        &self.out.cross_probe
+    }
+
     /// The item under the cursor in the select state (for highlighting).
     pub fn hovered(&self) -> Option<SchematicItem> {
         self.out.hovered
@@ -594,6 +695,11 @@ impl SchematicEditorFsm {
         self.switch_to(ctx, StateKind::DrawWire)
     }
 
+    /// Switches to the draw bus tool.
+    pub fn draw_bus(&mut self, ctx: &mut SchematicContext<'_>) -> bool {
+        self.switch_to(ctx, StateKind::DrawBus)
+    }
+
     /// Switches to the add net label tool.
     pub fn add_net_label(&mut self, ctx: &mut SchematicContext<'_>) -> bool {
         self.switch_to(ctx, StateKind::AddLabel)
@@ -612,6 +718,36 @@ impl SchematicEditorFsm {
     /// Switches to the measure tool.
     pub fn measure(&mut self, ctx: &mut SchematicContext<'_>) -> bool {
         self.switch_to(ctx, StateKind::Measure)
+    }
+
+    /// Adds an image (upstream `processAddImage()`): without data, the
+    /// image chooser is requested ([`SchematicRequest::ChooseImageFile`]);
+    /// with data, the image follows the cursor, the first click places it,
+    /// the second one sets its size.
+    pub fn add_image(&mut self, ctx: &mut SchematicContext<'_>, data: Option<ImageData>) -> bool {
+        let Some(data) = data else {
+            self.out.requests.push(SchematicRequest::ChooseImageFile);
+            return true;
+        };
+        let old = self.ensure_entered(ctx);
+        if !self.set_next_state(ctx, StateKind::AddImage) {
+            self.after_event(ctx);
+            return false;
+        }
+        let ok = {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states.add_image.start(&mut cx, data)
+        };
+        if !ok {
+            self.set_next_state(ctx, old);
+        }
+        self.after_event(ctx);
+        ok
     }
 
     /// Requests the "add component" dialog (upstream
@@ -653,6 +789,74 @@ impl SchematicEditorFsm {
         }
         self.after_event(ctx);
         ok
+    }
+
+    /// The answer of [`SchematicRequest::BusMemberMenu`] (`None`: the menu
+    /// was canceled).
+    pub fn choose_bus_member(
+        &mut self,
+        ctx: &mut SchematicContext<'_>,
+        choice: Option<BusMemberChoice>,
+    ) -> bool {
+        let kind = self.ensure_entered(ctx);
+        let handled = kind == StateKind::DrawWire && {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states.draw_wire.choose_bus_member(&mut cx, choice)
+        };
+        self.after_event(ctx);
+        handled
+    }
+
+    /// Removes the vertices of a polygon at `pos` (context menu "Remove
+    /// Vertex", upstream `removePolygonVertices()`).
+    pub fn remove_polygon_vertices(
+        &mut self,
+        ctx: &mut SchematicContext<'_>,
+        polygon: Uuid,
+        pos: Point,
+    ) -> bool {
+        let kind = self.ensure_entered(ctx);
+        let handled = kind == StateKind::Select && {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states
+                .select
+                .remove_polygon_vertices(&mut cx, polygon, pos)
+        };
+        self.after_event(ctx);
+        handled
+    }
+
+    /// Adds a vertex to the line of a polygon at `pos` which follows the
+    /// cursor until the left button is released (context menu "Add
+    /// Vertex", upstream `startAddingPolygonVertex()`).
+    pub fn add_polygon_vertex(
+        &mut self,
+        ctx: &mut SchematicContext<'_>,
+        polygon: Uuid,
+        pos: Point,
+    ) -> bool {
+        let kind = self.ensure_entered(ctx);
+        let handled = kind == StateKind::Select && {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states.select.add_polygon_vertex(&mut cx, polygon, pos)
+        };
+        self.after_event(ctx);
+        handled
     }
 
     /// Places the remaining gates of a component (or only `gate`), upstream
@@ -732,8 +936,28 @@ impl SchematicEditorFsm {
     }
 
     /// Pastes items from the clipboard; they follow the cursor until the
-    /// next click.
+    /// next click. Without schematic data, an image in the clipboard is
+    /// added (upstream `SchematicTab`: `ImageHelpers::getImageFromClipboard()`).
     pub fn paste(&mut self, ctx: &mut SchematicContext<'_>) -> bool {
+        let version = &self.settings.app_version;
+        let has_items = [
+            clipboard::schematic_clipboard_mime_type(version),
+            crate::library_editor::commands::symbol_clipboard_mime_type(version),
+        ]
+        .iter()
+        .any(|mime| ctx.clipboard.get(mime).is_some());
+        if !has_items {
+            let image = CLIPBOARD_IMAGE_TYPES.iter().find_map(|(mime, format)| {
+                ctx.clipboard.get(mime).map(|data| ImageData {
+                    data,
+                    format: (*format).to_owned(),
+                    basename: String::new(),
+                })
+            });
+            if let Some(image) = image {
+                return self.add_image(ctx, Some(image));
+            }
+        }
         dispatch!(self, ctx, |s, cx| s.paste(&mut cx))
     }
 
@@ -843,15 +1067,27 @@ impl SchematicEditorFsm {
     pub fn set_wire_mode(&mut self, ctx: &mut SchematicContext<'_>, mode: WireMode) {
         let kind = self.ensure_entered(ctx);
         self.out.tool_data.wire_mode = mode;
-        if kind == StateKind::DrawWire {
+        {
             let mut cx = Cx {
                 ctx,
                 out: &mut self.out,
                 schematic: self.schematic,
                 settings: &self.settings,
             };
-            self.states.draw_wire.wire_mode_changed(&mut cx);
+            match kind {
+                StateKind::DrawWire => self.states.draw_wire.wire_mode_changed(&mut cx),
+                StateKind::DrawBus => self.states.draw_bus.wire_mode_changed(&mut cx),
+                _ => {}
+            }
         }
+        self.after_event(ctx);
+    }
+
+    /// Chooses the bus of new bus segments (draw bus tool, upstream
+    /// `selectBus()`; `None`: a new bus).
+    pub fn set_bus(&mut self, ctx: &mut SchematicContext<'_>, bus: Option<BusId>) {
+        self.ensure_entered(ctx);
+        self.out.tool_data.bus = bus;
         self.after_event(ctx);
     }
 
@@ -888,6 +1124,46 @@ impl SchematicEditorFsm {
         let kind = self.ensure_entered(ctx);
         self.out.tool_data.value = value.into();
         self.properties_changed(ctx, kind);
+    }
+
+    /// Sets the value of the value attribute (add component, upstream
+    /// `setValueAttributeValue()`).
+    pub fn set_value_attribute_value(&mut self, ctx: &mut SchematicContext<'_>, value: &str) {
+        let kind = self.ensure_entered(ctx);
+        if kind == StateKind::AddComponent {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states
+                .add_component
+                .value_attribute_value_changed(&mut cx, value);
+        }
+        self.after_event(ctx);
+    }
+
+    /// Sets the unit of the value attribute (add component, upstream
+    /// `setValueAttributeUnit()`).
+    pub fn set_value_attribute_unit(
+        &mut self,
+        ctx: &mut SchematicContext<'_>,
+        unit: Option<&'static librepcb_core::attribute::AttributeUnit>,
+    ) {
+        let kind = self.ensure_entered(ctx);
+        if kind == StateKind::AddComponent {
+            let mut cx = Cx {
+                ctx,
+                out: &mut self.out,
+                schematic: self.schematic,
+                settings: &self.settings,
+            };
+            self.states
+                .add_component
+                .value_attribute_unit_changed(&mut cx, unit);
+        }
+        self.after_event(ctx);
     }
 
     fn properties_changed(&mut self, ctx: &mut SchematicContext<'_>, kind: StateKind) {
@@ -975,6 +1251,7 @@ impl SchematicEditorFsm {
         self.out.view.info_box.clear();
         self.out.view.features = Default::default();
         self.out.hovered = None;
+        self.out.cross_probe = CrossProbe::default();
         true
     }
 
