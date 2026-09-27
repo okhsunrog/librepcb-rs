@@ -3272,6 +3272,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "librepcb-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "librepcb-core",
+ "librepcb-i18n",
+ "log",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zip",
+]
+
+[[package]]
 name = "librepcb-core"
 version = "0.1.0"
 dependencies = [

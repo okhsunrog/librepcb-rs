@@ -38,6 +38,9 @@
 //!   attribute lookup, BOM generation and the JSON export of projects.
 //!
 //! Not ported yet: `outputjobrunner`.
+//! - [`OutputJobRunner`]: runs the output jobs of a project.
+//!
+//! Not ported yet: `board/drc/`.
 
 mod attribute_lookup;
 pub mod board;
@@ -51,6 +54,7 @@ pub mod json_export;
 mod library;
 pub mod loader;
 mod mutation;
+mod output_job_runner;
 #[allow(clippy::module_inception)] // Upstream file name.
 mod project;
 mod ref_index;
@@ -69,6 +73,9 @@ pub use id::{
 pub use library::{LibraryElementKind, ProjectLibrary};
 pub use loader::ProjectLoader;
 pub use mutation::{BoardMutation, Mutation, SchematicMutation};
+pub use output_job_runner::{
+    OutputJobError, OutputJobEvent, OutputJobObserver, OutputJobResult, OutputJobRunner,
+};
 pub use project::{Project, ProjectMetadata, ProjectSettings, ProjectView};
 pub use ref_index::{ComponentUses, NetUse, Reference};
 pub use schematic::SchematicChange;
