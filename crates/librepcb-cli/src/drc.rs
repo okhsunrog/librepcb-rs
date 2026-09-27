@@ -1,11 +1,8 @@
 //! Design rule check of boards for `open-project --drc` (upstream
 //! `BoardDesignRuleCheck`, called from `CommandLineInterface::openProject()`).
-//!
-//! TODO(merge-drc): the DRC is ported concurrently
-//! (`librepcb_core::project::board::drc`); wire [`run_drc()`] to it once it
-//! is merged. Until then, `--drc` fails with an error.
 
 use librepcb_core::library::org::BoardDesignRuleCheckSettings;
+use librepcb_core::project::board::drc;
 use librepcb_core::project::{BoardId, Project};
 use librepcb_core::rule_check::RuleCheckMessage;
 
@@ -19,23 +16,21 @@ pub struct DrcResult {
     pub messages: Vec<RuleCheckMessage>,
 }
 
-/// Error of [`run_drc()`].
-#[derive(Debug, thiserror::Error)]
-pub enum DrcError {
-    /// The DRC is not available in this build yet.
-    #[error("The design rule check is not supported yet by this LibrePCB version (librepcb-rs).")]
-    NotAvailable,
-}
-
-/// Runs the DRC of a board with the given settings (upstream
+/// Runs the full DRC of a board with the given settings (upstream
 /// `BoardDesignRuleCheck::start()` + `waitForFinished()`, without the
 /// quick check).
-///
-/// TODO(merge-drc): call the ported DRC here.
 pub fn run_drc(
-    _project: &mut Project,
-    _board: BoardId,
-    _settings: &BoardDesignRuleCheckSettings,
-) -> Result<DrcResult, DrcError> {
-    Err(DrcError::NotAvailable)
+    project: &mut Project,
+    board: BoardId,
+    settings: &BoardDesignRuleCheckSettings,
+) -> Result<DrcResult, drc::Error> {
+    let result = project.run_drc(board, Some(settings), false, &|_| {})?;
+    Ok(DrcResult {
+        errors: result.errors,
+        messages: result
+            .messages
+            .into_iter()
+            .map(|m| m.message().clone())
+            .collect(),
+    })
 }

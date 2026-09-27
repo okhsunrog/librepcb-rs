@@ -37,10 +37,7 @@
 //! - [`ProjectAttributeLookup`], [`BomGenerator`], [`json_export`]:
 //!   attribute lookup, BOM generation and the JSON export of projects.
 //!
-//! Not ported yet: `outputjobrunner`.
 //! - [`OutputJobRunner`]: runs the output jobs of a project.
-//!
-//! Not ported yet: `board/drc/`.
 
 mod attribute_lookup;
 pub mod board;

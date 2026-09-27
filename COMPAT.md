@@ -698,10 +698,6 @@ upstream `librepcb-cli` 2.1.1 except for:
   "Attempted to work with STEP file, but LibrePCB was compiled without
   OpenCascade." (the upstream CLI tests skip these cases). 3D output jobs
   fail with the "not supported yet" message of the output job runner.
-- **DRC** (`open-project --drc`) is not available yet (the DRC is ported
-  separately); each board prints `    ERROR: The design rule check is not
-  supported yet ...`. Custom DRC settings (`--drc-settings`) are loaded and
-  validated like upstream.
 - **`--version`** prints `Implementation librepcb-rs (Rust, no Qt)`
   instead of the Qt version line, `OpenCascade N/A`, and the Git revision
   `unknown`; the application version is the crate version (also written
