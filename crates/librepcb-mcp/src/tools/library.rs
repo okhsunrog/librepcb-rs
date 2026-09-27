@@ -295,7 +295,7 @@ pub fn library_search(session: &Session, args: LibrarySearchArgs) -> ToolResult<
     }
     // Project library.
     if let Some(open) = &session.project {
-        let lib = open.project.library();
+        let lib = open.project().library();
         let needle = args.query.trim().to_lowercase();
         let matches = |uuid: &Uuid, name: &str| {
             needle.is_empty() || name.to_lowercase().contains(&needle) || uuid.to_string() == needle
@@ -424,7 +424,7 @@ impl<'a> ElementSource<'a> {
         project: impl Fn(&'a librepcb_core::project::ProjectLibrary) -> Option<&'a E>,
     ) -> ToolResult<Option<(Loaded<'a, E>, &'static str)>> {
         if let Some(open) = &self.session.project
-            && let Some(e) = project(open.project.library())
+            && let Some(e) = project(open.project().library())
         {
             return Ok(Some((Loaded::Borrowed(e), "project")));
         }
@@ -450,7 +450,7 @@ impl<'a> ElementSource<'a> {
     /// Name of an element (for references), if it can be found.
     fn name(&self, kind: ElementKind, uuid: Uuid) -> Option<String> {
         if let Some(open) = &self.session.project {
-            let lib = open.project.library();
+            let lib = open.project().library();
             let name = match kind {
                 ElementKind::Component => lib
                     .component(&uuid)
@@ -673,7 +673,7 @@ fn component_detail(src: &ElementSource<'_>, c: &Component, source: &str) -> Too
     let mut seen = BTreeSet::new();
     if let Some(open) = &src.session.project {
         for d in open
-            .project
+            .project()
             .library()
             .devices_of_component(&c.metadata().uuid())
         {

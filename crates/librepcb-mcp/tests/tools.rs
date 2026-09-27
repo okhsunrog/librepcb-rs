@@ -260,7 +260,7 @@ fn project_read_tools() {
     assert_eq!(err.kind, ErrorKind::NotFound);
 
     // Pin references by signal name and by pad name.
-    let p = &session.project.as_ref().unwrap().project;
+    let p = &session.project.as_ref().unwrap().project();
     let signal_name = signals[0]["name"].as_str().unwrap();
     let by_signal = resolve::pin(p, &format!("R1.{signal_name}")).unwrap();
     let pad_name = pads[0]["name"].as_str().unwrap();
@@ -478,7 +478,7 @@ fn mutations_revisions_and_locking() {
     )
     .unwrap_err();
     assert_eq!(err.kind, ErrorKind::Conflict, "{err}");
-    assert_eq!(session.project.as_ref().unwrap().project.revision(), 0);
+    assert_eq!(session.project.as_ref().unwrap().project().revision(), 0);
 
     let out = mutation::mutation_apply(
         &mut session,
@@ -490,8 +490,8 @@ fn mutations_revisions_and_locking() {
     .unwrap();
     assert!(!out.result["changes"].as_array().unwrap().is_empty());
     let open = session.project.as_ref().unwrap();
-    assert!(open.project.revision() > 0);
-    assert_eq!(open.history.len(), 1);
+    assert!(open.project().revision() > 0);
+    assert_eq!(open.editor.undo_stack().history().len(), 1);
     assert!(open.has_unsaved_changes());
     let out = circuit::net_list(
         &session,

@@ -10,8 +10,9 @@ use std::sync::Arc;
 use librepcb_core::fileio::{
     FilePath, LockStatus, RestoreMode, TransactionalDirectory, TransactionalFileSystem,
 };
-use librepcb_core::project::{Mutation, Project, ProjectLoader};
+use librepcb_core::project::{Project, ProjectLoader};
 use librepcb_core::workspace::Workspace;
+use librepcb_editor::{LibraryElementSource, NoLibrarySource, ProjectEditor};
 
 use crate::error::{ErrorKind, ToolError, ToolResult};
 
@@ -26,28 +27,11 @@ fn override_stale_locks(
     Ok(status == LockStatus::StaleLock)
 }
 
-/// An applied mutation with its inverse (kept for undo, which phase 2 of
-/// the MCP server implements with the editor's undo stack).
-#[derive(Debug, Clone)]
-pub struct AppliedMutation {
-    /// Label of the undo group, e.g. `"AI: mutation_apply"`.
-    pub label: String,
-    /// Revision before the mutation.
-    pub revision_before: u64,
-    /// Revision after the mutation.
-    pub revision_after: u64,
-    /// The inverse mutation (undoes the change).
-    pub inverse: Mutation,
-}
-
-/// The open project.
-///
-/// Phase 2 adds the editor's undo stack here (it replaces
-/// [`history`](Self::history)).
+/// The open project, edited through the editor's undo stack.
 #[derive(Debug)]
 pub struct OpenProject {
-    /// The project model.
-    pub project: Project,
+    /// The project editor (project, undo stack, library element source).
+    pub editor: ProjectEditor,
     /// The file system of the project directory; while it exists, the
     /// directory is locked (upstream compatible `.lock` file).
     pub file_system: Arc<TransactionalFileSystem>,
@@ -56,37 +40,39 @@ pub struct OpenProject {
     /// Whether the project was modified by the loader (file format
     /// upgrade) and not saved yet.
     pub upgraded: bool,
-    /// Mutations applied through the tools, oldest first.
-    pub history: Vec<AppliedMutation>,
 }
 
 impl OpenProject {
-    /// Whether there are changes which are not saved to disk yet.
-    ///
-    /// Changes of derived data only (air wires, plane fragments) do not
-    /// count, since they are not saved.
+    fn new(
+        project: Project,
+        file_system: Arc<TransactionalFileSystem>,
+        upgraded: bool,
+        source: Arc<dyn LibraryElementSource>,
+    ) -> Self {
+        Self {
+            saved_revision: project.revision(),
+            editor: ProjectEditor::with_source(project, source),
+            file_system,
+            upgraded,
+        }
+    }
+
+    /// Returns the project.
+    pub fn project(&self) -> &Project {
+        self.editor.project()
+    }
+
+    /// Whether there are changes which are not saved to disk yet: the undo
+    /// stack is not in its clean (saved) state, or the file format was
+    /// upgraded. Derived data (air wires, plane fragments) is not saved
+    /// and does not count.
     pub fn has_unsaved_changes(&self) -> bool {
-        use librepcb_core::project::{BoardChange, Change, ChangesSince};
-        if self.upgraded {
-            return true;
-        }
-        match self.project.changes_since(self.saved_revision) {
-            ChangesSince::Changes(changes) => changes.iter().any(|c| {
-                !matches!(
-                    c,
-                    Change::Board {
-                        change: BoardChange::AirWires(..) | BoardChange::PlaneFragments(..),
-                        ..
-                    }
-                )
-            }),
-            ChangesSince::Resync => true,
-        }
+        self.upgraded || !self.editor.is_clean()
     }
 
     /// Returns the path of the project file (`*.lpp`).
     pub fn file_path(&self) -> String {
-        self.project
+        self.project()
             .file_path()
             .map(|p| p.to_native())
             .unwrap_or_default()
@@ -94,9 +80,8 @@ impl OpenProject {
 
     /// Writes all project files and commits them to disk.
     pub fn save(&mut self) -> ToolResult<()> {
-        self.project.save()?;
-        self.file_system.save()?;
-        self.saved_revision = self.project.revision();
+        self.editor.save()?;
+        self.saved_revision = self.project().revision();
         self.upgraded = false;
         Ok(())
     }
@@ -176,6 +161,10 @@ impl Session {
         };
         // Release the old workspace (and its lock) first.
         self.workspace = None;
+        let source: Arc<dyn LibraryElementSource> = ws.shared_library_db();
+        if let Some(open) = &mut self.project {
+            open.editor.set_source(source);
+        }
         Ok(self.workspace.insert(ws))
     }
 
@@ -228,24 +217,26 @@ impl Session {
         let mut loader = ProjectLoader::new();
         let project = loader.open(TransactionalDirectory::new(Arc::clone(&fs), ""), &file_name)?;
         let upgraded = loader.migration_log().is_some();
-        Ok(self.project.insert(OpenProject {
-            saved_revision: project.revision(),
-            project,
-            file_system: fs,
-            upgraded,
-            history: Vec::new(),
-        }))
+        let source = self.library_source();
+        Ok(self
+            .project
+            .insert(OpenProject::new(project, fs, upgraded, source)))
     }
 
     /// Installs a newly created project (see the `project_create` tool).
     pub fn set_project(&mut self, project: Project, fs: Arc<TransactionalFileSystem>) {
-        self.project = Some(OpenProject {
-            saved_revision: project.revision(),
-            project,
-            file_system: fs,
-            upgraded: false,
-            history: Vec::new(),
-        });
+        let source = self.library_source();
+        self.project = Some(OpenProject::new(project, fs, false, source));
+    }
+
+    /// The source of library elements added to the project: the workspace
+    /// library database, if a workspace is open (elements already in the
+    /// project library are always available).
+    pub fn library_source(&self) -> Arc<dyn LibraryElementSource> {
+        match &self.workspace {
+            Some(ws) => ws.shared_library_db(),
+            None => Arc::new(NoLibrarySource),
+        }
     }
 
     /// Fails with `conflict` if a project is open.

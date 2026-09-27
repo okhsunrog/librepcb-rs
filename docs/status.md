@@ -53,13 +53,15 @@ Done, in `crates/librepcb-core` unless noted:
 
 ## In progress / next steps
 
-1. MCP phase 2: write tools on `librepcb-editor`, undo/history, DRC,
-   autoroute, output jobs; end-to-end design test with the official
-   libraries, verified by `librepcb-cli`.
-2. Specctra DSN export / SES import and a Freerouting backend for
-   `autoroute` (Freerouting 2.4.1 needs Java 25).
-3. Graphics export (PDF/SVG/PNG) for the CLI and graphics output jobs.
-4. Then M2 (viewer) per `roadmap.md`.
+1. MCP phase 2 is done: 57 tools (write tools on `librepcb-editor` with
+   undo/redo/history, `connect` with automatic schematic wiring,
+   automatic symbol/device placement, `autoroute` with Freerouting or the
+   built-in router, DRC, output jobs); end-to-end design over stdio with
+   the official libraries, verified by `librepcb-cli`
+   (`LIBREPCB_TEST_LIBRARIES_DIR`).
+2. Graphics export (PDF/SVG/PNG) for the CLI and graphics output jobs
+   (`jobs_run` skips graphics, interactive BOM and 3D jobs until then).
+3. Then M2 (viewer) per `roadmap.md`.
 
 Deliberately deferred: the interactive HTML BOM, 3D/STEP, and the
 Eagle/KiCad importers (M5).

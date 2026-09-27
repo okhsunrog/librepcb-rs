@@ -28,9 +28,16 @@ wires, device placement, routing helpers) lives in `librepcb-editor`.
   project: `Session { workspace: Option<Workspace>, project: Option<OpenProject> }`
   behind `Arc<parking_lot::Mutex<_>>`. Tools run their synchronous core work
   in `tokio::task::spawn_blocking`; the lock is never held across `.await`.
-- `OpenProject { project: Project, undo: UndoStack, lock: DirectoryLock }`.
-  The upstream-compatible `DirectoryLock` is taken on open, so upstream
-  LibrePCB refuses to open the project concurrently (and vice versa).
+- `OpenProject { editor: ProjectEditor, file_system (lock), saved_revision,
+  upgraded }`. The `ProjectEditor` (editor crate) owns the project, its
+  undo stack and the library element source (the workspace library
+  database, shared via `Workspace::shared_library_db()`). Unsaved changes
+  are the undo stack's clean state (plus a pending file format upgrade).
+  Derived data (plane fragments, air wires) is updated outside the undo
+  history through `ProjectEditor::update_derived_data()` (DRC, exports,
+  output jobs, `planes_rebuild`). The upstream-compatible directory lock is
+  taken on open, so upstream LibrePCB refuses to open the project
+  concurrently (and vice versa).
 - The workspace is optional: without one, library tools operate on the
   project library only and on library directories passed explicitly.
   `--workspace <dir>` or `workspace_open` selects one; `workspace_create`
@@ -120,12 +127,42 @@ An agent cannot route by coordinates reliably. Two paths, both behind
    routes only unrouted air wires (optionally of selected nets and layers)
    and applies ordinary traces/vias through `AddTrace`/`AddVia` in one undo
    group. Enough for 2-layer boards with a few dozen nets.
+   `autoroute` backend `builtin`, used by `auto` when FreeRouting is not
+   installed or a nets/layers filter is given.
 2. FreeRouting through Specctra DSN export / SES import
    (`librepcb_editor::FreeroutingRouter`: export with a manifest, run the
    jar headless as a subprocess with a timeout, strict session import as
    one undo group). For MCP, export under the read lock, run FreeRouting
    without lock and import under the write lock; the manifest rejects the
-   session if the project changed meanwhile.
+   session if the project changed meanwhile. `autoroute` backend
+   `freerouting`; `auto` (default) uses it when `FreeroutingConfig::detect()`
+   finds it and falls back to `builtin` if it fails. `specctra_export` /
+   `specctra_import` expose the files for other routers.
+
+## Agent-oriented editor commands
+
+Logic an agent needs beyond upstream's interactive editing lives in the
+editor crate (`commands::wiring`, `commands::placement`), usable by a UI
+too:
+
+- `ConnectNet` (tool `connect`): connects component signals to one net
+  (forced net names of supply symbols win, other nets are merged) and
+  draws a readable schematic: unwired supply symbols are moved in front of
+  the nearest pin, pins on a page are joined by a minimum spanning tree of
+  wires (up to 25.4 mm, one corner, only routes which do not cross symbol
+  bodies, pins, junctions or run along other wires), all other pins get a
+  2.54 mm stub with a net label; a net with several segments gets a label
+  on each segment (supply symbols count as label).
+- `DisconnectSignals` (tool `disconnect`): removes the wires at the pins;
+  the other ends of direct wires keep their net through a stub with label.
+- `AutoPlaceSymbols` (`component_add` without position, `symbol_move`
+  with `auto`): first free place row by row (2.54 mm grid) without
+  overlapping symbols, wires or labels.
+- `AutoPlaceDevices` (tool `device_auto_place`): shelf packing of the
+  unplaced devices (largest first) inside the board outline, footprint
+  courtyard/pads/texts plus spacing, board edge clearance of the DRC
+  settings, then the group is centered; devices which do not fit are put
+  right of the board and reported (`outcome: partial`).
 
 ## Tests
 

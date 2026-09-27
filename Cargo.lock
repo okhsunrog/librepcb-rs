@@ -3485,6 +3485,7 @@ dependencies = [
  "clap",
  "env_logger",
  "librepcb-core",
+ "librepcb-editor",
  "librepcb-network",
  "librepcb-scene",
  "log",

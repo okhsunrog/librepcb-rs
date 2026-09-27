@@ -14,8 +14,8 @@
 
 use librepcb_core::project::circuit::NetSignal;
 use librepcb_core::project::{
-    BoardMutation, ChangesSince, ComponentInstanceId, DeviceRef, Mutation, NetClassId, NetSignalId,
-    PlaneRef, SchematicMutation, SymbolRef,
+    BoardMutation, ComponentInstanceId, DeviceRef, Mutation, NetClassId, NetSignalId, PlaneRef,
+    SchematicMutation, SymbolRef,
 };
 use librepcb_core::types::{Angle, CircuitIdentifier, Point, Uuid};
 use schemars::JsonSchema;
@@ -25,8 +25,9 @@ use serde_json::{Value, json};
 use crate::error::{ToolError, ToolResult};
 use crate::outcome::ToolOutput;
 use crate::resolve::{self, parse_uuid};
-use crate::session::{AppliedMutation, Session};
-use crate::tools::project::check_revision;
+use crate::session::Session;
+use crate::tools::write::write;
+use librepcb_editor::commands::ApplyMutations;
 
 /// Arguments of `mutation_apply`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -50,37 +51,33 @@ pub struct MutationSchemaArgs {
     pub entity: Option<String>,
 }
 
-/// Collects the changes after `revision`.
-pub fn changes_since(project: &librepcb_core::project::Project, revision: u64) -> Value {
-    match project.changes_since(revision) {
-        ChangesSince::Changes(changes) => serde_json::to_value(changes).unwrap_or(Value::Null),
-        ChangesSince::Resync => json!("Resync"),
-    }
-}
-
 /// `mutation_apply`.
 pub fn mutation_apply(session: &mut Session, args: MutationApplyArgs) -> ToolResult<ToolOutput> {
-    let open = session.project_mut()?;
-    check_revision(&open.project, args.expected_revision)?;
     let mutation: Mutation = serde_json::from_value(args.mutation).map_err(|e| {
         ToolError::invalid(format!(
             "The mutation does not match the core Mutation format ({e}); see mutation_schema."
         ))
     })?;
-    let before = open.project.revision();
-    let inverse = open.project.apply(mutation)?;
-    let after = open.project.revision();
-    open.history.push(AppliedMutation {
-        label: "AI: mutation_apply".to_owned(),
-        revision_before: before,
-        revision_after: after,
-        inverse,
-    });
-    let changes = changes_since(&open.project, before);
-    let count = changes.as_array().map_or(0, Vec::len);
-    ToolOutput::new(
-        format!("Mutation applied: revision {before} -> {after}, {count} change(s)."),
-        json!({ "revision_before": before, "changes": changes }),
+    let done = write(
+        session,
+        "mutation_apply",
+        args.expected_revision,
+        |editor| {
+            Ok(editor.execute(ApplyMutations {
+                text: None,
+                mutations: vec![mutation],
+            })?)
+        },
+    )?;
+    let open = session.project()?;
+    done.output(
+        open,
+        format!(
+            "Mutation applied: revision {} -> {}.",
+            done.revision_before,
+            open.project().revision()
+        ),
+        json!({}),
     )
 }
 
@@ -253,7 +250,7 @@ pub fn mutation_schema(session: &Session, args: MutationSchemaArgs) -> ToolResul
 }
 
 fn entity_update(session: &Session, key: &str) -> ToolResult<(&'static str, Mutation)> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     if let Ok((_, c)) = resolve::component(p, key) {
         return Ok((
             "component",

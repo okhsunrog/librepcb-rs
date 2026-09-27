@@ -34,7 +34,7 @@ pub struct NetListArgs {
 
 /// `component_list`.
 pub fn component_list(session: &Session) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let mut list: Vec<(&ComponentInstance, Value)> = p
         .circuit()
         .component_instances()
@@ -100,8 +100,17 @@ fn component_summary(p: &Project, id: ComponentInstanceId, c: &ComponentInstance
 
 /// `component_get`.
 pub fn component_get(session: &Session, args: ComponentGetArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
-    let (id, c) = resolve::component(p, &args.component)?;
+    let p = session.project()?.project();
+    let (id, _) = resolve::component(p, &args.component)?;
+    let (summary, v) = component_detail(p, id)?;
+    ToolOutput::new(summary, v)
+}
+
+/// Details of a component (see `component_get`) and a one-line summary.
+pub fn component_detail(p: &Project, id: ComponentInstanceId) -> ToolResult<(String, Value)> {
+    let c = p.circuit().component_instance(id).ok_or_else(|| {
+        crate::error::ToolError::not_found(format!("There is no component {}.", id.0))
+    })?;
     let lib = resolve::lib_component(p, c)?;
     let mut v = component_summary(p, id, c);
     v["attributes"] = views::attributes(c.attributes());
@@ -179,7 +188,7 @@ pub fn component_get(session: &Session, args: ComponentGetArgs) -> ToolResult<To
         v["symbols"].as_array().map_or(0, Vec::len),
         v["devices"].as_array().map_or(0, Vec::len),
     );
-    ToolOutput::new(summary, v)
+    Ok((summary, v))
 }
 
 /// A placed device with its pads (absolute positions).
@@ -254,12 +263,24 @@ fn pins_by_net(p: &Project) -> (BTreeMap<NetSignalId, Vec<String>>, Vec<String>)
 
 /// `net_list`.
 pub fn net_list(session: &Session, args: NetListArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let only = args
         .net
         .as_deref()
         .map(|n| resolve::net(p, n).map(|x| x.0))
         .transpose()?;
+    let mut nets = nets_json(p, only);
+    nets.sort_by(|a, b| {
+        crate::views::natural_cmp(
+            a["name"].as_str().unwrap_or_default(),
+            b["name"].as_str().unwrap_or_default(),
+        )
+    });
+    ToolOutput::new(format!("{} net(s).", nets.len()), json!({ "nets": nets }))
+}
+
+/// Nets (all or only one) with pins, pads and usage counts.
+pub fn nets_json(p: &Project, only: Option<NetSignalId>) -> Vec<Value> {
     let (pins, _) = pins_by_net(p);
     let mut nets = Vec::new();
     for (id, net) in p.circuit().net_signals() {
@@ -307,18 +328,12 @@ pub fn net_list(session: &Session, args: NetListArgs) -> ToolResult<ToolOutput> 
             "planes": planes,
         }));
     }
-    nets.sort_by(|a, b| {
-        crate::views::natural_cmp(
-            a["name"].as_str().unwrap_or_default(),
-            b["name"].as_str().unwrap_or_default(),
-        )
-    });
-    ToolOutput::new(format!("{} net(s).", nets.len()), json!({ "nets": nets }))
+    nets
 }
 
 /// `netlist`.
 pub fn netlist(session: &Session) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let (pins, unconnected) = pins_by_net(p);
     let mut by_name: Vec<(String, Vec<String>)> = p
         .circuit()

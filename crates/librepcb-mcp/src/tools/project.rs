@@ -20,6 +20,7 @@ use serde_json::json;
 use crate::error::{ErrorKind, ToolError, ToolResult};
 use crate::outcome::ToolOutput;
 use crate::session::{Session, absolute_path};
+pub use crate::tools::write::check_revision;
 
 /// Arguments of `workspace_open` / `workspace_create`.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
@@ -94,8 +95,8 @@ pub fn server_info(session: &Session) -> ToolResult<ToolOutput> {
     let project = session.project.as_ref().map(|p| {
         json!({
             "path": p.file_path(),
-            "name": p.project.metadata().name.as_str(),
-            "revision": p.project.revision(),
+            "name": p.project().metadata().name.as_str(),
+            "revision": p.project().revision(),
             "unsaved_changes": p.has_unsaved_changes(),
         })
     });
@@ -325,7 +326,7 @@ pub fn project_open(session: &mut Session, args: ProjectOpenArgs) -> ToolResult<
     let upgraded = open.upgraded;
     let summary = format!(
         "Opened project \"{}\" ({}).",
-        open.project.metadata().name.as_str(),
+        open.project().metadata().name.as_str(),
         open.file_path()
     );
     let out = ToolOutput::new(summary, summary_json(open))?;
@@ -339,24 +340,10 @@ pub fn project_open(session: &mut Session, args: ProjectOpenArgs) -> ToolResult<
     })
 }
 
-/// Checks `expected_revision` against the project revision.
-pub fn check_revision(project: &Project, expected: Option<u64>) -> ToolResult<()> {
-    match expected {
-        Some(rev) if rev != project.revision() => Err(ToolError::new(
-            ErrorKind::StaleRevision,
-            format!(
-                "The project revision is {}, not {rev}; re-read the project and retry.",
-                project.revision()
-            ),
-        )),
-        _ => Ok(()),
-    }
-}
-
 /// `project_save`.
 pub fn project_save(session: &mut Session, args: ProjectSaveArgs) -> ToolResult<ToolOutput> {
     let open = session.project_mut()?;
-    check_revision(&open.project, args.expected_revision)?;
+    check_revision(open.project(), args.expected_revision)?;
     open.save()?;
     ToolOutput::new(
         format!("Saved {}.", open.file_path()),
@@ -374,7 +361,7 @@ pub fn project_close(session: &mut Session, args: ProjectCloseArgs) -> ToolResul
 /// `project_summary`.
 pub fn project_summary(session: &Session) -> ToolResult<ToolOutput> {
     let open = session.project()?;
-    let p = &open.project;
+    let p = open.project();
     let summary = format!(
         "{} (rev {}): {} components, {} nets, {} schematic page(s), {} board(s){}",
         p.metadata().name.as_str(),
@@ -393,7 +380,7 @@ pub fn project_summary(session: &Session) -> ToolResult<ToolOutput> {
 }
 
 fn summary_json(open: &crate::session::OpenProject) -> serde_json::Value {
-    let p = &open.project;
+    let p = open.project();
     let md = p.metadata();
     let circuit = p.circuit();
     let schematics: Vec<_> = p

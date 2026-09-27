@@ -39,7 +39,7 @@ pub struct BoardGetArgs {
 
 /// `schematic_list`.
 pub fn schematic_list(session: &Session) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let pages: Vec<Value> = p
         .schematics()
         .iter()
@@ -92,7 +92,7 @@ fn net_line_anchor(
 
 /// `schematic_get`.
 pub fn schematic_get(session: &Session, args: SchematicGetArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let (index, _, s) = resolve::schematic(p, args.schematic.as_deref())?;
     let ctx = p.view();
     let mut symbols = Vec::new();
@@ -208,9 +208,27 @@ fn trace_anchor(p: &Project, board: &Board, position: Option<Point>, anchor: Tra
     }
 }
 
+/// The unrouted connections (air wires) of a board, computed without
+/// changing the model (the stored air wires may be outdated).
+pub fn air_wires_json(p: &Project, b: &Board) -> Vec<Value> {
+    let builder = BoardAirWiresBuilder::new(b, p.library(), p.circuit());
+    let mut air_wires = Vec::new();
+    for net in p.circuit().net_signals().keys() {
+        for aw in builder.build_air_wires(*net) {
+            air_wires.push(json!({
+                "net": resolve::net_name(p, *net),
+                "from": trace_anchor(p, b, Some(aw.p1_position()), aw.p1()),
+                "to": trace_anchor(p, b, Some(aw.p2_position()), aw.p2()),
+                "length": mm(*(aw.p2_position() - aw.p1_position()).length()),
+            }));
+        }
+    }
+    air_wires
+}
+
 /// `board_get`.
 pub fn board_get(session: &Session, args: BoardGetArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let (index, _, b) = resolve::board(p, args.board.as_deref())?;
     let include_pads = args.include_pads.unwrap_or(true);
     let settings = b.settings();
@@ -291,18 +309,7 @@ pub fn board_get(session: &Session, args: BoardGetArgs) -> ToolResult<ToolOutput
     // Air wires, computed without changing the model (the stored air
     // wires may be outdated). Plane fragments are only up to date after a
     // plane rebuild (e.g. by export_fabrication).
-    let builder = BoardAirWiresBuilder::new(b, p.library(), p.circuit());
-    let mut air_wires = Vec::new();
-    for net in p.circuit().net_signals().keys() {
-        for aw in builder.build_air_wires(*net) {
-            air_wires.push(json!({
-                "net": resolve::net_name(p, *net),
-                "from": trace_anchor(p, b, Some(aw.p1_position()), aw.p1()),
-                "to": trace_anchor(p, b, Some(aw.p2_position()), aw.p2()),
-                "length": mm(*(aw.p2_position() - aw.p1_position()).length()),
-            }));
-        }
-    }
+    let air_wires = air_wires_json(p, b);
 
     let summary = format!(
         "Board {index} \"{}\": {} copper layers, {} device(s), {} trace(s), {} via(s), {} plane(s), \

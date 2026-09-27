@@ -48,28 +48,39 @@
 //!   as `structuredContent` plus a short text ([`outcome`]); errors have a
 //!   stable kind ([`error::ErrorKind`]).
 //! - Write tools take `expected_revision` and fail with `stale_revision`
-//!   on a mismatch.
+//!   on a mismatch. The open project is edited through the
+//!   [`ProjectEditor`](librepcb_editor::ProjectEditor) of the editor crate:
+//!   every write tool is one undo group `"AI: <tool>"` (rolled back
+//!   completely on error) and returns the affected entities re-read from
+//!   the model, the change events and the new revision
+//!   ([`tools::write`]). Unsaved changes are the undo stack's clean state.
+//!   Library elements are copied from the workspace library database.
 //!
 //! # Tools
 //!
 //! Session/project: `server_info`, `workspace_open`, `workspace_create`,
 //! `project_create`, `project_open`, `project_save`, `project_close`,
-//! `project_summary`. Library: `library_list`, `library_rescan`,
-//! `library_install`, `library_search`, `library_element`. Circuit and
-//! schematic: `component_list`, `component_get`, `net_list`, `netlist`,
-//! `schematic_list`, `schematic_get`. Board: `board_get`. Checks and
-//! outputs: `erc_run`, `export_fabrication`, `export_bom`,
-//! `export_pick_place`, `export_netlist`, `jobs_list`, `render`. Escape
-//! hatch: `mutation_apply`, `mutation_schema`.
-//!
-//! Phase 2 adds the intent-level write tools on top of the editor crate
-//! (components, wires, devices, traces, planes, undo/redo), DRC and the
-//! autorouter.
+//! `project_summary`, `undo`, `redo`, `history`. Library: `library_list`,
+//! `library_rescan`, `library_install`, `library_search`,
+//! `library_element`. Circuit and schematic: `component_list`,
+//! `component_get`, `component_add`, `component_remove`,
+//! `component_update`, `symbol_move`, `connect`, `disconnect`,
+//! `net_rename`, `net_class_set`, `net_list`, `netlist`, `schematic_list`,
+//! `schematic_get`, `schematic_add`. Board: `board_get`, `board_add`,
+//! `board_set_outline`, `device_place`, `device_auto_place`, `trace_add`,
+//! `via_add`, `trace_remove`, `plane_add`, `design_rules_set`,
+//! `planes_rebuild`, `unrouted`, `autoroute` (Freerouting if installed,
+//! else the built-in router), `specctra_export`, `specctra_import`. Checks
+//! and outputs: `erc_run`, `drc_run`, `export_fabrication`, `export_bom`,
+//! `export_pick_place`, `export_netlist`, `jobs_list`, `jobs_run`,
+//! `render`. Escape hatch: `mutation_apply`, `mutation_schema`. The
+//! server's `instructions` ([`server::INSTRUCTIONS`]) describe the
+//! workflow for agents.
 //!
 //! # Modules
 //!
 //! - [`server`]: rmcp tool registration, `spawn_blocking` wrapper.
-//! - [`session`]: workspace, open project and its lock.
+//! - [`session`]: workspace, open project (editor) and its lock.
 //! - [`tools`]: the tool implementations (synchronous, testable without
 //!   MCP).
 //! - [`resolve`], [`units`], [`views`], [`outcome`], [`error`]: shared
