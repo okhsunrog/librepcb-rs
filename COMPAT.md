@@ -751,34 +751,38 @@ Rendering only; no file is affected.
 
 ### Schematic editor FSM (`fsm::schematic`)
 
-- **Undo steps:** a drag (and a paste) is one undo group including the
-  simplification of the modified net segments; upstream executes the
-  simplification as a separate undo command. Drawing a wire is one group
-  per clicked segment plus a simplification group when finishing, like
-  upstream.
+- **Undo steps** are upstream's: a drag is one group, followed by a
+  separate group simplifying the modified net and bus segments (also
+  after removing items); a paste and the one-shot operations (rotate,
+  mirror, move by keys, snap) do not simplify, like upstream. Drawing a
+  wire or bus is one group per clicked segment plus a simplification group
+  when finishing.
 - **Live previews** are mutations in the open undo group, replaced on
   every pointer move; upstream modifies the objects without undo and
   records the command at the end. While a tool keeps a group open, other
   commands (e.g. from the embedded MCP server) join that group.
 - **Clipboard:** the format is upstream's (`schematic.lp` in a ZIP under
-  `application/x-librepcb-clipboard.schematic; version=<app version>`),
-  but buses and bus segments are not copied (lines attached to bus
-  junctions end at new junctions), and images are copied but not pasted.
-  Pasting symbol clipboard data (from the symbol editor) is not supported.
-- **Hit testing:** junctions are tested on the model with upstream's
-  1.2 mm grab square; symbol texts are part of their symbol (not
-  selectable on their own); items of equal priority keep the item order
-  (upstream: `QMultiMap` insertion order).
-- Not ported yet: buses (drawing, labels, net selection menu), adding and
-  resizing images, moving polygon vertices, cross-probing, the tool bar's
-  value attribute and unit, the "find" feature. The info box shows name,
-  value, net, net class, signal and pin (no MPN, pad numbers or forced net
-  mismatch).
+  `application/x-librepcb-clipboard.schematic; version=<app version>`).
+  When pasting, net lines at bus junctions of a bus segment which was
+  split while copying are attached to the right part (upstream keeps only
+  the junctions of the last part). Symbol clipboard data (from the symbol
+  editor) pastes its polygons, texts and images like upstream.
+- **Hit testing:** net and bus junctions are tested on the model with
+  upstream's 1.2 mm grab square; items of equal priority keep the item
+  order (upstream: `QMultiMap` insertion order).
+- **Images:** the file name of an added image is derived from the file
+  name without asking the user (upstream: an input dialog), the image
+  chooser is requested from the application.
+- **Find:** component candidates are the symbol names (with gate suffix)
+  resolved through the symbols of the page, so symbols of multi-gate
+  components are found too (upstream looks them up as component names).
+- **Cross-probing** is an output of the FSM (`cross_probe()`); the
+  application highlights the objects in the other editors.
 
 ### Board editor FSM (`fsm::board`)
 
 - **Live previews** are mutations in the open undo group, replaced on
-  every change (dragging, trace positioning, placing vias, devices,
+  every change (dragging, trace positioning, placing vias, pads, devices,
   texts and holes, drawing polygons, planes and zones); upstream modifies
   the objects without undo and records the edit commands at the end. The
   resulting undo steps are upstream's ("Drag Board Elements", one "Draw
@@ -787,8 +791,8 @@ Rendering only; no file is affected.
 - **Draw trace:** net segments are combined keeping the element UUIDs
   (upstream creates new segments); a pad without traces is attached to the
   current segment directly (upstream first creates a segment for it).
-  `CmdSimplifyBoardNetSegments` is not ported: finishing or removing
-  traces does not merge collinear traces or remove redundant junctions.
+- **Add pad:** changing the net re-creates the preview segment with the
+  new net (upstream removes, edits and re-adds it).
 - **Hit testing:** grab areas are the scene items of `librepcb-scene`
   (device grab area: its footprint graphics); junctions are tested on the
   model with a circle of the widest trace at them (upstream
@@ -799,17 +803,28 @@ Rendering only; no file is affected.
   the rectangle (upstream: whose circle touches it).
 - **Clipboard:** upstream's format (`board.lp` plus `dev/`, `pkg/` in a
   ZIP under `application/x-librepcb-clipboard.board; version=<app
-  version>`). Pasting footprint clipboard data (from the package editor)
-  and DXF import are not supported. Like upstream, a pasted net whose name
-  does not exist becomes a new net with an automatic name.
+  version>`). Footprint clipboard data (from the package editor) pastes
+  its polygons, stroke texts and holes like upstream. Like upstream, a
+  pasted net whose name does not exist becomes a new net with an automatic
+  name.
+- **Change device:** the devices offered in the context menu come from the
+  editor's library element source (upstream: the workspace library
+  database).
 - **Plane tool:** the automatic outline uses the vertices of the board
   outline polygons (upstream `Board::calculateBoundingRect()`).
-- Not ported yet: the add-pad tools (standalone THT/SMT pads), the "change
-  device" context menu (needs the workspace library database; changing the
-  footprint and 3D model is supported), plane visibility from the context
-  menu (a view setting of the application), cross-probing to the
-  schematic (highlighted nets are reported), the "find" feature, aborting
-  blocking tools of other editors (the application must abort them).
+- **Cross-probing** is an output of the FSM (`cross_probe()`,
+  `highlighted_nets()`); the application highlights the objects in the
+  other editors.
+- Not ported: plane visibility from the context menu (a view setting of
+  the application) and aborting blocking tools of other editors (the
+  application must abort them).
+
+### DXF reader (`import::dxf_reader`)
+
+- Based on the `dxf` crate instead of dxflib: an empty file is read as a
+  drawing without entities like upstream, but other files the crate
+  rejects are reported as errors even where dxflib silently reads
+  nothing.
 
 ### Library element editors (`library_editor`, `fsm::library`)
 
