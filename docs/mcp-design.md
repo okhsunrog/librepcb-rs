@@ -117,7 +117,12 @@ An agent cannot route by coordinates reliably. Two paths, both behind
    rules, nets ordered by length), routing only unrouted air wires and
    producing ordinary traces/vias through the command layer (undoable,
    DRC-checked afterwards). Enough for 2-layer boards with a few dozen nets.
-2. Later: Specctra DSN export / SES import for FreeRouting.
+2. FreeRouting through Specctra DSN export / SES import
+   (`librepcb_editor::FreeroutingRouter`: export with a manifest, run the
+   jar headless as a subprocess with a timeout, strict session import as
+   one undo group). For MCP, export under the read lock, run FreeRouting
+   without lock and import under the write lock; the manifest rejects the
+   session if the project changed meanwhile.
 
 ## Tests
 

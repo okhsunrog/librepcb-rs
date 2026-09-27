@@ -20,6 +20,8 @@
 //! - [`schematic`]: wires, net labels, removal of schematic items.
 //! - [`board`]: traces, vias, planes, outlines, other board items, board
 //!   settings, removal of board items.
+//! - [`specctra`]: Specctra DSN export and session import (external
+//!   autorouters).
 
 pub mod board;
 pub mod circuit;
@@ -28,6 +30,7 @@ pub mod library;
 pub mod project;
 mod resolve;
 pub mod schematic;
+pub mod specctra;
 
 use librepcb_core::project::{ComponentInstanceId, Mutation, NetSignalId};
 
@@ -40,6 +43,7 @@ pub use component::*;
 pub use library::*;
 pub use project::*;
 pub use schematic::*;
+pub use specctra::*;
 
 /// Reference to a component instance: its UUID or its name (designator,
 /// e.g. `"R1"`).

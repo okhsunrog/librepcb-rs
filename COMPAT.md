@@ -580,6 +580,21 @@ Rendering only; no file is affected.
   cannot export to relative paths (error instead of a path relative to an
   empty directory).
 
+### Specctra DSN export
+
+- The DSN output is byte-identical to upstream (upstream unit test
+  expectation), including upstream's quirks that define the bytes: blind
+  and buried via padstack IDs contain a literal `%2` (nested
+  `QString::arg()`), vertical oblong pads are exported as a zero-length
+  path.
+- The host CAD name and version in the `parser` node are parameters
+  (default "LibrePCB" and the crate version; upstream: the application
+  name and version).
+- The pins of a net are ordered by (component UUID, signal UUID, pad UUID)
+  and (net segment UUID, pad UUID); upstream iterates its registration
+  lists, which is the same order for a freshly opened project but can
+  differ after editing (only the order of the `pins` list changes).
+
 ## project/board/drc
 
 - **Iteration order**: the input data keeps net segments, devices, pads,
@@ -665,3 +680,22 @@ Rendering only; no file is affected.
   to items, gates of a multi-gate component are placed with a fixed offset
   unless placed individually, and the default device of `AddDevice` is the
   first device of the component's assembly options.
+- **Specctra session import** (`ImportSpecctraSession`, upstream
+  `CmdBoardSpecctraImport`): messages are returned (and logged with the
+  `log` crate) instead of a `MessageLogger`; net segments without net are
+  matched by their exported dummy net name (`~anonymous~<uuid>`), so each
+  keeps its own pads (upstream adds the pads of all segments without net to
+  every such net); only footprint pads of the imported board are anchors
+  (upstream also considers pads of the same component on other boards);
+  old traces are matched regardless of their direction; zero-length wire
+  segments are skipped. Via padstack names mangled by FreeRouting 2.x
+  (fractional digits dropped, e.g. `via-0:auto-0:auto-tht`) are mapped back
+  to the exported names, so drill, size and exposure are kept (upstream
+  falls back to automatic values). Additionally, a strict mode validates
+  the session against the export (unchanged project revision and
+  placement, known nets and padstacks) before modifying the board.
+- **FreeRouting** (`FreeroutingRouter`, no upstream counterpart: upstream
+  only exports/imports files): the DSN passed to FreeRouting uses the
+  resolution 1/100000 mm instead of the export's 1/1000000 mm, because
+  FreeRouting 2.4.1 reports bogus clearance violations and leaves
+  connections unrouted with the finer resolution.

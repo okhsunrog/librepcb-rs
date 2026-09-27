@@ -17,8 +17,10 @@
 //! [`export`](crate::export): [`BoardGerberExport`] (Gerber/Excellon),
 //! [`BoardPickPlaceGenerator`] and [`BoardD356NetlistExport`].
 //!
-//! Not ported yet: the painters, the Specctra and interactive HTML BOM
-//! exports and the DRC.
+//! [`BoardSpecctraExport`] writes Specctra DSN files for external
+//! autorouters.
+//!
+//! Not ported yet: the painters and the interactive HTML BOM export.
 
 mod air_wire;
 mod air_wires_builder;
@@ -42,6 +44,7 @@ mod pick_place_generator;
 mod plane;
 mod plane_fragments_builder;
 mod polygon_data;
+mod specctra_export;
 mod stroke_text_data;
 mod zone_data;
 
@@ -69,6 +72,10 @@ pub use pick_place_generator::{BoardPickPlaceGenerator, export_pick_place_csv};
 pub use plane::{BoardPlane, PlaneConnectStyle};
 pub use plane_fragments_builder::{PlaneFragments, PlaneJob};
 pub use polygon_data::BoardPolygonData;
+pub use specctra_export::{
+    ANONYMOUS_NET_PREFIX, BoardSpecctraExport, SPECCTRA_HOST_CAD, SPECCTRA_HOST_VERSION,
+    segment_net_name, via_padstack_id,
+};
 pub use stroke_text_data::BoardStrokeTextData;
 pub use zone_data::BoardZoneData;
 

@@ -53,6 +53,13 @@ pub enum BoardExportError {
     /// straight area, upstream exception of `StraightAreaPath`).
     #[error(transparent)]
     Geometry(#[from] crate::geometry::Error),
+    /// The generated S-expression could not be serialized (e.g. an invalid
+    /// token in the Specctra DSN export).
+    #[error(transparent)]
+    Serialization(#[from] crate::serialization::Error),
+    /// An internal invariant was violated (upstream `LogicError`).
+    #[error("Logic error: {0}")]
+    Logic(&'static str),
 }
 
 impl From<project::Error> for BoardExportError {
