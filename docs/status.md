@@ -154,6 +154,12 @@ without debug info, and each crate has one integration test binary (see
 AGENTS.md). For full debug info in a local debugging session, build with
 `CARGO_PROFILE_DEV_DEBUG=full` (workspace crates), plus
 `--config 'profile.dev.package."*".debug="full"'` for the dependencies.
+Measured with `cargo clippy --workspace --all-targets` followed by
+`cargo test --workspace` in a fresh target directory: 25 GB before (49
+executables, 20 GB), 16 GB with one test binary per crate, 5.7 GB with the
+debug info settings too (26 executables, 2.7 GB). `split-debuginfo =
+"unpacked"` saved only another 0.4 GB and is not supported on all
+platforms, so it is not set.
 
 ## Open items to remember
 
