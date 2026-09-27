@@ -100,8 +100,10 @@ fn dialogs_in_the_application() {
     data.invoke_filter_edited("resistor".into());
     headless.settle(10);
     assert!(data.get_components().row_count() >= 2);
+    assert_eq!(data.get_current_component_row(), 0);
     data.invoke_component_selected(1);
     headless.settle(10);
+    assert_eq!(data.get_current_component_row(), 1);
     assert!(data.get_can_accept());
     assert!(data.get_symbol_preview().size().width > 0);
     assert!(data.get_footprint_preview().size().width > 0);

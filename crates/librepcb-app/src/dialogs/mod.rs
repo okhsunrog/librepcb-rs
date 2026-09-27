@@ -18,12 +18,27 @@
 //! window: open them from a tab request, edit fields with
 //! [`form::Form::edit()`] and [`FormDialog::field_event()`], and apply.
 
+/// Implements [`FormDialog::form()`] and [`FormDialog::form_mut()`] for a
+/// dialog with a `form` field.
+macro_rules! form_accessors {
+    () => {
+        fn form(&self) -> &Form {
+            &self.form
+        }
+
+        fn form_mut(&mut self) -> &mut Form {
+            &mut self.form
+        }
+    };
+}
+
 pub mod add_component;
 pub mod attributes;
 pub mod board;
 pub mod form;
 pub mod geometry;
 pub mod schematic;
+pub mod setup;
 
 use std::rc::Rc;
 

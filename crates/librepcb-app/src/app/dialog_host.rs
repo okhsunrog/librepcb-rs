@@ -79,6 +79,13 @@ impl State {
         self.open_form_dialog(project, None, dialog);
     }
 
+    /// Shows a page (tab) of the open form dialog.
+    pub fn show_form_dialog_page(&mut self, page: i32) {
+        if let Some(w) = self.window() {
+            w.global::<ui::Dialogs>().set_form_page(page);
+        }
+    }
+
     /// The open form dialog (tests).
     pub fn form_dialog(&mut self) -> Option<&mut OpenDialog> {
         self.form_dialog.as_mut()

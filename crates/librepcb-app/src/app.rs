@@ -1022,6 +1022,10 @@ impl State {
                 }
                 self.refresh_project(&project);
             }
+            ui::ProjectAction::OpenSetupDialog => {
+                let dialog = crate::dialogs::setup::ProjectSetupDialog::new(&project);
+                self.show_form_dialog(project, Box::new(dialog));
+            }
             ui::ProjectAction::OpenFolder => {
                 if let Some(dir) = project.path().parent_dir()
                     && let Err(e) = open::that_detached(dir.as_path())

@@ -664,6 +664,14 @@ impl State {
         match action {
             ui::BoardAction::RunDrc => self.start_drc(&prj, id, false),
             ui::BoardAction::RunQuickCheck => self.start_drc(&prj, id, true),
+            ui::BoardAction::OpenSetupDialog | ui::BoardAction::OpenDrcSetupDialog => {
+                if let Some(dialog) = crate::dialogs::setup::BoardSetupDialog::new(&prj, id) {
+                    self.show_form_dialog(Rc::clone(&prj), Box::new(dialog));
+                    if action == ui::BoardAction::OpenDrcSetupDialog {
+                        self.show_form_dialog_page(2);
+                    }
+                }
+            }
             other => self.not_implemented(&format!("{other:?}")),
         }
     }

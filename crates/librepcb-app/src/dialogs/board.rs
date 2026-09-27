@@ -160,18 +160,6 @@ fn net_name(project: &librepcb_core::project::Project, net: Option<NetSignalId>)
         .map_or_else(String::new, |n| n.name().to_string())
 }
 
-macro_rules! form_accessors {
-    () => {
-        fn form(&self) -> &Form {
-            &self.form
-        }
-
-        fn form_mut(&mut self) -> &mut Form {
-            &mut self.form
-        }
-    };
-}
-
 // --- Device -------------------------------------------------------------------
 
 /// The properties dialog of a device (upstream
