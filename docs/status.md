@@ -6,8 +6,8 @@ covers where things stand and how the work has been organized.
 
 ## Where we are
 
-Milestone M1 (headless `librepcb-cli`, see `roadmap.md`) is in progress.
-`master` builds cleanly and 915 tests pass (about 85k lines of Rust).
+Milestone M1 (headless `librepcb-cli`) is done except graphics export;
+M1.5 (MCP) is in progress. About 1100 tests pass.
 
 Done, in `crates/librepcb-core` unless noted:
 
@@ -20,49 +20,49 @@ Done, in `crates/librepcb-core` unless noted:
   library, same tie-breaking as upstream), the math parser (evalexpr),
   and SQLite.
 - **File I/O** (transactional file system, directory locks, ZIP, CSV) and
-  system info; `crates/librepcb-network` (tokio + reqwest).
-- **Libraries:** all element types and their checks. Check messages and
-  approvals are identical to upstream `librepcb-cli --check`; the package
-  check ports Qt's painter path predicates on purpose, because approvals
-  are stored in files.
-- **Export generators:** Gerber, Excellon, IPC-D-356A, BOM and pick & place.
-- **File format migrations** v0.1 → v1 → v2. Migrated projects and
-  libraries match `librepcb-cli` byte for byte.
-- **Output jobs** (`job`): all job types as plain data (`OutputJob` +
-  `OutputJobKind` enum), `jobs.lp` and organization job templates typed,
-  presets and the editor's default job set, `GraphicsExportSettings`
-  (plain data). The job runner is not ported yet.
-- **Project model** (`project/`), designed in `project-model-design.md`:
-  circuit, schematics and boards with mutations, inverses, the reverse
-  index, the change journal and serde. All test projects round-trip byte
-  for byte.
-- **`crates/librepcb-canvas`:** a retained 2D scene rendered with vello_cpu,
-  with hit testing and a Slint adapter.
+  system info; `crates/librepcb-network` (tokio + reqwest) incl. the
+  library download/installer (api.librepcb.org).
+- **Workspace** (`workspace/`): workspace open/create, settings, the
+  library index (SQLite, schema identical to upstream `cache_v8.sqlite`),
+  scanner and search facade.
+- **Libraries:** all element types and their checks, identical to upstream
+  `librepcb-cli --check`.
+- **Project model** (`project/`): circuit, schematics and boards with
+  mutations, inverses, the reverse index, the change journal and serde.
+  All test projects round-trip byte for byte.
+- **Checks:** ERC and DRC; messages and approvals match `librepcb-cli`
+  on all upstream test projects (DRC: 37/37 boards).
+- **Exports:** plane fragments, Gerber/Excellon, pick & place, Gerber X3,
+  IPC-D-356A, BOM, project JSON; about 1000 files compared byte for byte
+  with `librepcb-cli`. Output jobs (`job`) and the output job runner.
+- **File format migrations** v0.1 → v1 → v2, byte-identical incl. `jobs.lp`.
+- **`crates/librepcb-cli`:** port of the upstream CLI. Upstream
+  `tests/cli`: 140 passed, 29 failed (graphics export and `--version`),
+  9 skipped (STEP).
+- **`crates/librepcb-editor`:** undo stack and intent-level commands
+  (components, wiring with forced net names, devices, traces, vias,
+  planes, outline, autorouting) used by MCP and later the UI.
+- **`crates/librepcb-autoroute`:** built-in grid A* router with rip-up and
+  exact clearance verification.
+- **`crates/librepcb-scene`:** schematic/board scenes on
+  `crates/librepcb-canvas` and headless PNG rendering.
+- **`crates/librepcb-mcp`:** MCP server (rmcp, stdio/HTTP), see
+  `mcp-design.md`.
 - **`crates/librepcb-i18n`, `tools/ts2po`, `lang/`:** translations from the
-  upstream catalogs, with Slint bundled translations.
-- **`crates/librepcb-mcp` (phase 1):** MCP server with session, library,
-  read, check, export, render and raw mutation tools; phase 2 adds the
-  intent-level write tools on `librepcb-editor`, DRC and autorouting.
+  upstream catalogs.
 
-## Next steps
+## In progress / next steps
 
-1. **Wave 3c** (can run in parallel, three agents):
-   - board export data and the plane fragments builder, plus the Gerber,
-     Excellon, pick & place and D356 glue that drives the existing
-     generators;
-   - DRC (the largest remaining core piece, about 8k lines of C++);
-   - ERC, the BOM generator, project attribute lookup, and the JSON export
-     of the project.
-2. **Wave 4:** the output job runner (on top of the ported `job` data
-   model) and the CLI. Acceptance:
-   upstream `tests/cli` (pytest, run with `uv`) passing against our CLI,
-   plus output diffs against the official `librepcb-cli`.
-3. **Then M1.5** (MCP, library manager, Specctra) per `roadmap.md` and the
-   decisions in `mcp-research-konnect.md`.
+1. MCP phase 2: write tools on `librepcb-editor`, undo/history, DRC,
+   autoroute, output jobs; end-to-end design test with the official
+   libraries, verified by `librepcb-cli`.
+2. Specctra DSN export / SES import and a Freerouting backend for
+   `autoroute` (Freerouting 2.4.1 needs Java 25).
+3. Graphics export (PDF/SVG/PNG) for the CLI and graphics output jobs.
+4. Then M2 (viewer) per `roadmap.md`.
 
-Deliberately deferred: the schematic/board painters (M2), Specctra
-(M1.5), the interactive HTML BOM, 3D/STEP, and the Eagle/KiCad importers
-(M5).
+Deliberately deferred: the interactive HTML BOM, 3D/STEP, and the
+Eagle/KiCad importers (M5).
 
 ## How the work is organized
 
@@ -91,8 +91,14 @@ including the upstream comparisons.
 ## Open items to remember
 
 - Adding and removing project library elements are `Project` methods, not
-  `Mutation`s. They must become undoable when the command bus is designed
-  (M1.5), because agents will add parts through MCP.
+  `Mutation`s; `librepcb-editor`'s undo stack makes them undoable.
+- `Board::updateDrcMessageApprovals()` (obsolete approval cleanup) is not
+  ported.
+- Some `tr!` contexts in core/network (`OutputDirectoryWriter`,
+  `TransactionalFileSystem`, `FileDownload`, ...) lack the `librepcb::`
+  prefix the catalogs use, so they are not translated.
+- Direct ZIP downloads from codeload.github.com are blocked in the cloud
+  sandbox; official libraries can be cloned with git instead.
 - Upstream bugs found along the way, which could be reported upstream:
   Qt/Transifex plural form order mismatches in several languages, `"1e-3"`
   rejected as a length, and a v0.1 circular board outline that cannot be
