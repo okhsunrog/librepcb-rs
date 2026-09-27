@@ -3647,6 +3647,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "librepcb-import"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clipper",
+ "html-escape",
+ "librepcb-core",
+ "librepcb-i18n",
+ "log",
+ "roxmltree",
+ "serde",
+ "static_assertions",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "librepcb-mcp"
 version = "0.1.0"
 dependencies = [
