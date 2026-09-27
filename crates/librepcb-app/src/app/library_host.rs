@@ -306,6 +306,9 @@ impl State {
                     }
                 }
             }
+            TabRequest::DuplicateLibraryElement => self.duplicate_element_tab(tab),
+            TabRequest::LibraryItemProperties(item) => self.open_library_item_properties(tab, item),
+            TabRequest::ImportPinsDialog => self.open_import_pins_dialog(tab),
             _ => {}
         }
     }

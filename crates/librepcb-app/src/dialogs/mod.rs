@@ -38,6 +38,7 @@ pub mod board;
 pub mod form;
 pub mod geometry;
 pub mod library;
+pub mod library_items;
 pub mod move_align;
 pub mod output;
 pub mod review;
@@ -147,6 +148,10 @@ pub enum TabDialogResult {
     ImportDxf(librepcb_editor::fsm::board::DxfImportSettings),
     /// Remove these library elements (confirmed).
     RemoveLibraryElements(Vec<librepcb_core::fileio::FilePath>),
+    /// A modified object of a library element (properties dialogs).
+    LibraryObject(library_items::LibraryObject),
+    /// The pin names of the "import pins" dialog.
+    ImportPins(Vec<librepcb_core::types::CircuitIdentifier>),
 }
 
 /// Buttons and size of a form dialog.

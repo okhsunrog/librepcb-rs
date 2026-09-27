@@ -295,6 +295,13 @@ impl State {
                 self.sections[si].tabs_mut()[ti].import_dxf(settings)
             }
             TabDialogResult::RemoveLibraryElements(_) => return,
+            TabDialogResult::LibraryObject(object) => {
+                self.sections[si].tabs_mut()[ti].update_library_object(object)
+            }
+            TabDialogResult::ImportPins(names) => match &mut self.sections[si].tabs_mut()[ti] {
+                crate::tabs::Tab::Symbol(t) => t.import_pins(names),
+                _ => return,
+            },
             TabDialogResult::Positions(_) => {
                 // Only the package editor uses the move/align dialog (M4).
                 log::debug!("Move/align result without a library editor tab.");

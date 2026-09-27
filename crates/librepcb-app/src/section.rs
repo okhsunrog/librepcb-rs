@@ -98,6 +98,7 @@ impl DerivedModels {
             Tab::CreateLibrary(t) => self.create_library.set(index, t.derived_ui_data()),
             Tab::DownloadLibrary(t) => self.download_library.set(index, t.derived_ui_data()),
             Tab::Library(t) => self.library.set(index, t.derived_ui_data()),
+            Tab::Symbol(t) => self.symbol.set(index, t.derived_ui_data()),
         }
     }
 }

@@ -118,7 +118,13 @@ pub fn open(
 
 /// Adds the fields of a mask configuration (upstream radio buttons "Off",
 /// "From Design Rules", "Manual:" with an offset edit).
-fn mask_config_fields(form: &mut Form, id: &str, label: &str, context: &str, config: MaskConfig) {
+pub(crate) fn mask_config_fields(
+    form: &mut Form,
+    id: &str,
+    label: &str,
+    context: &str,
+    config: MaskConfig,
+) {
     let options = vec![
         tr!(context, "Off"),
         tr!(context, "From Design Rules"),
@@ -135,11 +141,11 @@ fn mask_config_fields(form: &mut Form, id: &str, label: &str, context: &str, con
     form.set_enabled(&offset_id, index == 2);
 }
 
-fn update_mask_config_fields(form: &Form, id: &str) {
+pub(crate) fn update_mask_config_fields(form: &Form, id: &str) {
     form.set_enabled(&format!("{id}_offset"), form.get_index(id) == Some(2));
 }
 
-fn chosen_mask_config(form: &Form, id: &str) -> MaskConfig {
+pub(crate) fn chosen_mask_config(form: &Form, id: &str) -> MaskConfig {
     match form.get_index(id) {
         Some(2) => MaskConfig::Manual(form.get_length(&format!("{id}_offset"))),
         Some(1) => MaskConfig::Automatic,
@@ -147,11 +153,11 @@ fn chosen_mask_config(form: &Form, id: &str) -> MaskConfig {
     }
 }
 
-fn positive(form: &Form, id: &str) -> Result<PositiveLength, String> {
+pub(crate) fn positive(form: &Form, id: &str) -> Result<PositiveLength, String> {
     PositiveLength::new(form.get_length(id)).map_err(|e| e.to_string())
 }
 
-fn unsigned(form: &Form, id: &str) -> Result<UnsignedLength, String> {
+pub(crate) fn unsigned(form: &Form, id: &str) -> Result<UnsignedLength, String> {
     UnsignedLength::new(form.get_length(id)).map_err(|e| e.to_string())
 }
 

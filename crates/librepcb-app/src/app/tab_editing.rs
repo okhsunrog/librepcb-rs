@@ -202,7 +202,10 @@ impl State {
                 | TabRequest::RescanLibraries
                 | TabRequest::OpenLibraryElement { .. }
                 | TabRequest::RemoveLibraryElements(_)
-                | TabRequest::ChooseLibraryIcon => self.apply_library_request(id, request),
+                | TabRequest::ChooseLibraryIcon
+                | TabRequest::LibraryItemProperties(_)
+                | TabRequest::ImportPinsDialog
+                | TabRequest::DuplicateLibraryElement => self.apply_library_request(id, request),
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {
                         continue;

@@ -6,6 +6,7 @@ mod common;
 mod dialog_screenshots;
 mod dialogs;
 mod editing;
+mod library_elements;
 mod library_management;
 mod live_mcp;
 mod m3d_tools;

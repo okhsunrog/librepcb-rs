@@ -76,3 +76,8 @@ same style.
 7. `widgets/treeview.slint`: `current-index` is `in-out` (was private) so
    the backend can select a row (the "add component" dialog selects the
    first device found).
+8. Scene context menus of the library element editors (M4b, librepcb-rs
+   only): `library/sym/symboltab.slint` and `library/pkg/packagetab.slint`
+   show `project/sceneeditor.slint`'s `SceneContextMenu` like the
+   schematic and board tabs (upstream opens `QMenu`s from the editor
+   states).

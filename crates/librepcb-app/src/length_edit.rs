@@ -37,6 +37,9 @@ pub mod steps {
 
     /// Drill diameters.
     pub const DRILL_DIAMETER: &[Length] = &[Length::new(254_000), Length::new(100_000)];
+
+    /// Symbol pin lengths.
+    pub const PIN_LENGTH: &[Length] = &[Length::new(2_500_000), Length::new(2_540_000)];
 }
 
 /// State of a length edit (upstream `LengthEditContext` with
