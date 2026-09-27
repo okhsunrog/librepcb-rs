@@ -15,12 +15,16 @@
 
 use librepcb_canvas::kurbo::{Affine, Rect};
 use librepcb_canvas::peniko::Color;
-use librepcb_canvas::{Item, Layer as CanvasLayer, LayerId, Scene, Style, convert};
+use std::collections::HashMap;
+
+use librepcb_canvas::{
+    Item, ItemId, Layer as CanvasLayer, LayerId, Scene, SelectionMode, Style, convert,
+};
 use librepcb_core::export::GraphicsExportSettings;
 use librepcb_core::font::StrokeFont;
 use librepcb_core::geometry::Path;
 use librepcb_core::library::pkg::Footprint;
-use librepcb_core::types::Layer;
+use librepcb_core::types::{Layer, Length, Point, Uuid};
 use librepcb_core::utils::transform::Transform;
 
 use crate::colors::ColorScheme;
@@ -34,11 +38,31 @@ mod sub {
     pub const PAD_HOLES: i32 = 3;
 }
 
+/// The model object an item of a [`FootprintScene`] belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FootprintSceneObject {
+    /// A pad (area and holes).
+    Pad(Uuid),
+    /// A polygon.
+    Polygon(Uuid),
+    /// A circle.
+    Circle(Uuid),
+    /// A stroke text.
+    StrokeText(Uuid),
+    /// A non-plated hole.
+    Hole(Uuid),
+}
+
 /// A library footprint as a canvas [`Scene`].
+///
+/// Every item is mapped to its model object ([`FootprintSceneObject`]) for
+/// hit testing and selection highlighting in the package editor; the scene
+/// is rebuilt after each modification (footprints are small).
 #[derive(Debug)]
 pub struct FootprintScene {
     scene: Scene,
     roles: Vec<String>,
+    objects: HashMap<ItemId, FootprintSceneObject>,
 }
 
 static_assertions::assert_impl_all!(FootprintScene: Send, Sync);
@@ -62,6 +86,8 @@ impl FootprintScene {
             scene: Scene::new(),
             roles: &roles,
             scheme,
+            objects: HashMap::new(),
+            current: None,
         };
         builder.add_layers();
         builder.add_polygons(footprint);
@@ -70,10 +96,58 @@ impl FootprintScene {
         if let Some(font) = font {
             builder.add_texts(footprint, font);
         }
+        let objects = builder.objects;
         Self {
             scene: builder.scene,
             roles,
+            objects,
         }
+    }
+
+    /// The model object of an item.
+    pub fn object(&self, item: ItemId) -> Option<FootprintSceneObject> {
+        self.objects.get(&item).copied()
+    }
+
+    /// The items of a model object (e.g. to highlight the selection).
+    pub fn items_of(&self, object: FootprintSceneObject) -> Vec<ItemId> {
+        let mut items: Vec<ItemId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| **o == object)
+            .map(|(i, _)| *i)
+            .collect();
+        items.sort();
+        items
+    }
+
+    /// The objects with an item within `tolerance` of `pos`, topmost first
+    /// (without duplicates).
+    pub fn objects_at(&self, pos: Point, tolerance: Length) -> Vec<FootprintSceneObject> {
+        let mut objects = Vec::new();
+        for item in self.scene.items_at(convert::point(pos), tolerance.to_mm()) {
+            if let Some(o) = self.object(item)
+                && !objects.contains(&o)
+            {
+                objects.push(o);
+            }
+        }
+        objects
+    }
+
+    /// The objects with an item intersecting the rectangle spanned by `p1`
+    /// and `p2`.
+    pub fn objects_in_rect(&self, p1: Point, p2: Point) -> Vec<FootprintSceneObject> {
+        let rect = Rect::from_points(convert::point(p1), convert::point(p2));
+        let mut objects: Vec<FootprintSceneObject> = self
+            .scene
+            .items_in_rect(rect, SelectionMode::Intersects)
+            .into_iter()
+            .filter_map(|i| self.object(i))
+            .collect();
+        objects.sort();
+        objects.dedup();
+        objects
     }
 
     /// The canvas layer of a color role (e.g. `"board_legend_top"`), `None`
@@ -105,6 +179,9 @@ struct Builder<'a> {
     scene: Scene,
     roles: &'a [String],
     scheme: &'a ColorScheme,
+    objects: HashMap<ItemId, FootprintSceneObject>,
+    /// The object of the items inserted next.
+    current: Option<FootprintSceneObject>,
 }
 
 impl Builder<'_> {
@@ -147,7 +224,10 @@ impl Builder<'_> {
         {
             item.layer = layer;
             item.z = rank * 4 + sub;
-            self.scene.insert(item);
+            let id = self.scene.insert(item);
+            if let Some(object) = self.current {
+                self.objects.insert(id, object);
+            }
         }
     }
 
@@ -172,6 +252,7 @@ impl Builder<'_> {
 
     fn add_polygons(&mut self, footprint: &Footprint) {
         for polygon in footprint.polygons().iter() {
+            self.current = Some(FootprintSceneObject::Polygon(polygon.uuid()));
             let fill = self.fill(polygon.layer(), polygon.is_filled(), polygon.is_grab_area());
             let item = shapes::polygon(
                 LayerId::default(),
@@ -183,6 +264,7 @@ impl Builder<'_> {
             self.insert(polygon.layer().color_role(), sub::POLYGONS, item);
         }
         for circle in footprint.circles().iter() {
+            self.current = Some(FootprintSceneObject::Circle(circle.uuid()));
             let fill = self.fill(circle.layer(), circle.is_filled(), circle.is_grab_area());
             let item = shapes::circle(
                 LayerId::default(),
@@ -197,6 +279,7 @@ impl Builder<'_> {
 
     fn add_holes(&mut self, footprint: &Footprint) {
         for hole in footprint.holes().iter() {
+            self.current = Some(FootprintSceneObject::Hole(hole.uuid()));
             let strokes = hole.path().get().to_outline_strokes(hole.diameter());
             let item = shapes::outline(LayerId::default(), &strokes, Affine::IDENTITY);
             self.insert("board_holes", sub::HOLES, item);
@@ -205,6 +288,7 @@ impl Builder<'_> {
 
     fn add_pads(&mut self, footprint: &Footprint) {
         for fpt_pad in footprint.pads().iter() {
+            self.current = Some(FootprintSceneObject::Pad(fpt_pad.uuid()));
             let pad = fpt_pad.pad();
             let xf = convert::transform(&Transform::new(pad.position(), pad.rotation(), false));
             let role = if pad.is_tht() {
@@ -234,6 +318,7 @@ impl Builder<'_> {
 
     fn add_texts(&mut self, footprint: &Footprint, font: &StrokeFont) {
         for text in footprint.stroke_texts().iter() {
+            self.current = Some(FootprintSceneObject::StrokeText(text.uuid()));
             let xf = convert::transform(&Transform::new(
                 text.position(),
                 text.rotation(),

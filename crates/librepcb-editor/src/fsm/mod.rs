@@ -28,6 +28,7 @@
 
 pub mod board;
 pub mod find;
+pub mod library;
 pub mod measure;
 pub mod schematic;
 

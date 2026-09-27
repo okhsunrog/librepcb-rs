@@ -52,13 +52,13 @@ mod units;
 pub use board::{BoardObject, BoardScene, BoardSceneLayer, BoardSide};
 pub use colors::ColorScheme;
 pub use error::{Error, Result};
-pub use footprint::FootprintScene;
+pub use footprint::{FootprintScene, FootprintSceneObject};
 pub use render::{
     MAX_IMAGE_SIZE, RenderOptions, RenderSize, RgbaImage, render_board_png, render_board_scene,
     render_scene, render_schematic_png, render_schematic_scene, visible_bounds,
 };
 pub use schematic::{SchematicObject, SchematicScene};
-pub use symbol::SymbolScene;
+pub use symbol::{SymbolScene, SymbolSceneObject};
 pub use sync::{IncrementalScene, SceneSync};
 
 /// Loads the application's default stroke font (upstream

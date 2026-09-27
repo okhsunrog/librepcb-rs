@@ -11,12 +11,20 @@
 //!
 //! - Texts are drawn with a stroke font (see [`crate::text`]).
 //! - Images are not drawn yet, only their borders.
+//!
+//! Every item is mapped to its model object ([`SymbolSceneObject`]) for
+//! hit testing and selection highlighting in the symbol editor; the scene
+//! is rebuilt after each modification (symbols are small).
 
 use librepcb_canvas::kurbo::{Affine, Rect, Shape};
-use librepcb_canvas::{Item, Layer as CanvasLayer, LayerId, Scene, Style, convert};
+use std::collections::HashMap;
+
+use librepcb_canvas::{
+    Item, ItemId, Layer as CanvasLayer, LayerId, Scene, SelectionMode, Style, convert,
+};
 use librepcb_core::font::StrokeFont;
 use librepcb_core::library::sym::{Symbol, SymbolPin};
-use librepcb_core::types::{Length, Point};
+use librepcb_core::types::{Length, Point, Uuid};
 use librepcb_core::utils::toolbox;
 
 use crate::colors::ColorScheme;
@@ -38,11 +46,27 @@ mod z {
 /// Line width of symbol pins (upstream `drawSymbolPin()`).
 const PIN_LINE_WIDTH: Length = Length::new(158_750);
 
+/// The model object an item of a [`SymbolScene`] belongs to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SymbolSceneObject {
+    /// A pin (line, name and number texts).
+    Pin(Uuid),
+    /// A polygon.
+    Polygon(Uuid),
+    /// A circle.
+    Circle(Uuid),
+    /// A text.
+    Text(Uuid),
+    /// An image (its border).
+    Image(Uuid),
+}
+
 /// A library symbol as a canvas [`Scene`].
 #[derive(Debug)]
 pub struct SymbolScene {
     scene: Scene,
     scheme: ColorScheme,
+    objects: HashMap<ItemId, SymbolSceneObject>,
 }
 
 static_assertions::assert_impl_all!(SymbolScene: Send, Sync);
@@ -58,6 +82,8 @@ impl SymbolScene {
             scene,
             scheme,
             text: TextRenderer::new(font),
+            objects: HashMap::new(),
+            current: None,
         };
         builder.add_shapes(symbol);
         builder.add_texts(symbol);
@@ -65,7 +91,54 @@ impl SymbolScene {
         Self {
             scene: builder.scene,
             scheme: scheme.clone(),
+            objects: builder.objects,
         }
+    }
+
+    /// The model object of an item.
+    pub fn object(&self, item: ItemId) -> Option<SymbolSceneObject> {
+        self.objects.get(&item).copied()
+    }
+
+    /// The items of a model object (e.g. to highlight the selection).
+    pub fn items_of(&self, object: SymbolSceneObject) -> Vec<ItemId> {
+        let mut items: Vec<ItemId> = self
+            .objects
+            .iter()
+            .filter(|(_, o)| **o == object)
+            .map(|(i, _)| *i)
+            .collect();
+        items.sort();
+        items
+    }
+
+    /// The objects with an item within `tolerance` of `pos`, topmost first
+    /// (without duplicates).
+    pub fn objects_at(&self, pos: Point, tolerance: Length) -> Vec<SymbolSceneObject> {
+        let mut objects = Vec::new();
+        for item in self.scene.items_at(convert::point(pos), tolerance.to_mm()) {
+            if let Some(o) = self.object(item)
+                && !objects.contains(&o)
+            {
+                objects.push(o);
+            }
+        }
+        objects
+    }
+
+    /// The objects with an item intersecting the rectangle spanned by `p1`
+    /// and `p2`.
+    pub fn objects_in_rect(&self, p1: Point, p2: Point) -> Vec<SymbolSceneObject> {
+        let rect = Rect::from_points(convert::point(p1), convert::point(p2));
+        let mut objects: Vec<SymbolSceneObject> = self
+            .scene
+            .items_in_rect(rect, SelectionMode::Intersects)
+            .into_iter()
+            .filter_map(|i| self.object(i))
+            .collect();
+        objects.sort();
+        objects.dedup();
+        objects
     }
 
     /// The scene.
@@ -122,6 +195,9 @@ struct Builder<'a> {
     scene: Scene,
     scheme: &'a ColorScheme,
     text: TextRenderer<'a>,
+    objects: HashMap<ItemId, SymbolSceneObject>,
+    /// The object of the items inserted next.
+    current: Option<SymbolSceneObject>,
 }
 
 impl Builder<'_> {
@@ -129,7 +205,10 @@ impl Builder<'_> {
         if let Some(item) = item
             && !item.geometry.is_empty()
         {
-            self.scene.insert(item);
+            let id = self.scene.insert(item);
+            if let Some(object) = self.current {
+                self.objects.insert(id, object);
+            }
         }
     }
 
@@ -141,6 +220,7 @@ impl Builder<'_> {
 
     fn add_shapes(&mut self, symbol: &Symbol) {
         for polygon in symbol.polygons().iter() {
+            self.current = Some(SymbolSceneObject::Polygon(polygon.uuid()));
             let Some(layer) = SchematicScene::layer_id(polygon.layer().color_role()) else {
                 continue;
             };
@@ -165,6 +245,7 @@ impl Builder<'_> {
             self.insert(item);
         }
         for circle in symbol.circles().iter() {
+            self.current = Some(SymbolSceneObject::Circle(circle.uuid()));
             let Some(layer) = SchematicScene::layer_id(circle.layer().color_role()) else {
                 continue;
             };
@@ -191,6 +272,7 @@ impl Builder<'_> {
         // Image borders (the images themselves are not drawn yet).
         if let Some(layer) = SchematicScene::layer_id("schematic_image_borders") {
             for image in symbol.images().iter() {
+                self.current = Some(SymbolSceneObject::Image(image.uuid()));
                 if let Some(border) = image.border_width() {
                     let rect = Rect::new(0.0, 0.0, image.width().to_mm(), image.height().to_mm());
                     let xf = Affine::translate(convert::point(image.position()).to_vec2())
@@ -209,6 +291,7 @@ impl Builder<'_> {
 
     fn add_texts(&mut self, symbol: &Symbol) {
         for text in symbol.texts().iter() {
+            self.current = Some(SymbolSceneObject::Text(text.uuid()));
             let Some(layer) = SchematicScene::layer_id(text.layer().color_role()) else {
                 continue;
             };
@@ -233,6 +316,7 @@ impl Builder<'_> {
         let names = SchematicScene::layer_id("schematic_pin_names");
         let numbers = SchematicScene::layer_id("schematic_pin_numbers");
         for pin in symbol.pins().iter() {
+            self.current = Some(SymbolSceneObject::Pin(pin.uuid()));
             let rotation = pin.rotation();
             if let Some(layer) = lines {
                 let end = pin.position()
