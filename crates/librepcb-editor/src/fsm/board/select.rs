@@ -26,7 +26,7 @@ use super::transform::{DragItems, flip_mutations};
 use super::view::{BoardItemRef, FindFilter, FindFlags};
 use super::{BoardFsmInput, DxfImportSettings, State};
 use crate::commands::{BoardSelection as RemoveSelection, RemoveBoardItems};
-use crate::fsm::Features;
+use crate::fsm::{CrossProbe, Features};
 use crate::library_editor::commands::{FootprintClipboardData, footprint_clipboard_mime_type};
 
 /// A running drag operation (upstream `mSelectedItemsDragCommand`).
@@ -1251,11 +1251,12 @@ impl SelectState {
         {
             features.properties = true;
         }
-        let nets = info_box(&query, &mut info);
+        let probe = info_box(&query, &mut info);
         cx.out.view.features = features;
         cx.out.view.info_box = info;
         if cross_probe {
-            cx.highlight_nets(nets);
+            cx.highlight_nets(probe.nets.iter().copied());
+            cx.out.cross_probe = probe;
         }
     }
 }
@@ -1276,6 +1277,7 @@ impl State for SelectState {
         cx.out.view.rubber_band = None;
         cx.out.hovered = None;
         cx.highlight_nets([]);
+        cx.out.cross_probe = CrossProbe::default();
         true
     }
 
@@ -1844,7 +1846,7 @@ impl<T: PartialEq + Clone> InfoValue<T> {
 
 /// Builds the info box text of the selection and returns the nets to
 /// highlight (upstream `processSelection()`).
-fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignalId> {
+fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> CrossProbe {
     let p = query.project();
     let board = query.board();
     let total = query.devices.len()
@@ -1859,9 +1861,9 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         + query.stroke_texts.len()
         + query.device_texts.len()
         + query.holes.len();
-    let mut nets_to_highlight = BTreeSet::new();
+    let mut probe = CrossProbe::default();
     if total == 0 {
-        return nets_to_highlight;
+        return probe;
     }
     let unit = board.settings().grid_unit;
     let fmt = |l: Length| {
@@ -1884,6 +1886,19 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
     let mut position = None;
     let texts = query.stroke_texts.len() + query.device_texts.len();
     let pads = query.pads.len() + query.footprint_pads.len();
+    probe.components.extend(query.devices.iter().copied());
+    // Component signals of the selected footprint pads (upstream: only of
+    // a single selected pad or of pads selected with traces or vias).
+    let pad_signals = || {
+        query.footprint_pads.iter().filter_map(|(c, u)| {
+            board
+                .device(*c)?
+                .pad(u, p.library(), p.circuit())
+                .ok()
+                .flatten()?
+                .component_signal()
+        })
+    };
     if !query.devices.is_empty() {
         // Devices have priority, other objects are ignored.
         if query.devices.len() == 1
@@ -1913,6 +1928,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         }
     } else if pads == total {
         if pads == 1 {
+            probe.component_signals.extend(pad_signals());
             if let Some((c, u)) = query.footprint_pads.iter().next()
                 && let Some(d) = board.device(*c)
                 && let Ok(Some(pad)) = d.pad(u, p.library(), p.circuit())
@@ -1979,7 +1995,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
                 continue;
             };
             net.add(seg.net());
-            nets_to_highlight.extend(seg.net());
+            probe.nets.extend(seg.net());
             let rules = board.design_rules();
             let d = v
                 .drill_diameter()
@@ -2002,16 +2018,17 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         if !query.vias.is_empty() {
             layer.set_multiple();
         }
+        probe.component_signals.extend(pad_signals());
         for (s, _) in &query.vias {
             let n = board.net_segment(*s).and_then(|seg| seg.net());
             net.add(n);
-            nets_to_highlight.extend(n);
+            probe.nets.extend(n);
         }
         for id in &query.planes {
             if let Some(plane) = board.plane(*id) {
                 net.add(plane.net());
                 layer.add(plane.layer());
-                nets_to_highlight.extend(plane.net());
+                probe.nets.extend(plane.net());
             }
         }
         for (s, u) in &query.traces {
@@ -2022,7 +2039,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
                 net.add(seg.net());
                 layer.add(t.layer());
                 width.add(*t.width());
-                nets_to_highlight.extend(seg.net());
+                probe.nets.extend(seg.net());
             }
         }
     }
@@ -2082,7 +2099,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> BTreeSet<NetSignal
         })
         .collect();
     *text = lines.join("\n");
-    nets_to_highlight
+    probe
 }
 
 /// Formats a number with at most `decimals` decimals, without trailing

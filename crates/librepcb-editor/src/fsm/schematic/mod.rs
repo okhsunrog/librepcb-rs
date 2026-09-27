@@ -59,6 +59,7 @@ use super::{Clipboard, CursorShape, KeyEvent, PointerEvent, ViewState};
 use crate::ProjectEditor;
 use crate::commands::WireMode;
 
+pub use super::CrossProbe;
 pub use clipboard::{SCHEMATIC_CLIPBOARD_MIME_PREFIX, SchematicClipboardData};
 pub use simplify::SimplifySchematicSegments;
 
@@ -362,30 +363,6 @@ impl ComponentChoice {
             symbol_variant: None,
             device: None,
         }
-    }
-}
-
-/// The objects of the selection to highlight in the other editors
-/// (upstream `fsmCrossProbe()` of `processSelection()`).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CrossProbe {
-    /// Nets of selected net lines and labels.
-    pub nets: BTreeSet<NetSignalId>,
-    /// Components of selected symbols.
-    pub components: BTreeSet<ComponentInstanceId>,
-    /// Component signals of selected pins.
-    pub component_signals: BTreeSet<librepcb_core::project::ComponentSignalRef>,
-    /// Buses of selected bus lines and labels.
-    pub buses: BTreeSet<BusId>,
-}
-
-impl CrossProbe {
-    /// Whether nothing is to be highlighted.
-    pub fn is_empty(&self) -> bool {
-        self.nets.is_empty()
-            && self.components.is_empty()
-            && self.component_signals.is_empty()
-            && self.buses.is_empty()
     }
 }
 

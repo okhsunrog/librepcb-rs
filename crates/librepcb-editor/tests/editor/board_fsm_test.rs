@@ -1324,3 +1324,31 @@ fn paste_graphics_from_package_editor() {
     assert_eq!(h.board().polygons().len(), polygons);
     assert_eq!(h.board().holes().len(), holes);
 }
+
+#[test]
+fn selection_is_cross_probed() {
+    let mut h = build(true);
+    let r1 = h.component("R1");
+    // Clicking a pad of a device selects the device.
+    let pos = h.pad_pos("R1", "1");
+    h.click(pos);
+    assert_eq!(h.fsm.cross_probe().components, [r1].into_iter().collect());
+    assert!(h.fsm.cross_probe().nets.is_empty());
+    // A trace: its net.
+    let middle = (h.pad_pos("R1", "2") + h.pad_pos("R2", "1")) / 2;
+    h.click(middle);
+    assert!(
+        h.fsm
+            .selection()
+            .items()
+            .iter()
+            .any(|i| matches!(i, BoardItemRef::Trace(..)))
+    );
+    let mid = h.net("MID");
+    assert_eq!(h.fsm.cross_probe().nets, [mid].into_iter().collect());
+    assert!(h.fsm.cross_probe().components.is_empty());
+    assert!(h.fsm.highlighted_nets().contains(&mid));
+    // Nothing selected: nothing to cross-probe.
+    h.click(mm(35.0, 18.0));
+    assert!(h.fsm.cross_probe().is_empty());
+}

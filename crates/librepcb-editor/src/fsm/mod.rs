@@ -34,6 +34,30 @@ pub mod schematic;
 
 use librepcb_core::types::{Length, Point};
 
+/// The objects of the selection to highlight in the other editors
+/// (upstream `fsmCrossProbe()` of `processSelection()`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CrossProbe {
+    /// Nets of the selected wires, labels, traces, vias and planes.
+    pub nets: std::collections::BTreeSet<librepcb_core::project::NetSignalId>,
+    /// Components of the selected symbols or devices.
+    pub components: std::collections::BTreeSet<librepcb_core::project::ComponentInstanceId>,
+    /// Component signals of the selected pins or pads.
+    pub component_signals: std::collections::BTreeSet<librepcb_core::project::ComponentSignalRef>,
+    /// Buses of the selected bus lines and labels (schematic only).
+    pub buses: std::collections::BTreeSet<librepcb_core::project::BusId>,
+}
+
+impl CrossProbe {
+    /// Whether nothing is to be highlighted.
+    pub fn is_empty(&self) -> bool {
+        self.nets.is_empty()
+            && self.components.is_empty()
+            && self.component_signals.is_empty()
+            && self.buses.is_empty()
+    }
+}
+
 /// Keyboard modifiers of an input event (upstream `Qt::KeyboardModifiers`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Modifiers {

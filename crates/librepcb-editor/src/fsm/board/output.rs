@@ -325,6 +325,7 @@ pub enum BoardRequest {
 pub(crate) struct Output {
     pub view: ViewState,
     pub highlighted_nets: BTreeSet<NetSignalId>,
+    pub cross_probe: crate::fsm::CrossProbe,
     pub hovered: Option<BoardItemRef>,
     pub tool_data: BoardToolData,
     pub requests: Vec<BoardRequest>,

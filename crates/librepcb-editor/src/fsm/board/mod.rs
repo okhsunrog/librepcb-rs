@@ -42,12 +42,12 @@
 //!   [`BoardEditorFsm::set_line_width()`]).
 //! - Tool bar values are polled ([`BoardToolData`]) instead of signals;
 //!   changes are [`ToolSetting`]s.
-//! - Not ported: the add-pad tools (standalone THT/SMT pads), DXF import,
-//!   the "change device" context menu entries (need the workspace library
-//!   database), `CmdSimplifyBoardNetSegments` after drawing and removing
-//!   traces, the "find" feature and cross-probing to the schematic
-//!   (highlighted nets are reported), aborting blocking tools in other
-//!   editors (the application must abort them before switching tabs).
+//! - Cross-probing is reported through [`BoardEditorFsm::cross_probe()`]
+//!   and [`BoardEditorFsm::highlighted_nets()`]; the application forwards
+//!   it to the schematic editors.
+//! - Not ported: aborting blocking tools in other editors (the
+//!   application must abort them before switching tabs) and the plane
+//!   visibility of the context menu (a view setting of the application).
 
 mod clipboard;
 mod context;
@@ -374,6 +374,13 @@ impl BoardEditorFsm {
     /// Nets to highlight (upstream cross probing of the current tool).
     pub fn highlighted_nets(&self) -> &BTreeSet<NetSignalId> {
         &self.out.highlighted_nets
+    }
+
+    /// The selected objects to highlight in the schematic editors
+    /// (upstream `fsmCrossProbe()` of the select tool: nets, components of
+    /// devices and component signals of pads).
+    pub fn cross_probe(&self) -> &crate::fsm::CrossProbe {
+        &self.out.cross_probe
     }
 
     /// The item under the cursor (select tool, idle).
