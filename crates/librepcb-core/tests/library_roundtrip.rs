@@ -3,9 +3,9 @@
 //! and version files.
 //!
 //! Elements are found by the root node of their `.lp` file; elements in an
-//! older file format (version file != current file format) are skipped, they
-//! need the (not yet ported) file format migrations and must be rejected by
-//! `open()`.
+//! older file format (version file != current file format) must be upgraded
+//! by `open()`; the upgraded files are compared with upstream's in
+//! `file_format_migration.rs`.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -21,7 +21,7 @@ use librepcb_core::library::dev::Device;
 use librepcb_core::library::org::Organization;
 use librepcb_core::library::pkg::Package;
 use librepcb_core::library::sym::Symbol;
-use librepcb_core::library::{Error, Library, LibraryBaseElement};
+use librepcb_core::library::{Library, LibraryBaseElement};
 
 /// Upstream test data directory (see `LIBREPCB_UPSTREAM_DIR` in
 /// `.cargo/config.toml`).
@@ -50,20 +50,24 @@ fn open_dir(dir: &Path) -> TransactionalDirectory {
 }
 
 /// Opens the element in `dir`, saves it and compares the files. Returns
-/// `Ok(false)` if the element has an older file format.
+/// `Ok(false)` if the element has an older file format (and was upgraded).
 fn roundtrip<E: LibraryBaseElement>(dir: &Path) -> Result<bool, String> {
     let version_file = format!(".librepcb-{}", E::SHORT_ELEMENT_NAME);
     let element_file = format!("{}.lp", E::LONG_ELEMENT_NAME);
     let version = std::fs::read(dir.join(&version_file)).map_err(|e| e.to_string())?;
     let is_current =
         version.split(|&b| b == b'\n').next() == Some(file_format_version().to_string().as_bytes());
-    let mut element = match E::open(open_dir(dir)) {
-        Ok(element) => element,
-        Err(Error::MigrationRequired { .. }) if !is_current => return Ok(false),
-        Err(e) => return Err(format!("failed to open: {e}")),
-    };
+    let mut element = E::open(open_dir(dir)).map_err(|e| format!("failed to open: {e}"))?;
     if !is_current {
-        return Err("opened an element in an old file format".into());
+        // Upgraded, compared with upstream in `file_format_migration.rs`.
+        let version = element
+            .directory()
+            .read(&version_file)
+            .map_err(|e| e.to_string())?;
+        if !version.starts_with(format!("{}\n", file_format_version()).as_bytes()) {
+            return Err("element was not upgraded".into());
+        }
+        return Ok(false);
     }
     element.save().map_err(|e| e.to_string())?;
     for file in [element_file, version_file] {
@@ -130,7 +134,7 @@ fn library_roundtrip_test_data() {
         }
     }
 
-    println!("checked elements (current format, skipped old format): {counts:?}");
+    println!("checked elements (current format, upgraded old format): {counts:?}");
     assert!(
         failures.is_empty(),
         "{} failures:\n{}",

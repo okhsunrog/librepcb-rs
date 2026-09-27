@@ -168,15 +168,9 @@ pub enum Error {
         /// The project file.
         path: FilePath,
     },
-    /// The project has an older file format, which needs the (not yet
-    /// ported) file format migrations.
-    #[error("The project has file format {version}, migration required: {}", .path.to_native())]
-    MigrationRequired {
-        /// File format version of the project.
-        version: Version,
-        /// The project file.
-        path: FilePath,
-    },
+    /// Upgrading the project from an older file format failed.
+    #[error(transparent)]
+    Migration(#[from] crate::serialization::MigrationError),
     /// The project file name does not end with `.lpp`.
     #[error("{}", tr!("librepcb::Project", "The suffix of the project file must be \"lpp\"!"))]
     InvalidProjectFileSuffix,

@@ -1,11 +1,7 @@
 //! Ports of tests/unittests/core/library/**, plus tests of the library
 //! element checks.
 //!
-//! The upstream `testUpgradeV01` tests open a v0.1 element, which requires
-//! the (not yet ported) file format migrations. They are ported as a check
-//! that such elements are rejected ([`assert_migration_required()`]) plus the
-//! same open/save/reopen cycle on the current-format copy of the element in
-//! `Populated Library.lplib` ([`assert_open_save_reopen()`]).
+//! The upstream `testUpgradeV01` tests share [`assert_upgrade_v01()`].
 
 mod check_test;
 mod cmp;
@@ -24,7 +20,7 @@ use librepcb_core::application::file_format_version;
 use librepcb_core::fileio::{
     FilePath, TransactionalDirectory, TransactionalFileSystem, file_utils,
 };
-use librepcb_core::library::{Error, LibraryBaseElement};
+use librepcb_core::library::LibraryBaseElement;
 
 use crate::helpers::TempDir;
 
@@ -58,39 +54,30 @@ pub fn copy_to_temp(src: &str, dest_name: &str) -> (TempDir, FilePath) {
     (tmp, dest)
 }
 
-/// Upstream `testUpgradeV01`, first part: opening the v0.1 element needs a
-/// file format migration, which is not supported yet.
-pub fn assert_migration_required<E: LibraryBaseElement>(src: &str, dest_name: &str) {
+/// Upstream `testUpgradeV01`: copy the v0.1 element `src` into a temporary
+/// directory named `dest_name`, open (upgrade), save and re-open it.
+pub fn assert_upgrade_v01<E: LibraryBaseElement>(src: &str, dest_name: &str) {
+    // Copy into temporary directory.
     let (_tmp, dir) = copy_to_temp(src, dest_name);
     let version_file = dir.path_to(&format!(".librepcb-{}", E::SHORT_ELEMENT_NAME));
+
+    // Open/upgrade/close.
     assert!(
         file_utils::read_file(&version_file)
             .unwrap()
             .starts_with(b"0.1\n")
     );
-    match E::open(open_dir(&dir, true)) {
-        Err(Error::MigrationRequired { version, .. }) => assert_eq!(version.to_string(), "0.1"),
-        other => panic!("unexpected result: {:?}", other.err()),
-    }
-}
-
-/// Upstream `testUpgradeV01`, second part: open, save and re-open the
-/// element (from the current-format copy `src`).
-pub fn assert_open_save_reopen<E: LibraryBaseElement>(src: &str, dest_name: &str) {
-    let (_tmp, dir) = copy_to_temp(src, dest_name);
-    let file = dir.path_to(&format!("{}.lp", E::LONG_ELEMENT_NAME));
-    let original = file_utils::read_file(&file).unwrap();
     {
         let mut obj = E::open(open_dir(&dir, true)).unwrap();
         obj.save().unwrap();
         obj.directory().file_system().save().unwrap();
     }
-    let version_file = dir.path_to(&format!(".librepcb-{}", E::SHORT_ELEMENT_NAME));
+
+    // Re-open.
     assert!(
         file_utils::read_file(&version_file)
             .unwrap()
             .starts_with(format!("{}\n", file_format_version()).as_bytes())
     );
-    assert_eq!(file_utils::read_file(&file).unwrap(), original);
     E::open(open_dir(&dir, true)).unwrap();
 }

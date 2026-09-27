@@ -13,9 +13,9 @@
 //! Differences to upstream:
 //! - Loading goes through [`LibraryBaseElement::open()`], which also checks
 //!   the directory name (upstream does it in the constructor).
-//! - Elements in an older file format are rejected with
-//!   [`Error::MigrationRequired`], since the file format migrations are not
-//!   ported yet.
+//! - Elements in an older file format are upgraded by the file format
+//!   migrations in [`LibraryBaseElement::open()`] for all element types
+//!   (upstream: in each element's static `open()`).
 //! - The `abortBeforeMigration` flag of `open()` is not ported.
 
 use std::collections::BTreeSet;
@@ -30,8 +30,8 @@ use crate::geometry::property;
 use crate::rule_check::all_approvals;
 use crate::serialization::List;
 use crate::serialization::{
-    self, DeserializeObject, LocalizedDescriptionMap, LocalizedKeywordsMap, LocalizedNameMap, Mode,
-    SExpression, SerializeObject,
+    self, DeserializeObject, FileFormatMigration, LocalizedDescriptionMap, LocalizedKeywordsMap,
+    LocalizedNameMap, MigrationError, Mode, SExpression, SerializeObject, file_format_migrations,
 };
 use crate::types::{ElementName, Uuid, Version};
 
@@ -250,17 +250,16 @@ pub trait LibraryBaseElement: SerializeObject + Sized + Send + Sync {
     fn run_checks(&self) -> Result<Vec<LibraryCheckMessage>>;
 
     /// Opens the element stored in `directory` (upstream static `open()`).
-    fn open(directory: TransactionalDirectory) -> Result<Self> {
+    fn open(mut directory: TransactionalDirectory) -> Result<Self> {
+        // Upgrade file format, if needed.
         let version_file = format!(".librepcb-{}", Self::SHORT_ELEMENT_NAME);
         let file_format = read_file_format(&directory, &version_file)?;
-        if file_format < application::file_format_version() {
-            // upstream: runs the file format migrations, then
-            // removeObsoleteMessageApprovals() and save().
-            return Err(Error::MigrationRequired {
-                version: file_format,
-                path: directory.abs_path(""),
-            });
+        let migrations = file_format_migrations(&file_format);
+        for migration in &migrations {
+            upgrade_element::<Self>(migration.as_ref(), &mut directory)?;
         }
+
+        // Load element.
         let file_name = format!("{}.lp", Self::LONG_ELEMENT_NAME);
         let content = directory.read(&file_name)?;
         let file_path = directory.abs_path(&file_name);
@@ -269,7 +268,7 @@ pub trait LibraryBaseElement: SerializeObject + Sized + Send + Sync {
             file_path.as_ref().map(FilePath::as_path),
             Mode::LibrePcb,
         )?;
-        let element = Self::load(directory, &root)?;
+        let mut element = Self::load(directory, &root)?;
 
         // Check directory name.
         if Self::DIRNAME_MUST_BE_UUID {
@@ -283,6 +282,10 @@ pub trait LibraryBaseElement: SerializeObject + Sized + Send + Sync {
                     path,
                 });
             }
+        }
+        if !migrations.is_empty() {
+            element.remove_obsolete_message_approvals()?;
+            element.save()?; // Format all files correctly as the migration doesn't!
         }
         Ok(element)
     }
@@ -372,6 +375,27 @@ pub fn save_element_files<E: LibraryBaseElement>(element: &mut E) -> Result<()> 
         &VersionFile::new(application::file_format_version()).to_bytes(),
     )?;
     Ok(())
+}
+
+/// Runs the upgrade of `migration` for elements of type `E` (upstream: each
+/// element's `open()` calls its `upgrade*()` method).
+fn upgrade_element<E: LibraryBaseElement>(
+    migration: &dyn FileFormatMigration,
+    dir: &mut TransactionalDirectory,
+) -> Result<(), MigrationError> {
+    // Dispatch on the element type by its short name, which also names its
+    // version file (`.librepcb-<short name>`).
+    match E::SHORT_ELEMENT_NAME {
+        "cmpcat" => migration.upgrade_component_category(dir),
+        "pkgcat" => migration.upgrade_package_category(dir),
+        "sym" => migration.upgrade_symbol(dir),
+        "pkg" => migration.upgrade_package(dir),
+        "cmp" => migration.upgrade_component(dir),
+        "dev" => migration.upgrade_device(dir),
+        "org" => migration.upgrade_organization(dir),
+        "lib" => migration.upgrade_library(dir),
+        other => Err(MigrationError::UnknownElementType(other)),
+    }
 }
 
 /// Reads the file format version from the version file `file_name` and

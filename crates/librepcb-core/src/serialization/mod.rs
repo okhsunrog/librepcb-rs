@@ -14,21 +14,27 @@
 //!   [`DeserializeObject`].
 //!
 //! Deserialization always operates on the *current* file format. Older file
-//! formats are upgraded beforehand by file format migrations, which operate
-//! on the raw [`SExpression`] tree (see the mutating API of [`SExpression`]
-//! and [`List`]) — upstream `fileformatmigration*.cpp`, to be ported later.
+//! formats are upgraded beforehand by the file format migrations
+//! ([`FileFormatMigration`], [`file_format_migrations()`]), which operate on
+//! the raw [`SExpression`] tree (see the mutating API of [`SExpression`] and
+//! [`List`]).
 //!
 //! Not ported: `serialize<QUrl>()`/`deserialize<QUrl>()` (URL handling is
 //! deferred to the workspace/library port) and the Qt signal/slot based
 //! change notifications of the containers.
 
 mod error;
+mod file_format_migration;
 mod primitives;
 mod serializable_key_value_map;
 mod serializable_object_list;
 mod sexpression;
 
 pub use error::{Error, ParseError, Result};
+pub use file_format_migration::{
+    FileFormatMigration, MigrationError, MigrationMessage, MigrationResult, MigrationSeverity,
+    UnstableMigration, V01Migration, V1Migration, file_format_migrations,
+};
 pub use serializable_key_value_map::{
     KeyValueMapPolicy, LocalizedDescriptionMap, LocalizedDescriptionMapPolicy,
     LocalizedKeywordsMap, LocalizedKeywordsMapPolicy, LocalizedNameMap, LocalizedNameMapPolicy,
