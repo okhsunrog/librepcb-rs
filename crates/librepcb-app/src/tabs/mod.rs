@@ -12,8 +12,11 @@
 //! there).
 
 pub mod board_2d;
+pub mod board_view;
+pub mod editing;
 pub mod home;
 pub mod schematic;
+pub mod schematic_view;
 
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -21,12 +24,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use librepcb_app_ui as ui;
 use librepcb_canvas::kurbo::Point;
 use librepcb_canvas::{Modifiers, PointerButton, PointerKind};
+use std::collections::BTreeSet;
+
+use librepcb_core::project::{ComponentInstanceId, NetSignalId};
 use librepcb_core::types::{GridStyle, Length, LengthUnit};
+use librepcb_editor::fsm::schematic::ComponentChoice;
 use slint::language::{PointerEvent, PointerEventButton, PointerEventKind};
 
 pub use board_2d::Board2dTab;
 pub use schematic::SchematicTab;
 
+use crate::notifications::Notification;
 use crate::project::AppProject;
 
 /// A unique identifier of a tab (stable while tabs move between sections).
@@ -70,6 +78,91 @@ pub struct TabUpdate {
     pub status: Option<String>,
     /// The tab wants to be closed.
     pub close: bool,
+    /// Requests to the application (notifications, menus, dialogs).
+    pub requests: Vec<TabRequest>,
+    /// The project was modified: other tabs of the project must update
+    /// their scenes.
+    pub project_modified: bool,
+}
+
+/// An entry of a scene context menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextMenuEntry {
+    /// The (translated) text; empty for a separator.
+    pub text: String,
+    /// Whether the entry can be chosen.
+    pub enabled: bool,
+    /// Check state of checkable entries.
+    pub checked: Option<bool>,
+    /// Whether this is the default action (shown bold upstream).
+    pub is_default: bool,
+}
+
+impl ContextMenuEntry {
+    /// An enabled entry.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            enabled: true,
+            checked: None,
+            is_default: false,
+        }
+    }
+
+    /// A separator.
+    pub fn separator() -> Self {
+        Self {
+            text: String::new(),
+            enabled: false,
+            checked: None,
+            is_default: false,
+        }
+    }
+
+    /// Whether this is a separator.
+    pub fn is_separator(&self) -> bool {
+        self.text.is_empty()
+    }
+}
+
+/// A request of a tab to the application (upstream: dialogs, message boxes
+/// and menus the tabs open themselves).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TabRequest {
+    /// Show a notification.
+    Notify(Notification),
+    /// Show a context menu at a position of the scene (logical pixels,
+    /// relative to the scene); the chosen entry is passed back with
+    /// [`Tab::context_menu_action()`].
+    ContextMenu {
+        /// Position in the scene.
+        pos: Point,
+        /// The entries.
+        entries: Vec<ContextMenuEntry>,
+    },
+    /// Open the "add component" chooser; the choice is passed back with
+    /// [`Tab::add_component()`].
+    AddComponent {
+        /// Preselected search term.
+        search_term: String,
+    },
+}
+
+/// Cross-probing: what the current tab has selected, highlighted in the
+/// other tabs of the project (upstream `ProjectEditor::getCrossProbe()`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CrossProbe {
+    /// Selected components (symbols, devices).
+    pub components: BTreeSet<ComponentInstanceId>,
+    /// Selected or highlighted nets.
+    pub nets: BTreeSet<NetSignalId>,
+}
+
+impl CrossProbe {
+    /// Whether nothing is probed.
+    pub fn is_empty(&self) -> bool {
+        self.components.is_empty() && self.nets.is_empty()
+    }
 }
 
 impl TabUpdate {
@@ -160,11 +253,78 @@ impl Tab {
 
     /// Handles `Backend.scene-pointer-event`.
     pub fn pointer_event(&mut self, pos: Point, event: &PointerEvent) -> TabUpdate {
-        let (kind, button, _) = convert_pointer_event(event);
+        let (kind, button, modifiers) = convert_pointer_event(event);
         match self {
             Self::Home(_) => TabUpdate::default(),
-            Self::Schematic(t) => t.pointer_event(kind, button, pos),
-            Self::Board2d(t) => t.pointer_event(kind, button, pos),
+            Self::Schematic(t) => t.pointer_event(kind, button, pos, modifiers),
+            Self::Board2d(t) => t.pointer_event(kind, button, pos, modifiers),
+        }
+    }
+
+    /// Handles `Backend.scene-key-pressed`; returns whether the key was
+    /// handled.
+    pub fn key_pressed(&mut self, event: &slint::language::KeyEvent) -> (bool, TabUpdate) {
+        match self {
+            Self::Home(_) => (false, TabUpdate::default()),
+            Self::Schematic(t) => t.key_event(event, true),
+            Self::Board2d(t) => t.key_event(event, true),
+        }
+    }
+
+    /// Handles `Backend.scene-key-released`; returns whether the key was
+    /// handled.
+    pub fn key_released(&mut self, event: &slint::language::KeyEvent) -> (bool, TabUpdate) {
+        match self {
+            Self::Home(_) => (false, TabUpdate::default()),
+            Self::Schematic(t) => t.key_event(event, false),
+            Self::Board2d(t) => t.key_event(event, false),
+        }
+    }
+
+    /// An entry of the last requested context menu was chosen.
+    pub fn context_menu_action(&mut self, index: usize) -> TabUpdate {
+        match self {
+            Self::Home(_) => TabUpdate::default(),
+            Self::Schematic(t) => t.context_menu_action(index),
+            Self::Board2d(t) => t.context_menu_action(index),
+        }
+    }
+
+    /// A component was chosen in the "add component" chooser (`None`:
+    /// canceled).
+    pub fn add_component(&mut self, choice: Option<ComponentChoice>) -> TabUpdate {
+        match self {
+            Self::Schematic(t) => t.add_component(choice),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// Aborts a tool which keeps an undo group of the project open (before
+    /// undo/redo or when another tab of the project becomes current,
+    /// upstream `abortBlockingToolsInOtherEditors()`).
+    pub fn abort_blocking_tool(&mut self) -> TabUpdate {
+        match self {
+            Self::Home(_) => TabUpdate::default(),
+            Self::Schematic(t) => t.abort_blocking_tool(),
+            Self::Board2d(t) => t.abort_blocking_tool(),
+        }
+    }
+
+    /// What this tab cross-probes to the other tabs of its project.
+    pub fn cross_probe(&self) -> Option<CrossProbe> {
+        match self {
+            Self::Home(_) => None,
+            Self::Schematic(t) => Some(t.cross_probe()),
+            Self::Board2d(t) => Some(t.cross_probe()),
+        }
+    }
+
+    /// Highlights what another tab of the project cross-probes.
+    pub fn set_cross_probe(&mut self, probe: &CrossProbe) -> TabUpdate {
+        match self {
+            Self::Home(_) => TabUpdate::default(),
+            Self::Schematic(t) => t.set_cross_probe(probe),
+            Self::Board2d(t) => t.set_cross_probe(probe),
         }
     }
 
@@ -172,8 +332,8 @@ impl Tab {
     pub fn scrolled(&mut self, pos: Point, delta: (f64, f64), modifiers: Modifiers) -> bool {
         match self {
             Self::Home(_) => false,
-            Self::Schematic(t) => t.canvas_mut().scroll_event(pos, delta.into(), modifiers),
-            Self::Board2d(t) => t.canvas_mut().scroll_event(pos, delta.into(), modifiers),
+            Self::Schematic(t) => t.scrolled(pos, delta.into(), modifiers),
+            Self::Board2d(t) => t.scrolled(pos, delta.into(), modifiers),
         }
     }
 

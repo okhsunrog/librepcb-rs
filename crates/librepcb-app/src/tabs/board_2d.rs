@@ -1,38 +1,77 @@
 //! The board 2D tab.
 //!
-//! Port of libs/librepcb/editor/project/board/board2dtab.{h,cpp} (viewer
-//! part): the board rendered by `librepcb-scene`'s [`BoardScene`], the
-//! layers panel (visibility of the board layers), top/bottom view,
-//! navigation, grid, and a read-only select tool. The editor state machine
-//! (`BoardEditorFsm`), DRC, planes rebuild and component placement follow
-//! in later milestones.
+//! Port of libs/librepcb/editor/project/board/board2dtab.{h,cpp}: the board
+//! rendered by `librepcb-scene`'s [`BoardScene`], the layers panel
+//! (visibility of the board layers), top/bottom view, navigation, grid, and
+//! editing through the board editor state machine ([`BoardEditorFsm`]):
+//! pointer and key events go to the FSM, tab actions (tools, clipboard,
+//! rotate, flip, lock, undo, ...) call it, and after every call the scene
+//! is synced with the project's change journal, the selection and the
+//! highlighted nets are shown, the overlays are updated and the tool bar
+//! data (`tool-*` fields of `Board2dTabData`) is refreshed.
+//!
+//! Not available yet: the add pad tools, DXF import, the unplaced
+//! components panel, plane rebuilds, DRC, exports and the "find" feature;
+//! dialogs requested by the FSM (properties, line width) show a
+//! notification; grid changes are undoable modifications of the board
+//! settings (upstream: without undo).
 
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::rc::Rc;
 
 use librepcb_app_ui as ui;
-use librepcb_canvas::kurbo::Point;
+use librepcb_canvas::kurbo::{Point, Vec2};
 use librepcb_canvas::peniko::Color;
-use librepcb_canvas::{Grid, PointerAction, PointerButton, PointerKind};
-use librepcb_core::project::BoardId;
-use librepcb_core::types::{GridStyle, Layer, Length, LengthUnit, PositiveLength};
+use librepcb_canvas::{Grid, Modifiers, PointerAction, PointerButton, PointerKind};
+use librepcb_core::geometry::ZoneRules;
+use librepcb_core::project::{BoardId, BoardMutation, ComponentInstanceId, Mutation, NetSignalId};
+use librepcb_core::types::{
+    Angle, GridStyle, Layer, Length, LengthUnit, Orientation, PositiveLength, UnsignedLength, Uuid,
+};
+use librepcb_editor::commands::ApplyMutations;
+use librepcb_editor::fsm::board::{
+    BoardContext, BoardEditorFsm, BoardEditorSettings, BoardItemRef, BoardRequest, BoardTool,
+    BoardToolData, ContextAction, ToolNet, ToolSetting, WireMode,
+};
+use librepcb_editor::fsm::{PointerEvent, ViewState};
 use librepcb_i18n::tr;
 use librepcb_scene::{BoardObject, BoardScene, BoardSceneLayer, BoardSide, ColorScheme, SceneSync};
 
-use super::{TabId, TabUpdate, feature, project_index};
+use super::board_view::{BoardSceneView, board_item};
+use super::editing::{
+    DoubleClick, OverlayColors, Overlays, dialog_not_available, error_notification, fsm_key_event,
+    fsm_modifiers, info_box_text, mouse_cursor, point_from_world, point_to_world, to_multi_line,
+    to_single_line,
+};
+use super::{ContextMenuEntry, CrossProbe, TabId, TabRequest, TabUpdate, feature, project_index};
 use crate::canvas_view::{CanvasView, DEFAULT_BOARD_RECT};
+use crate::clipboard::{ensure_opened, with_clipboard};
 use crate::helpers::{
     color_to_ui, grid_style_from_ui, grid_style_to_ui, length_from_ui, length_to_ui, unit_from_ui,
     unit_to_ui,
 };
-use crate::models::{UiModel, model_rc};
+use crate::length_edit::{LengthEdit, steps};
+use crate::models::{UiModel, model_rc, vec_model};
+use crate::notifications::Notification;
 use crate::project::AppProject;
 
 /// Grid color of the default board color scheme (upstream
 /// `boardLibrePcbDark()`, secondary color of the background role).
 const GRID_COLOR: Color = Color::from_rgb8(0xa0, 0xa0, 0xa4);
 
-/// Hit test tolerance in logical pixels.
-const HIT_TOLERANCE_PX: f64 = 5.0;
+/// What the tab shows of the FSM state, to detect changes of the UI data.
+#[derive(Debug, Clone, PartialEq)]
+struct Snapshot {
+    tool: BoardTool,
+    tool_data: BoardToolData,
+    view: ViewState,
+    panning: bool,
+    undo_index: usize,
+    group_active: bool,
+    clean: bool,
+    scene_rev: u64,
+    selection_rev: u64,
+}
 
 /// A board tab (2D view).
 pub struct Board2dTab {
@@ -54,9 +93,23 @@ pub struct Board2dTab {
     /// Visibility per listed layer.
     visible: Vec<bool>,
     layers_model: Rc<UiModel<ui::GraphicsLayerData>>,
-    selected: Option<BoardObject>,
     frame: i32,
     scene_image_pos: slint::LogicalPosition,
+    fsm: BoardEditorFsm,
+    overlays: Overlays,
+    double_click: DoubleClick,
+    /// Last pointer position (world coordinates).
+    cursor: Option<librepcb_core::types::Point>,
+    line_width: LengthEdit,
+    size: LengthEdit,
+    drill: LengthEdit,
+    /// Tool whose length edits are configured.
+    configured_tool: Option<BoardTool>,
+    /// Cross-probed by another tab.
+    probe: CrossProbe,
+    /// Actions of the entries of the last context menu (`None`:
+    /// separator).
+    menu: Vec<Option<ContextAction>>,
 }
 
 impl Board2dTab {
@@ -65,7 +118,13 @@ impl Board2dTab {
         let scheme = ColorScheme::BOARD_DARK;
         let side = BoardSide::Top;
         let (scene, revision, title, grid_interval, unit) = {
-            let p = project.shared().lock();
+            let mut p = project.shared().lock();
+            // The scene shows the air wires of the board.
+            if !p.editor.undo_stack().is_group_active()
+                && let Err(e) = p.editor.rebuild_air_wires(board)
+            {
+                log::warn!("Failed to build the air wires: {e}");
+            }
             let proj = p.project();
             let scene = BoardScene::build(proj, board, side, &scheme)
                 .map_err(|e| log::error!("Failed to build the board scene: {e}"))
@@ -85,6 +144,10 @@ impl Board2dTab {
         };
         let background = scene.as_ref().map_or(Color::BLACK, BoardScene::background);
         let content = scene.as_ref().and_then(BoardScene::content_bounds);
+        let settings = BoardEditorSettings {
+            app_version: crate::app::APP_VERSION.to_owned(),
+            ..BoardEditorSettings::default()
+        };
         let mut tab = Self {
             id: TabId::new(),
             project,
@@ -101,9 +164,18 @@ impl Board2dTab {
             layers: Vec::new(),
             visible: Vec::new(),
             layers_model: UiModel::shared(Vec::new()),
-            selected: None,
             frame: 0,
             scene_image_pos: Default::default(),
+            fsm: BoardEditorFsm::new(board, settings),
+            overlays: Overlays::default(),
+            double_click: DoubleClick::default(),
+            cursor: None,
+            line_width: LengthEdit::new(steps::GENERIC),
+            size: LengthEdit::new(steps::GENERIC),
+            drill: LengthEdit::new(steps::DRILL_DIAMETER),
+            configured_tool: None,
+            probe: CrossProbe::default(),
+            menu: Vec::new(),
         };
         tab.init_layers();
         tab.apply_grid();
@@ -126,6 +198,11 @@ impl Board2dTab {
     }
 
     /// The graphics view.
+    pub fn canvas(&self) -> &CanvasView {
+        &self.canvas
+    }
+
+    /// The graphics view.
     pub fn canvas_mut(&mut self) -> &mut CanvasView {
         &mut self.canvas
     }
@@ -135,10 +212,17 @@ impl Board2dTab {
         self.scene.as_ref()
     }
 
+    /// The editor state machine.
+    pub fn fsm(&self) -> &BoardEditorFsm {
+        &self.fsm
+    }
+
     /// The layers panel model (`TabData.layers`).
     pub fn layers_model(&self) -> &Rc<UiModel<ui::GraphicsLayerData>> {
         &self.layers_model
     }
+
+    // --- Layers ---
 
     /// Lists the board layers of the scene (upstream
     /// `GraphicsLayerList::boardLayers()`, only layers used by the board).
@@ -184,12 +268,16 @@ impl Board2dTab {
                 self.visible[i] = *v;
             }
         }
+        self.apply_layers_visibility();
+        self.update_layers_model();
+    }
+
+    fn apply_layers_visibility(&mut self) {
         if let Some(scene) = &mut self.scene {
             for (layer, visible) in self.layers.iter().zip(&self.visible) {
                 scene.set_layer_visible(*layer, *visible);
             }
         }
-        self.update_layers_model();
     }
 
     fn update_layers_model(&self) {
@@ -241,13 +329,11 @@ impl Board2dTab {
                 _ => true,
             };
         }
-        if let Some(scene) = &mut self.scene {
-            for (layer, visible) in self.layers.iter().zip(&self.visible) {
-                scene.set_layer_visible(*layer, *visible);
-            }
-        }
+        self.apply_layers_visibility();
         self.update_layers_model();
     }
+
+    // --- Grid ---
 
     fn apply_grid(&mut self) {
         let interval = self.grid_interval.get().to_mm();
@@ -274,68 +360,437 @@ impl Board2dTab {
         TabUpdate::repaint()
     }
 
-    /// Rebuilds the scene (e.g. after the project changed or the side was
-    /// flipped), keeping the layer visibility.
+    /// Changes the grid of the board (the board settings like upstream, but
+    /// undoable).
+    fn set_grid(&mut self, interval: PositiveLength, unit: LengthUnit) {
+        let mut p = self.project.shared().lock();
+        let Some(settings) = p.project().board(self.board).map(|b| b.settings().clone()) else {
+            return;
+        };
+        if settings.grid_interval == interval && settings.grid_unit == unit {
+            return;
+        }
+        let mut settings = settings;
+        settings.grid_interval = interval;
+        settings.grid_unit = unit;
+        if let Err(e) = p.editor.execute(ApplyMutations {
+            text: Some(tr!("Board2dTab", "Change Grid Properties")),
+            mutations: vec![Mutation::Board(BoardMutation::SetSettings {
+                board: self.board,
+                settings: Box::new(settings),
+            })],
+        }) {
+            log::error!("Failed to change the grid: {e}");
+        }
+    }
+
+    /// Rebuilds the scene from scratch (e.g. after the side was flipped),
+    /// keeping the layer visibility.
     fn rebuild(&mut self) {
         let p = self.project.shared().lock();
         let proj = p.project();
         match BoardScene::build(proj, self.board, self.side, &self.scheme) {
-            Ok(mut scene) => {
-                for (layer, visible) in self.layers.iter().zip(&self.visible) {
-                    scene.set_layer_visible(*layer, *visible);
-                }
+            Ok(scene) => {
                 self.scene = Some(scene);
                 self.sync = SceneSync::new(proj);
-                if let Some(b) = proj.board(self.board) {
-                    self.title = b.properties().name.to_string();
-                }
             }
             Err(e) => log::error!("Failed to rebuild the board scene: {e}"),
         }
-        self.selected = None;
+        drop(p);
+        self.overlays.forget();
+        self.apply_layers_visibility();
     }
 
-    /// Updates the scene from the project's change journal if the project
-    /// changed (e.g. through the MCP server): incrementally where possible.
-    pub fn rebuild_if_modified(&mut self) -> TabUpdate {
-        let p = self.project.shared().lock();
-        let proj = p.project();
-        if !self.sync.is_outdated(proj) {
-            return TabUpdate::default();
+    // --- FSM calls ---
+
+    /// Calls the FSM with a context on the project editor, the scene and
+    /// the clipboard.
+    fn run<R>(
+        &mut self,
+        f: impl FnOnce(&mut BoardEditorFsm, &mut BoardContext<'_>) -> R,
+    ) -> Option<R> {
+        let scene = self.scene.as_ref()?;
+        let view = BoardSceneView {
+            scene,
+            view: self.canvas.view(),
+            cursor: self.cursor,
+        };
+        let fsm = &mut self.fsm;
+        let mut guard = self.project.shared().lock();
+        let result = with_clipboard(|clipboard| {
+            let mut ctx = BoardContext::new(&mut guard.editor, &view, clipboard);
+            f(fsm, &mut ctx)
+        });
+        Some(result)
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        let (undo_index, group_active, clean) = {
+            let p = self.project.shared().lock();
+            let undo = p.editor.undo_stack();
+            (undo.index(), undo.is_group_active(), undo.is_clean())
+        };
+        Snapshot {
+            tool: self.fsm.tool(),
+            tool_data: self.fsm.tool_data().clone(),
+            view: ViewState {
+                status_message: None,
+                ..self.fsm.view_state().clone()
+            },
+            panning: self.canvas.is_panning(),
+            undo_index,
+            group_active,
+            clean,
+            scene_rev: self.scene.as_ref().map_or(0, |s| s.scene().rev()),
+            selection_rev: self.scene.as_ref().map_or(0, |s| s.scene().selection_rev()),
         }
-        let result = match &mut self.scene {
-            Some(scene) => self.sync.sync(proj, scene),
-            None => Ok(true),
-        };
-        let rebuilt = match result {
-            Ok(rebuilt) => rebuilt,
-            Err(e) => {
-                log::warn!("Incremental board scene update failed, rebuilding: {e}");
-                true
-            }
-        };
+    }
+
+    /// Updates everything after an FSM call or a project modification and
+    /// reports what changed compared to `before`.
+    fn after_fsm(&mut self, before: &Snapshot) -> TabUpdate {
+        let mut update = TabUpdate::default();
+        let revision_before = self.sync.cursor();
+        if self.sync_scene() {
+            update.data_changed = true;
+        }
+        update.project_modified = self.sync.cursor() != revision_before;
+        self.configure_tool_edits();
+        self.apply_highlight();
+        self.update_overlays();
+        for request in self.fsm.take_requests() {
+            self.handle_request(request, &mut update);
+        }
+        if let Some(msg) = self.fsm.take_status_message() {
+            update.status = Some(msg.text);
+        }
+        let after = self.snapshot();
+        update.repaint |=
+            after.scene_rev != before.scene_rev || after.selection_rev != before.selection_rev;
+        update.data_changed |= after != *before;
+        update
+    }
+
+    /// Syncs the scene with the project's change journal; returns whether
+    /// the layers changed.
+    fn sync_scene(&mut self) -> bool {
+        let project = Rc::clone(&self.project);
+        let p = project.shared().lock();
+        let proj = p.project();
         if let Some(b) = proj.board(self.board) {
             self.title = b.properties().name.to_string();
+            self.unit = b.settings().grid_unit;
+            if b.settings().grid_interval != self.grid_interval {
+                self.grid_interval = b.settings().grid_interval;
+                self.apply_grid();
+            }
         }
+        self.fsm.project_changed(proj);
+        if !self.sync.is_outdated(proj) {
+            return false;
+        }
+        let rebuilt = match &mut self.scene {
+            Some(scene) => match self.sync.sync(proj, scene) {
+                Ok(rebuilt) => rebuilt,
+                Err(e) => {
+                    log::warn!("Incremental board scene update failed, rebuilding: {e}");
+                    true
+                }
+            },
+            None => true,
+        };
         drop(p);
         if rebuilt {
             self.rebuild();
             self.init_layers_keep_visibility();
-        } else {
-            self.select(self.selected);
         }
+        rebuilt
+    }
+
+    /// Configures the length edits of the tool bar when a tool is entered
+    /// (upstream `fsmToolEnter()`), and keeps their values up to date.
+    fn configure_tool_edits(&mut self) {
+        let tool = self.fsm.tool();
+        let data = self.fsm.tool_data();
+        let line_width = data.line_width.map_or(Length::ZERO, |w| w.get());
+        let size = data.size.map_or(Length::ZERO, |s| s.get());
+        let drill = data.drill.map_or(Length::ZERO, |d| d.get());
+        if self.configured_tool != Some(tool) {
+            self.configured_tool = Some(tool);
+            let (line_min, size_steps) = match tool {
+                BoardTool::DrawTrace => (Length::new(1), steps::GENERIC),
+                BoardTool::AddStrokeText => (Length::ZERO, steps::TEXT_HEIGHT),
+                _ => (Length::ZERO, steps::GENERIC),
+            };
+            self.line_width
+                .configure(line_width, line_min, steps::GENERIC);
+            self.size.configure(size, Length::new(1), size_steps);
+            self.drill
+                .configure(drill, Length::new(1), steps::DRILL_DIAMETER);
+        } else {
+            self.line_width.set_value(line_width);
+            self.size.set_value(size);
+            self.drill.set_value(drill);
+        }
+    }
+
+    /// Highlights the selection, the nets highlighted by the FSM and the
+    /// items cross-probed by another tab.
+    fn apply_highlight(&mut self) {
+        let Some(scene) = &mut self.scene else {
+            return;
+        };
+        let selection = self.fsm.selection().items();
+        let devices: HashSet<ComponentInstanceId> = selection
+            .iter()
+            .filter_map(|i| match i {
+                BoardItemRef::Device(c) => Some(*c),
+                _ => None,
+            })
+            .chain(self.probe.components.iter().copied())
+            .collect();
+        let device_texts: HashSet<Uuid> = selection
+            .iter()
+            .filter_map(|i| match i {
+                BoardItemRef::DeviceStrokeText(_, u) => Some(*u),
+                _ => None,
+            })
+            .collect();
+        let nets: BTreeSet<NetSignalId> = self
+            .fsm
+            .highlighted_nets()
+            .iter()
+            .chain(self.probe.nets.iter())
+            .copied()
+            .collect();
+        let want: HashSet<_> = {
+            let p = self.project.shared().lock();
+            let proj = p.project();
+            let board = proj.board(self.board);
+            let segment_net = |seg| board.and_then(|b| b.net_segment(seg)).and_then(|s| s.net());
+            // Nets of footprint pads (only computed when needed).
+            let mut pad_nets: HashMap<(ComponentInstanceId, Uuid), NetSignalId> = HashMap::new();
+            if !nets.is_empty()
+                && let Some(b) = board
+            {
+                for device in b.devices().values() {
+                    if let Ok(pads) = device.pads(proj.library(), proj.circuit()) {
+                        for pad in pads {
+                            if let Some(net) = pad.net() {
+                                pad_nets.insert((device.component(), pad.uuid()), net);
+                            }
+                        }
+                    }
+                }
+            }
+            scene
+                .scene()
+                .items()
+                .filter_map(|(id, _)| {
+                    let object = scene.object(id)?;
+                    let selected = board_item(object).is_some_and(|i| selection.contains(&i))
+                        || match object {
+                            BoardObject::Device(c) | BoardObject::FootprintPad(c, _) => {
+                                devices.contains(&c)
+                            }
+                            BoardObject::StrokeText(u) => device_texts.contains(&u),
+                            _ => false,
+                        };
+                    let net = !nets.is_empty()
+                        && match object {
+                            BoardObject::Trace(seg, _)
+                            | BoardObject::Via(seg, _)
+                            | BoardObject::Pad(seg, _) => {
+                                segment_net(seg).is_some_and(|n| nets.contains(&n))
+                            }
+                            BoardObject::FootprintPad(c, pad) => {
+                                pad_nets.get(&(c, pad)).is_some_and(|n| nets.contains(n))
+                            }
+                            _ => false,
+                        };
+                    (selected || net).then_some(id)
+                })
+                .collect()
+        };
+        let canvas = scene.scene_mut();
+        let current: HashSet<_> = canvas.selection().collect();
+        if current != want {
+            canvas.clear_selection();
+            for id in want {
+                canvas.set_selected(id, true);
+            }
+        }
+    }
+
+    fn update_overlays(&mut self) {
+        if let Some(scene) = &mut self.scene {
+            self.overlays.update(
+                scene.scene_mut(),
+                self.fsm.view_state(),
+                self.canvas.view(),
+                OverlayColors::BOARD_DARK,
+            );
+        }
+    }
+
+    fn handle_request(&mut self, request: BoardRequest, update: &mut TabUpdate) {
+        match request {
+            BoardRequest::ShowError(msg) => update.requests.push(error_notification(msg)),
+            BoardRequest::Message {
+                title,
+                text,
+                warning,
+            } => {
+                let kind = if warning {
+                    ui::NotificationType::Warning
+                } else {
+                    ui::NotificationType::Info
+                };
+                update.requests.push(TabRequest::Notify(Notification {
+                    auto_popup: true,
+                    ..Notification::new(kind, title, text)
+                }));
+            }
+            BoardRequest::Properties(_) | BoardRequest::LineWidthDialog { .. } => {
+                update.requests.push(dialog_not_available());
+            }
+            BoardRequest::ContextMenu { pos, items, .. } => {
+                let entries: Vec<ContextMenuEntry> = items
+                    .iter()
+                    .map(|i| match i.action {
+                        None => ContextMenuEntry::separator(),
+                        Some(_) => ContextMenuEntry {
+                            text: i.text.clone(),
+                            enabled: i.enabled,
+                            checked: i.checked,
+                            is_default: i.default,
+                        },
+                    })
+                    .collect();
+                self.menu = items.iter().map(|i| i.action).collect();
+                if !entries.is_empty() {
+                    update.requests.push(TabRequest::ContextMenu {
+                        pos: self.canvas.view().world_to_screen(point_to_world(pos)),
+                        entries,
+                    });
+                }
+            }
+            BoardRequest::DevicesChanged(_) => {}
+        }
+    }
+
+    /// An entry of the last context menu was chosen.
+    pub fn context_menu_action(&mut self, index: usize) -> TabUpdate {
+        let Some(Some(action)) = self.menu.get(index).copied() else {
+            return TabUpdate::default();
+        };
+        self.menu.clear();
+        let before = self.snapshot();
+        self.run(|f, c| f.context_menu_action(c, action));
+        self.after_fsm(&before)
+    }
+
+    /// Aborts the current tool if the project has an open undo group.
+    pub fn abort_blocking_tool(&mut self) -> TabUpdate {
+        let before = self.snapshot();
+        for _ in 0..3 {
+            if !self.group_active() {
+                break;
+            }
+            self.run(|f, c| f.abort(c));
+        }
+        self.after_fsm(&before)
+    }
+
+    fn group_active(&self) -> bool {
+        self.project
+            .shared()
+            .lock()
+            .editor
+            .undo_stack()
+            .is_group_active()
+    }
+
+    /// What this tab cross-probes: the components of selected devices and
+    /// the nets of selected traces, vias and pads (and the nets the current
+    /// tool highlights).
+    pub fn cross_probe(&self) -> CrossProbe {
+        let p = self.project.shared().lock();
+        let board = p.project().board(self.board);
+        let mut probe = CrossProbe {
+            nets: self.fsm.highlighted_nets().clone(),
+            ..CrossProbe::default()
+        };
+        for item in self.fsm.selection().items() {
+            match *item {
+                BoardItemRef::Device(c) => {
+                    probe.components.insert(c);
+                }
+                BoardItemRef::Trace(seg, _)
+                | BoardItemRef::Via(seg, _)
+                | BoardItemRef::Pad(seg, _)
+                | BoardItemRef::Junction(seg, _) => {
+                    if let Some(net) = board.and_then(|b| b.net_segment(seg)).and_then(|s| s.net())
+                    {
+                        probe.nets.insert(net);
+                    }
+                }
+                _ => {}
+            }
+        }
+        probe
+    }
+
+    /// Highlights what another tab cross-probes.
+    pub fn set_cross_probe(&mut self, probe: &CrossProbe) -> TabUpdate {
+        if *probe == self.probe {
+            return TabUpdate::default();
+        }
+        self.probe = probe.clone();
+        let rev = self.scene.as_ref().map(|s| s.scene().selection_rev());
+        self.apply_highlight();
         TabUpdate {
-            repaint: true,
-            data_changed: true,
+            repaint: self.scene.as_ref().map(|s| s.scene().selection_rev()) != rev,
             ..TabUpdate::default()
         }
     }
+
+    /// Updates the scene from the project's change journal if the project
+    /// changed (e.g. through the MCP server or another tab).
+    pub fn rebuild_if_modified(&mut self) -> TabUpdate {
+        let outdated = {
+            let p = self.project.shared().lock();
+            self.sync.is_outdated(p.project())
+        };
+        if !outdated {
+            return TabUpdate::default();
+        }
+        let before = self.snapshot();
+        {
+            // Air wires are derived data (e.g. not restored by undo).
+            let mut p = self.project.shared().lock();
+            if !p.editor.undo_stack().is_group_active()
+                && let Err(e) = p.editor.rebuild_air_wires(self.board)
+            {
+                log::warn!("Failed to rebuild the air wires: {e}");
+            }
+        }
+        let mut update = self.after_fsm(&before);
+        update.repaint = true;
+        update.data_changed = true;
+        update.project_modified = false;
+        update
+    }
+
+    // --- UI data ---
 
     /// The `TabData`.
     pub fn ui_data(&self) -> ui::TabData {
         let p = self.project.shared().lock();
         let undo = p.editor.undo_stack();
         let writable = self.project.is_writable();
+        let f = self.fsm.view_state().features;
+        let edit = |enabled: bool| feature(writable && enabled);
         let features = ui::TabFeatures {
             save: feature(writable),
             undo: feature(undo.can_undo()),
@@ -343,10 +798,24 @@ impl Board2dTab {
             grid: feature(writable),
             zoom: feature(true),
             background_image: ui::FeatureState::NotSupported,
+            import_graphics: ui::FeatureState::NotSupported,
             export_graphics: ui::FeatureState::NotSupported,
-            select: ui::FeatureState::NotSupported,
+            select: feature(f.select),
+            cut: edit(f.cut),
+            copy: feature(f.copy),
+            paste: edit(f.paste),
+            remove: edit(f.remove),
+            rotate: edit(f.rotate),
+            mirror: ui::FeatureState::NotSupported,
+            flip: edit(f.flip),
+            move_align: ui::FeatureState::NotSupported,
+            snap_to_grid: edit(f.snap_to_grid),
+            reset_texts: edit(f.reset_texts),
+            lock: edit(f.lock),
+            unlock: edit(f.unlock),
+            modify_line_width: edit(f.modify_line_width),
+            edit_properties: feature(f.properties),
             find: ui::FeatureState::NotSupported,
-            ..Default::default()
         };
         ui::TabData {
             r#type: ui::TabType::Board2d,
@@ -361,6 +830,40 @@ impl Board2dTab {
         }
     }
 
+    /// The items of the net combo box of the current tool (upstream
+    /// `fsmToolEnter()` of the via and plane tools).
+    fn tool_nets(&self) -> Vec<(ToolNet, String)> {
+        let data = self.fsm.tool_data();
+        let mut nets = Vec::new();
+        match self.fsm.tool() {
+            BoardTool::AddVia => {
+                nets.push((
+                    ToolNet {
+                        auto: true,
+                        net: None,
+                    },
+                    format!("[{}]", tr!("Board2dTab", "Auto")),
+                ));
+            }
+            BoardTool::DrawPlane => {}
+            _ => return nets,
+        }
+        nets.push((
+            ToolNet::default(),
+            format!("[{}]", tr!("Board2dTab", "None")),
+        ));
+        for (id, name) in &data.nets {
+            nets.push((
+                ToolNet {
+                    auto: false,
+                    net: Some(*id),
+                },
+                name.clone(),
+            ));
+        }
+        nets
+    }
+
     /// The `Board2dTabData`.
     pub fn derived_ui_data(&self, projects: &[Rc<AppProject>]) -> ui::Board2dTabData {
         let background = self
@@ -371,6 +874,11 @@ impl Board2dTab {
             let p = self.project.shared().lock();
             p.project().board_index(self.board).map_or(-1, |i| i as i32)
         };
+        let vs = self.fsm.view_state();
+        let data = self.fsm.tool_data();
+        let nets = self.tool_nets();
+        let layers = sorted_layers(&data.layers);
+        let text_tool = self.fsm.tool() == BoardTool::AddStrokeText;
         ui::Board2dTabData {
             project_index: project_index(projects, &self.project),
             board_index,
@@ -383,35 +891,87 @@ impl Board2dTab {
             unit: unit_to_ui(self.unit),
             flip_view: self.side == BoardSide::Bottom,
             background_image_alpha: 1.0,
-            tool: ui::EditorTool::Select,
+            ignore_placement_locks: self.fsm.settings().ignore_locks,
+            unplaced_components: vec_model(Vec::new()),
             unplaced_components_index: -1,
+            unplaced_components_devices: vec_model(Vec::new()),
             unplaced_components_devices_index: -1,
+            unplaced_components_footprints: vec_model(Vec::new()),
             unplaced_components_footprints_index: -1,
+            tool: tool_to_ui(self.fsm.tool()),
+            tool_cursor: mouse_cursor(vs.cursor, self.canvas.is_panning()),
+            tool_overlay_text: info_box_text(&vs.info_box).into(),
+            tool_wire_mode: wire_mode_to_ui(data.wire_mode),
+            tool_net: ui::ComboBoxData {
+                items: vec_model(nets.iter().map(|(_, n)| n.as_str().into()).collect()),
+                current_index: nets
+                    .iter()
+                    .position(|(n, _)| *n == data.net)
+                    .map_or(-1, |i| i as i32),
+            },
+            tool_netclass_name: data.net_class_name.as_str().into(),
+            tool_layer: ui::ComboBoxData {
+                items: vec_model(layers.iter().map(|l| l.name_tr().into()).collect()),
+                current_index: data
+                    .layer
+                    .and_then(|layer| layers.iter().position(|l| *l == layer))
+                    .map_or(-1, |i| i as i32),
+            },
+            tool_line_width: self.line_width.ui_data(),
+            tool_size: self.size.ui_data(),
+            tool_drill: self.drill.ui_data(),
+            tool_angle: ui::AngleEditData {
+                value: data.angle.to_micro_deg(),
+                increase: false,
+                decrease: false,
+            },
+            tool_filled: if self.fsm.tool() == BoardTool::DrawTrace {
+                data.auto_width
+            } else {
+                data.filled
+            },
+            tool_mirrored: if text_tool {
+                data.mirrored
+            } else {
+                data.auto_size
+            },
+            tool_value: ui::LineEditData {
+                enabled: true,
+                text: to_single_line(&data.value).into(),
+                placeholder: Default::default(),
+                suggestions: vec_model(
+                    data.value_suggestions
+                        .iter()
+                        .map(|s| s.as_str().into())
+                        .collect(),
+                ),
+            },
+            tool_pressfit: data.auto_drill,
+            tool_no_copper: data.zone_rules.contains(ZoneRules::NO_COPPER),
+            tool_no_planes: data.zone_rules.contains(ZoneRules::NO_PLANES),
+            tool_no_exposures: data.zone_rules.contains(ZoneRules::NO_EXPOSURE),
+            tool_no_devices: data.zone_rules.contains(ZoneRules::NO_DEVICES),
             scene_image_pos: self.scene_image_pos,
             frame: self.frame,
             ..Default::default()
         }
     }
 
-    /// Applies `Board2dTabData` written by the UI.
+    /// Applies `Board2dTabData` written by the UI (tool bar edits, grid,
+    /// flip view).
     pub fn set_derived_ui_data(&mut self, data: &ui::Board2dTabData) -> TabUpdate {
+        let before = self.snapshot();
         let mut update = TabUpdate::default();
         self.scene_image_pos = data.scene_image_pos;
         let style = grid_style_from_ui(data.grid_style);
         if style != self.grid_style {
             update = self.set_grid_style(style);
         }
-        if let Ok(interval) = PositiveLength::new(length_from_ui(data.grid_interval.clone()))
-            && interval != self.grid_interval
-        {
-            self.grid_interval = interval;
-            self.apply_grid();
-            update.repaint = true;
-        }
+        let interval = PositiveLength::new(length_from_ui(data.grid_interval.clone()))
+            .unwrap_or(self.grid_interval);
         let unit = unit_from_ui(data.unit);
-        if unit != self.unit {
-            self.unit = unit;
-            update.data_changed = true;
+        if interval != self.grid_interval || unit != self.unit {
+            self.set_grid(interval, unit);
         }
         let side = if data.flip_view {
             BoardSide::Bottom
@@ -425,144 +985,516 @@ impl Board2dTab {
             update.repaint = true;
             update.data_changed = true;
         }
+        if data.ignore_placement_locks != self.fsm.settings().ignore_locks {
+            let settings = BoardEditorSettings {
+                ignore_locks: data.ignore_placement_locks,
+                ..self.fsm.settings().clone()
+            };
+            self.fsm.set_settings(settings);
+            update.data_changed = true;
+        }
+        for setting in self.tool_settings(data) {
+            self.run(|f, c| f.tool_setting(c, setting));
+        }
+        let mut after = self.after_fsm(&before);
+        after.repaint |= update.repaint;
+        after.data_changed |= update.data_changed
+            || data.tool_line_width.increase
+            || data.tool_line_width.decrease
+            || data.tool_size.increase
+            || data.tool_size.decrease
+            || data.tool_drill.increase
+            || data.tool_drill.decrease
+            || data.tool_angle.increase
+            || data.tool_angle.decrease;
+        after
+    }
+
+    /// The tool bar values changed by the UI (upstream
+    /// `Board2dTab::setDerivedUiData()`, only values which differ from the
+    /// FSM's).
+    fn tool_settings(&mut self, data: &ui::Board2dTabData) -> Vec<ToolSetting> {
+        let tool = self.fsm.tool();
+        let current = self.fsm.tool_data().clone();
+        let mut settings = Vec::new();
+        let nets = self.tool_nets();
+        if let Some((net, _)) = usize::try_from(data.tool_net.current_index)
+            .ok()
+            .and_then(|i| nets.get(i))
+            && *net != current.net
+        {
+            settings.push(ToolSetting::Net(*net));
+        }
+        let layers = sorted_layers(&current.layers);
+        if let Some(layer) = usize::try_from(data.tool_layer.current_index)
+            .ok()
+            .and_then(|i| layers.get(i))
+            && Some(*layer) != current.layer
+        {
+            settings.push(ToolSetting::Layer(*layer));
+        }
+        let mode = wire_mode_from_ui(data.tool_wire_mode);
+        if mode != current.wire_mode && tool == BoardTool::DrawTrace {
+            settings.push(ToolSetting::WireMode(mode));
+        }
+        if let Some(width) = self.line_width.set_ui_data(&data.tool_line_width) {
+            match tool {
+                BoardTool::DrawTrace => {
+                    if let Ok(w) = PositiveLength::new(width) {
+                        settings.push(ToolSetting::TraceWidth(w));
+                    }
+                }
+                _ => {
+                    if let Ok(w) = UnsignedLength::new(width) {
+                        settings.push(ToolSetting::LineWidth(w));
+                    }
+                }
+            }
+        }
+        match tool {
+            BoardTool::DrawTrace | BoardTool::AddVia => {
+                if tool == BoardTool::DrawTrace && data.tool_filled != current.auto_width {
+                    settings.push(ToolSetting::AutoWidth(data.tool_filled));
+                }
+                let size_changed = self.size.set_ui_data(&data.tool_size).is_some();
+                if size_changed || data.tool_mirrored != current.auto_size {
+                    let size = PositiveLength::new(self.size.value()).ok();
+                    settings.push(ToolSetting::ViaSize(if data.tool_mirrored {
+                        None
+                    } else {
+                        size
+                    }));
+                }
+                let drill_changed = self.drill.set_ui_data(&data.tool_drill).is_some();
+                if drill_changed || data.tool_pressfit != current.auto_drill {
+                    let drill = PositiveLength::new(self.drill.value()).ok();
+                    settings.push(ToolSetting::ViaDrill(if data.tool_pressfit {
+                        None
+                    } else {
+                        drill
+                    }));
+                }
+            }
+            BoardTool::AddStrokeText => {
+                if self.size.set_ui_data(&data.tool_size).is_some()
+                    && let Ok(h) = PositiveLength::new(self.size.value())
+                {
+                    settings.push(ToolSetting::TextHeight(h));
+                }
+                if data.tool_mirrored != current.mirrored {
+                    settings.push(ToolSetting::Mirrored(data.tool_mirrored));
+                }
+                let text = to_multi_line(&data.tool_value.text);
+                if text != current.value {
+                    settings.push(ToolSetting::Text(text));
+                }
+            }
+            BoardTool::AddHole => {
+                if self.drill.set_ui_data(&data.tool_drill).is_some()
+                    && let Ok(d) = PositiveLength::new(self.drill.value())
+                {
+                    settings.push(ToolSetting::HoleDiameter(d));
+                }
+            }
+            BoardTool::DrawPolygon | BoardTool::DrawZone => {
+                if tool == BoardTool::DrawPolygon && data.tool_filled != current.filled {
+                    settings.push(ToolSetting::Filled(data.tool_filled));
+                }
+                let angle = if data.tool_angle.increase {
+                    current.angle + Angle::DEG45
+                } else if data.tool_angle.decrease {
+                    current.angle + -Angle::DEG45
+                } else {
+                    Angle::new(data.tool_angle.value)
+                };
+                if angle != current.angle {
+                    settings.push(ToolSetting::Angle(angle));
+                }
+                if tool == BoardTool::DrawZone {
+                    let mut rules = ZoneRules::empty();
+                    rules.set(ZoneRules::NO_COPPER, data.tool_no_copper);
+                    rules.set(ZoneRules::NO_PLANES, data.tool_no_planes);
+                    rules.set(ZoneRules::NO_EXPOSURE, data.tool_no_exposures);
+                    rules.set(ZoneRules::NO_DEVICES, data.tool_no_devices);
+                    if rules != current.zone_rules {
+                        settings.push(ToolSetting::ZoneRules(rules));
+                    }
+                }
+            }
+            _ => {}
+        }
+        settings
+    }
+
+    // --- Actions ---
+
+    /// Handles a tab action (upstream `Board2dTab::trigger()`).
+    pub fn trigger(&mut self, action: ui::TabAction) -> TabUpdate {
+        use ui::TabAction as A;
+        let before = self.snapshot();
+        let mut extra = TabUpdate::default();
+        let grid = self.grid_interval.get();
+        let tool =
+            |t: BoardTool| move |f: &mut BoardEditorFsm, c: &mut BoardContext<'_>| f.set_tool(c, t);
+        let setting = |s: ToolSetting| {
+            move |f: &mut BoardEditorFsm, c: &mut BoardContext<'_>| f.tool_setting(c, s)
+        };
+        match action {
+            A::ZoomFit => {
+                let content = self.content_bounds();
+                self.canvas.zoom_fit(content);
+                extra.repaint = true;
+            }
+            A::ZoomIn => {
+                self.canvas.zoom_in();
+                extra.repaint = true;
+            }
+            A::ZoomOut => {
+                self.canvas.zoom_out();
+                extra.repaint = true;
+            }
+            A::LayersNone | A::LayersTop | A::LayersBottom | A::LayersTopBottom | A::LayersAll => {
+                self.apply_layer_preset(action);
+                extra.repaint = true;
+            }
+            A::GridIntervalIncrease => {
+                if let Ok(i) = PositiveLength::new(Length::new(grid.to_nm().saturating_mul(2))) {
+                    self.set_grid(i, self.unit);
+                }
+            }
+            A::GridIntervalDecrease => {
+                if grid.to_nm() % 2 == 0
+                    && let Ok(i) = PositiveLength::new(Length::new(grid.to_nm() / 2))
+                {
+                    self.set_grid(i, self.unit);
+                }
+            }
+            A::Abort => {
+                self.run(|f, c| f.abort(c));
+            }
+            A::SelectAll => {
+                self.run(|f, c| f.select_all(c));
+            }
+            A::Cut => {
+                self.run(|f, c| f.cut(c));
+            }
+            A::Copy => {
+                self.run(|f, c| f.copy(c));
+            }
+            A::Paste => {
+                with_clipboard(ensure_opened);
+                self.run(|f, c| f.paste(c));
+            }
+            A::Delete => {
+                self.run(|f, c| f.remove(c));
+            }
+            A::RotateCcw => {
+                self.run(|f, c| f.rotate(c, Angle::DEG90));
+            }
+            A::RotateCw => {
+                self.run(|f, c| f.rotate(c, -Angle::DEG90));
+            }
+            A::FlipHorizontally => {
+                self.run(|f, c| f.flip(c, Orientation::Horizontal));
+            }
+            A::FlipVertically => {
+                self.run(|f, c| f.flip(c, Orientation::Vertical));
+            }
+            A::MoveLeft | A::MoveRight | A::MoveUp | A::MoveDown => {
+                let (dx, dy): (i64, i64) = match action {
+                    A::MoveLeft => (-1, 0),
+                    A::MoveRight => (1, 0),
+                    A::MoveUp => (0, 1),
+                    _ => (0, -1),
+                };
+                let delta = librepcb_core::types::Point::new(
+                    Length::new(grid.to_nm() * dx),
+                    Length::new(grid.to_nm() * dy),
+                );
+                if !self.run(|f, c| f.move_by(c, delta)).unwrap_or(false) {
+                    self.canvas.scroll_steps(dx as f64, -dy as f64);
+                    extra.repaint = true;
+                }
+            }
+            A::SnapToGrid => {
+                self.run(|f, c| f.snap_to_grid(c));
+            }
+            A::Lock | A::Unlock => {
+                let locked = action == A::Lock;
+                self.run(|f, c| f.set_locked(c, locked));
+            }
+            A::LineWidthIncrease => {
+                self.run(|f, c| f.change_line_width(c, 1));
+            }
+            A::LineWidthDecrease => {
+                self.run(|f, c| f.change_line_width(c, -1));
+            }
+            A::LineWidthSet => {
+                self.run(|f, c| f.change_line_width(c, 0));
+            }
+            A::ResetTexts => {
+                self.run(|f, c| f.reset_all_texts(c));
+            }
+            A::EditProperties => {
+                self.run(|f, c| f.edit_properties(c));
+            }
+            A::BoardAddPlane => {
+                self.run(|f, c| f.auto_add_plane(c));
+            }
+            A::Undo | A::Redo => {
+                self.abort_blocking_tool();
+                let result = {
+                    let mut p = self.project.shared().lock();
+                    if action == A::Undo {
+                        p.editor.undo()
+                    } else {
+                        p.editor.redo()
+                    }
+                };
+                if let Err(e) = result {
+                    extra.requests.push(error_notification(e.to_string()));
+                }
+                // Air wires are derived data (not undone).
+                let mut p = self.project.shared().lock();
+                if let Err(e) = p.editor.rebuild_air_wires(self.board) {
+                    log::warn!("Failed to rebuild the air wires: {e}");
+                }
+            }
+            A::Save => {
+                self.abort_blocking_tool();
+                let result = self.project.shared().lock().save();
+                match result {
+                    Ok(()) => extra.status = Some(tr!("ProjectEditor", "Project saved")),
+                    Err(e) => extra.requests.push(error_notification(e.to_string())),
+                }
+                extra.project_modified = true;
+                extra.data_changed = true;
+            }
+            A::ToolSelect => {
+                self.run(tool(BoardTool::Select));
+            }
+            A::ToolWire => {
+                self.run(tool(BoardTool::DrawTrace));
+            }
+            A::ToolVia => {
+                self.run(tool(BoardTool::AddVia));
+            }
+            A::ToolPolygon => {
+                self.run(tool(BoardTool::DrawPolygon));
+            }
+            A::ToolText => {
+                self.run(tool(BoardTool::AddStrokeText));
+            }
+            A::ToolPlane => {
+                self.run(tool(BoardTool::DrawPlane));
+            }
+            A::ToolZone => {
+                self.run(tool(BoardTool::DrawZone));
+            }
+            A::ToolHole => {
+                self.run(tool(BoardTool::AddHole));
+            }
+            A::ToolMeasure => {
+                self.run(tool(BoardTool::Measure));
+            }
+            A::ToolbarTraceWidthSaveInBoard => {
+                self.run(setting(ToolSetting::SaveTraceWidthInBoard));
+            }
+            A::ToolbarTraceWidthSaveInNetclass => {
+                self.run(setting(ToolSetting::SaveTraceWidthInNetClass));
+            }
+            A::ToolbarViaDrillSaveInBoard => {
+                self.run(setting(ToolSetting::SaveViaDrillInBoard));
+            }
+            A::ToolbarViaDrillSaveInNetclass => {
+                self.run(setting(ToolSetting::SaveViaDrillInNetClass));
+            }
+            A::ToolPadTht
+            | A::ToolPadSmt
+            | A::ToolPadThermal
+            | A::ToolPadBga
+            | A::ToolPadEdgeConnector
+            | A::ToolPadTestPoint
+            | A::ToolPadLocalFiducial
+            | A::ToolPadGlobalFiducial
+            | A::ImportDxf => {
+                extra.status = Some(tr!(
+                    "MainWindow",
+                    "Not available yet in this version: {0}",
+                    format!("{action:?}")
+                ));
+            }
+            _ => return TabUpdate::default(),
+        }
+        let mut update = self.after_fsm(&before);
+        update.repaint |= extra.repaint;
+        update.data_changed |= extra.data_changed;
+        update.project_modified |= extra.project_modified;
+        if extra.status.is_some() {
+            update.status = extra.status;
+        }
+        update.requests.extend(extra.requests);
         update
     }
 
-    /// Handles a tab action.
-    pub fn trigger(&mut self, action: ui::TabAction) -> TabUpdate {
-        let content = self.scene.as_ref().and_then(BoardScene::content_bounds);
-        match action {
-            ui::TabAction::ZoomFit => self.canvas.zoom_fit(content),
-            ui::TabAction::ZoomIn => self.canvas.zoom_in(),
-            ui::TabAction::ZoomOut => self.canvas.zoom_out(),
-            ui::TabAction::LayersNone
-            | ui::TabAction::LayersTop
-            | ui::TabAction::LayersBottom
-            | ui::TabAction::LayersTopBottom
-            | ui::TabAction::LayersAll => self.apply_layer_preset(action),
-            ui::TabAction::GridIntervalIncrease => {
-                self.grid_interval = PositiveLength::new(self.grid_interval.get().scaled(2.0))
-                    .unwrap_or(self.grid_interval);
-                self.apply_grid();
-            }
-            ui::TabAction::GridIntervalDecrease => {
-                let half = Length::new(self.grid_interval.get().to_nm() / 2);
-                if let Ok(half) = PositiveLength::new(half) {
-                    self.grid_interval = half;
-                }
-                self.apply_grid();
-            }
-            ui::TabAction::Abort | ui::TabAction::ToolSelect => self.select(None),
-            _ => return TabUpdate::default(),
-        }
-        TabUpdate {
-            repaint: true,
-            data_changed: true,
-            ..TabUpdate::default()
-        }
+    fn content_bounds(&mut self) -> Option<librepcb_canvas::kurbo::Rect> {
+        let scene = self.scene.as_mut()?;
+        self.overlays.clear(scene.scene_mut());
+        let bounds = scene.content_bounds();
+        self.update_overlays();
+        bounds
     }
+
+    // --- Rendering and events ---
 
     /// Renders the scene.
     pub fn render_scene(&mut self, width: f32, height: f32, scale_factor: f32) -> slint::Image {
         let Some(scene) = &self.scene else {
             return slint::Image::default();
         };
-        self.canvas.render(
+        let image = self.canvas.render(
             scene.scene(),
             scene.content_bounds(),
             width,
             height,
             scale_factor,
-        )
+        );
+        self.update_overlays();
+        image
     }
 
-    /// Handles a pointer event.
+    /// Handles a pointer event (upstream `SlintGraphicsView::pointerEvent()`
+    /// and the `graphicsScene*()` handlers).
     pub fn pointer_event(
         &mut self,
         kind: PointerKind,
         button: PointerButton,
         pos: Point,
+        modifiers: Modifiers,
     ) -> TabUpdate {
-        match self.canvas.pointer_event(kind, button, pos) {
-            PointerAction::ViewChanged => TabUpdate::repaint(),
-            PointerAction::LeftPressed(world) => {
-                let object = self.object_at(world);
-                self.select(object);
-                TabUpdate::repaint()
+        let before = self.snapshot();
+        let action = self.canvas.pointer_event(kind, button, pos);
+        let m = fsm_modifiers(modifiers);
+        let event = |world: Point| PointerEvent::with_modifiers(point_from_world(world), m);
+        let mut cursor = None;
+        match action {
+            PointerAction::ViewChanged => {
+                self.update_overlays();
+                return TabUpdate {
+                    repaint: true,
+                    data_changed: self.canvas.is_panning() != before.panning,
+                    ..TabUpdate::default()
+                };
             }
-            PointerAction::Moved(world) => TabUpdate {
-                cursor: Some((world, self.unit)),
-                status: Some(
-                    self.object_at(world)
-                        .map(|o| self.describe(o))
-                        .unwrap_or_default(),
-                ),
-                ..TabUpdate::default()
-            },
-            _ => TabUpdate::default(),
-        }
-    }
-
-    fn object_at(&self, world: Point) -> Option<BoardObject> {
-        let scene = self.scene.as_ref()?;
-        let tolerance = self.canvas.view().pixels_to_world(HIT_TOLERANCE_PX);
-        let item = scene.scene().hit_test(world, tolerance)?;
-        scene.object(item)
-    }
-
-    /// Selects all items of an object (or clears the selection).
-    fn select(&mut self, object: Option<BoardObject>) {
-        self.selected = object;
-        let Some(scene) = &mut self.scene else {
-            return;
-        };
-        let items: Vec<_> = match object {
-            Some(o) => scene
-                .scene()
-                .items()
-                .map(|(id, _)| id)
-                .filter(|id| scene.object(*id) == Some(o))
-                .collect(),
-            None => Vec::new(),
-        };
-        let canvas = scene.scene_mut();
-        canvas.clear_selection();
-        for id in items {
-            canvas.set_selected(id, true);
-        }
-    }
-
-    /// A short description of an object for the status bar.
-    fn describe(&self, object: BoardObject) -> String {
-        let p = self.project.shared().lock();
-        let project = p.project();
-        match object {
-            BoardObject::Device(id) | BoardObject::FootprintPad(id, _) => {
-                let name = project
-                    .circuit()
-                    .component_instance(id)
-                    .map(|c| c.properties().name.to_string())
-                    .unwrap_or_default();
-                if matches!(object, BoardObject::FootprintPad(..)) {
-                    tr!("Board2dTab", "Pad of {0}", name)
+            PointerAction::LeftPressed(world) => {
+                let e = event(world);
+                self.cursor = Some(e.pos);
+                if self.double_click.press(pos) {
+                    self.run(|f, c| f.left_double_clicked(c, e));
                 } else {
-                    tr!("Board2dTab", "Device {0}", name)
+                    self.run(|f, c| f.left_pressed(c, e));
                 }
             }
-            BoardObject::Pad(..) => tr!("Board2dTab", "Pad"),
-            BoardObject::Via(..) => tr!("Board2dTab", "Via"),
-            BoardObject::Trace(..) => tr!("Board2dTab", "Trace"),
-            BoardObject::Plane(_) => tr!("Board2dTab", "Plane"),
-            BoardObject::Zone(_) => tr!("Board2dTab", "Zone"),
-            BoardObject::Polygon(_) => tr!("Board2dTab", "Polygon"),
-            BoardObject::StrokeText(_) => tr!("Board2dTab", "Text"),
-            BoardObject::Hole(_) => tr!("Board2dTab", "Hole"),
-            BoardObject::AirWire(_) => tr!("Board2dTab", "Air Wire"),
+            PointerAction::LeftReleased(world) => {
+                let e = event(world);
+                self.cursor = Some(e.pos);
+                self.run(|f, c| f.left_released(c, e));
+            }
+            PointerAction::Moved(world) => {
+                let e = event(world);
+                self.cursor = Some(e.pos);
+                cursor = Some((world, self.unit));
+                self.run(|f, c| f.pointer_moved(c, e));
+            }
+            PointerAction::ContextMenu(world) => {
+                let e = event(world);
+                self.cursor = Some(e.pos);
+                self.run(|f, c| f.right_released(c, e));
+            }
+            PointerAction::None => {}
         }
+        let mut update = self.after_fsm(&before);
+        update.cursor = cursor;
+        update
+    }
+
+    /// Handles a scroll event (zoom and scroll, like upstream).
+    pub fn scrolled(&mut self, pos: Point, delta: Vec2, modifiers: Modifiers) -> bool {
+        let changed = self.canvas.scroll_event(pos, delta, modifiers);
+        if changed {
+            self.update_overlays();
+        }
+        changed
+    }
+
+    /// Handles a key press or release in the scene; returns whether the FSM
+    /// handled it.
+    pub fn key_event(
+        &mut self,
+        event: &slint::language::KeyEvent,
+        pressed: bool,
+    ) -> (bool, TabUpdate) {
+        let Some(e) = fsm_key_event(event) else {
+            return (false, TabUpdate::default());
+        };
+        let before = self.snapshot();
+        let handled = self
+            .run(|f, c| {
+                if pressed {
+                    f.key_pressed(c, e)
+                } else {
+                    f.key_released(c, e)
+                }
+            })
+            .unwrap_or(false);
+        (handled, self.after_fsm(&before))
     }
 
     /// Bumps the frame counter (the UI then requests a new image).
     pub fn bump_frame(&mut self) {
         self.frame = self.frame.wrapping_add(1);
+    }
+}
+
+/// Layers of the layer combo box, sorted like upstream `Layer::sorted()`.
+fn sorted_layers(layers: &[Layer]) -> Vec<Layer> {
+    Layer::all()
+        .iter()
+        .copied()
+        .filter(|l| layers.contains(l))
+        .collect()
+}
+
+fn tool_to_ui(tool: BoardTool) -> ui::EditorTool {
+    match tool {
+        BoardTool::Select | BoardTool::AddDevice => ui::EditorTool::Select,
+        BoardTool::DrawTrace => ui::EditorTool::Wire,
+        BoardTool::AddVia => ui::EditorTool::Via,
+        BoardTool::DrawPolygon => ui::EditorTool::Polygon,
+        BoardTool::DrawPlane => ui::EditorTool::Plane,
+        BoardTool::DrawZone => ui::EditorTool::Zone,
+        BoardTool::AddHole => ui::EditorTool::Hole,
+        BoardTool::AddStrokeText => ui::EditorTool::Text,
+        BoardTool::Measure => ui::EditorTool::Measure,
+    }
+}
+
+fn wire_mode_to_ui(mode: WireMode) -> ui::WireMode {
+    match mode {
+        WireMode::HV => ui::WireMode::HV,
+        WireMode::VH => ui::WireMode::VH,
+        WireMode::Deg9045 => ui::WireMode::Deg9045,
+        WireMode::Deg4590 => ui::WireMode::Deg4590,
+        WireMode::Straight => ui::WireMode::Straight,
+    }
+}
+
+fn wire_mode_from_ui(mode: ui::WireMode) -> WireMode {
+    match mode {
+        ui::WireMode::HV => WireMode::HV,
+        ui::WireMode::VH => WireMode::VH,
+        ui::WireMode::Deg9045 => WireMode::Deg9045,
+        ui::WireMode::Deg4590 => WireMode::Deg4590,
+        ui::WireMode::Straight => WireMode::Straight,
     }
 }

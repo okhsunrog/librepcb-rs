@@ -1,0 +1,236 @@
+// Scene context menu and "add component" chooser of the schematic and board
+// editor tabs.
+//
+// Not from upstream: upstream opens Qt menus (QMenu) from the editor states
+// and a Qt dialog (AddComponentDialog). This file is part of librepcb-rs (the
+// chooser is a temporary minimal replacement until the dialog is ported).
+
+import { ScrollView } from "std-widgets.slint";
+import { Data } from "../api.slint";
+import { LineEdit, MenuItem, MenuPopup, MenuSeparator } from "../widgets.slint";
+
+// An entry of a scene context menu (empty text: separator).
+export struct SceneMenuEntry {
+    text: string,
+    enabled: bool,
+    checkable: bool,
+    checked: bool,
+    is-default: bool,
+}
+
+// An element found by the "add component" chooser.
+export struct ComponentChooserItem {
+    name: string,
+    description: string,
+    is-device: bool,
+}
+
+export global SceneEditor {
+    // Context menu: the backend sets the entries and position (relative to
+    // the scene) and increments `menu-serial` to show it in the tab of
+    // `menu-section`.
+    in-out property <int> menu-section: -1;
+    in-out property <length> menu-x;
+    in-out property <length> menu-y;
+    in-out property <[SceneMenuEntry]> menu-entries;
+    in-out property <int> menu-serial: 0;
+    callback menu-activated(int, int);  // Section, entry index
+
+    // Add component chooser, shown in the tab of `chooser-section`.
+    in-out property <int> chooser-section: -1;
+    in-out property <bool> chooser-shown: false;
+    in-out property <string> chooser-filter;
+    in-out property <[ComponentChooserItem]> chooser-items;
+    in-out property <int> chooser-current-index: -1;
+    callback chooser-filter-edited(string);
+    callback chooser-accepted(int, int);  // Section, item index
+    callback chooser-canceled(int);  // Section
+}
+
+export component SceneContextMenu inherits MenuPopup {
+    in property <int> section-index;
+
+    for entry[i] in SceneEditor.menu-entries: VerticalLayout {
+        if entry.text.is-empty: MenuSeparator { }
+        if !entry.text.is-empty: MenuItem {
+            text: entry.text;
+            enabled: entry.enabled;
+            checkable: entry.checkable;
+            checked: entry.checked;
+            default: entry.is-default;
+
+            clicked => {
+                SceneEditor.menu-activated(section-index, i);
+            }
+        }
+    }
+}
+
+export component ComponentChooser inherits Rectangle {
+    in property <int> section-index;
+
+    background: Data.theme.control;
+    border-color: Data.theme.control-border;
+    border-width: 1px;
+    border-radius: 5px;
+    forward-focus: filter-edt;
+
+    function accept-item(index: int) {
+        if (index >= 0) && (index < SceneEditor.chooser-items.length) {
+            SceneEditor.chooser-accepted(section-index, index);
+        }
+    }
+
+    // Swallow clicks on the background.
+    TouchArea { }
+
+    VerticalLayout {
+        padding: 8px;
+        spacing: 6px;
+
+        Text {
+            text: @tr("Add Component");
+            color: Data.theme.control-text;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        filter-edt := LineEdit {
+            text: SceneEditor.chooser-filter;
+            placeholder-text: @tr("Search...");
+            height: 25px;
+            vertical-stretch: 0;
+
+            init => {
+                self.focus();
+            }
+
+            text-edited(text) => {
+                self.text = text;
+                SceneEditor.chooser-filter = text;
+                SceneEditor.chooser-filter-edited(text);
+            }
+
+            text-accepted(text) => {
+                accept-item(max(SceneEditor.chooser-current-index, 0));
+            }
+
+            key-pressed(event) => {
+                if event.text == Key.Escape {
+                    SceneEditor.chooser-canceled(section-index);
+                    return accept;
+                } else if event.text == Key.DownArrow {
+                    SceneEditor.chooser-current-index = min(SceneEditor.chooser-current-index + 1, SceneEditor.chooser-items.length - 1);
+                    return accept;
+                } else if event.text == Key.UpArrow {
+                    SceneEditor.chooser-current-index = max(SceneEditor.chooser-current-index - 1, 0);
+                    return accept;
+                } else if event.text == Key.Return {
+                    accept-item(max(SceneEditor.chooser-current-index, 0));
+                    return accept;
+                }
+                reject
+            }
+        }
+
+        ScrollView {
+            vertical-stretch: 1;
+
+            VerticalLayout {
+                alignment: start;
+
+                for item[i] in SceneEditor.chooser-items: Rectangle {
+                    height: 36px;
+                    background: {
+                        if i == SceneEditor.chooser-current-index {
+                            Data.theme.control-checked
+                        } else if item-ta.has-hover {
+                            Data.theme.control-hovered
+                        } else {
+                            transparent
+                        }
+                    };
+
+                    item-ta := TouchArea {
+                        clicked => {
+                            SceneEditor.chooser-current-index = i;
+                        }
+
+                        double-clicked => {
+                            accept-item(i);
+                        }
+                    }
+
+                    VerticalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        padding-top: 2px;
+                        padding-bottom: 2px;
+
+                        Text {
+                            text: (item.is-device ? "▸ " : "") + item.name;
+                            color: Data.theme.control-text;
+                            font-size: 13px;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: item.description;
+                            color: Data.theme.control-text-disabled;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 6px;
+
+            cancel-btn := TouchArea {
+                width: cancel-txt.preferred-width + 20px;
+                height: 25px;
+
+                clicked => {
+                    SceneEditor.chooser-canceled(section-index);
+                }
+
+                Rectangle {
+                    border-radius: 3px;
+                    border-width: 1px;
+                    border-color: Data.theme.control-border;
+                    background: parent.has-hover ? Data.theme.control-hovered : transparent;
+
+                    cancel-txt := Text {
+                        text: @tr("Cancel");
+                        color: Data.theme.control-text;
+                    }
+                }
+            }
+
+            add-btn := TouchArea {
+                width: add-txt.preferred-width + 20px;
+                height: 25px;
+                enabled: SceneEditor.chooser-items.length > 0;
+
+                clicked => {
+                    accept-item(max(SceneEditor.chooser-current-index, 0));
+                }
+
+                Rectangle {
+                    border-radius: 3px;
+                    border-width: 1px;
+                    border-color: Data.theme.accent;
+                    background: parent.has-hover ? Data.theme.control-hovered : transparent;
+
+                    add-txt := Text {
+                        text: @tr("Add");
+                        color: Data.theme.control-text;
+                    }
+                }
+            }
+        }
+    }
+}

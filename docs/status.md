@@ -70,6 +70,11 @@ Done, in `crates/librepcb-core` unless noted:
   the open project live with a shared undo stack, the UI following the
   agent; M2d: ERC/DRC rule check panel (automatic ERC, background DRC,
   approvals, zoom to location) and exports/output jobs from the menus.
+  M3a (editing in the tabs) is in place: the schematic and board tabs
+  drive the `librepcb-editor` FSMs (tools, tool bars, overlays, context
+  menus, clipboard with upstream MIME types, cross-probing, undo/redo;
+  `crates/librepcb-app/tests/editing.rs`). Dialogs come with M3b (a
+  notification is shown; "add component" is a minimal chooser).
 
 ## Next steps
 

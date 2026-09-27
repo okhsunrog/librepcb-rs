@@ -44,6 +44,8 @@ use crate::tabs::{
 use crate::theme::UiTheme;
 use crate::workspace_models::{FileSystemTree, QuickAccess};
 
+mod tab_editing;
+
 /// The application version.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -88,6 +90,8 @@ pub struct State {
     pub(crate) status_timer: slint::Timer,
     /// The embedded MCP server (see [`crate::mcp`]).
     pub(crate) mcp: McpController,
+    /// Editing in the scene tabs (see [`tab_editing`]).
+    pub(crate) editing: tab_editing::EditingState,
 }
 
 thread_local! {
@@ -152,6 +156,7 @@ impl App {
                 sections_model: UiModel::shared(Vec::new()),
                 status_timer: slint::Timer::default(),
                 mcp: McpController::default(),
+                editing: tab_editing::EditingState::default(),
             })
         });
         let app = Self {
@@ -414,8 +419,7 @@ impl App {
                 convert_modifiers(&event.modifiers),
             )
         });
-        b.on_scene_key_pressed(|_, _| false);
-        b.on_scene_key_released(|_, _| false);
+        tab_editing::bind(&self.window, weak);
 
         // Pure helpers.
         b.on_is_shortcut(|event, command| helpers::is_shortcut(&event, &command));
@@ -642,6 +646,7 @@ impl State {
         let changed = sec.set_current_tab(tab);
         if changed {
             self.update_section_row(section);
+            self.abort_blocking_tools_except(section, tab);
         }
         if make_section_current && let Some(w) = self.window() {
             w.global::<ui::Data>()
@@ -723,6 +728,9 @@ impl State {
                 d.set_status_bar_message(status.into());
             }
         }
+        if !update.requests.is_empty() || update.project_modified {
+            self.apply_tab_requests(section, tab, update.requests, update.project_modified);
+        }
     }
 
     pub(crate) fn close_tab(&mut self, section: usize, tab: usize) {
@@ -731,6 +739,9 @@ impl State {
         };
         if matches!(sec.tabs().get(tab), Some(Tab::Home(_))) {
             return;
+        }
+        if let Some(t) = sec.tab_mut(tab) {
+            t.abort_blocking_tool();
         }
         sec.remove_tab(tab);
         self.update_section_row(section);
@@ -950,10 +961,20 @@ impl State {
         let (Ok(section), Ok(tab)) = (usize::try_from(section), usize::try_from(tab)) else {
             return;
         };
+        if matches!(
+            action,
+            ui::TabAction::Undo | ui::TabAction::Redo | ui::TabAction::Save
+        ) {
+            // A running tool keeps an undo group open: abort it first.
+            self.abort_all_blocking_tools(section, tab);
+        } else if !tab_editing::is_view_action(action) {
+            self.abort_blocking_tools_except(section, tab as i32);
+        }
         // Undo/redo/save and outputs (see `history.rs`, `outputs.rs`).
         if self.trigger_tab_history(section, tab, action)
             || self.trigger_tab_output(section, tab, action)
         {
+            self.after_tab_event(section, tab);
             return;
         }
         let update = match self.sections.get_mut(section).and_then(|s| s.tab_mut(tab)) {
@@ -961,6 +982,7 @@ impl State {
             None => return,
         };
         self.apply_update(section, tab, update);
+        self.after_tab_event(section, tab);
     }
 
     /// `Backend.trigger-project()`.
@@ -975,6 +997,7 @@ impl State {
         match action {
             ui::ProjectAction::Close => self.close_project(&project),
             ui::ProjectAction::Save => {
+                self.abort_project_tools(&project);
                 let result = project.shared().lock().save();
                 match result {
                     Ok(()) => self.show_status(&tr!("ProjectEditor", "Project saved"), 2000),
@@ -1042,16 +1065,22 @@ impl State {
         let Ok(section) = usize::try_from(section) else {
             return;
         };
+        let Some(tab) = self.sections.get(section).map(WindowSection::current_index) else {
+            return;
+        };
+        if event.kind == slint::language::PointerEventKind::Down {
+            self.abort_blocking_tools_except(section, tab);
+        }
         let Some(sec) = self.sections.get_mut(section) else {
             return;
         };
-        let tab = sec.current_index();
         let update = match sec.current_tab_mut() {
             Some(t) => t.pointer_event(pos, event),
             None => return,
         };
         if let Ok(tab) = usize::try_from(tab) {
             self.apply_update(section, tab, update);
+            self.after_tab_event(section, tab);
         }
     }
 
