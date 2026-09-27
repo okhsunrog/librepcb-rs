@@ -141,7 +141,7 @@ pub enum TabRequest {
         /// The entries.
         entries: Vec<ContextMenuEntry>,
     },
-    /// Open the "add component" chooser; the choice is passed back with
+    /// Open the "add component" dialog; the choice is passed back with
     /// [`Tab::add_component()`].
     AddComponent {
         /// Preselected search term.

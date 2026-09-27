@@ -702,7 +702,7 @@ impl SchematicTab {
         self.after_fsm(&before)
     }
 
-    /// A component was chosen in the "add component" chooser.
+    /// A component was chosen in the "add component" dialog.
     pub fn add_component(&mut self, choice: Option<ComponentChoice>) -> TabUpdate {
         let before = self.snapshot();
         if let Some(choice) = choice {
