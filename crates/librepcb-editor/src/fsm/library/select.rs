@@ -282,6 +282,33 @@ impl<H: ElementHost> SelectState<H> {
         true
     }
 
+    /// The positions of the selected items for "move/align" (upstream
+    /// `CmdDragSelectedFootprintItems::getPositions()`).
+    pub(crate) fn move_align_positions(&self, cx: &Cx<'_, '_, H>) -> Option<Vec<Point>> {
+        if self.sub != SubState::Idle || cx.out.selection.is_empty() {
+            return None;
+        }
+        H::container(cx.element(), cx.fpt()).map(|c| c.positions(&cx.out.selection))
+    }
+
+    /// Moves the selected items to new positions (upstream
+    /// `processMoveAlign()` with the result of the "move/align" dialog).
+    pub(crate) fn move_align(&mut self, cx: &mut Cx<'_, '_, H>, positions: &[Point]) -> bool {
+        if self.sub != SubState::Idle || cx.out.selection.is_empty() {
+            return false;
+        }
+        let items = cx.out.selection.clone();
+        let grid = cx.grid();
+        let positions = positions.to_vec();
+        cx.exec_group(drag_text::<H>(), |e, fpt| {
+            let c = H::container_mut(e, fpt)
+                .ok_or_else(|| crate::Error::InvalidArgument("No footprint.".to_owned()))?;
+            let mut drag = DragSelectedItems::new(&*c, items, grid);
+            drag.set_new_positions(c, &positions)
+        })
+        .is_some()
+    }
+
     /// Upstream `openContextMenuAtPos()`.
     fn open_context_menu(&mut self, cx: &mut Cx<'_, '_, H>, pos: Point) -> bool {
         let items = cx.ctx.view.items_at(pos, cx.ctx.view.tolerance());

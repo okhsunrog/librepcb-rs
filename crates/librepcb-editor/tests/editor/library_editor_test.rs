@@ -1054,3 +1054,53 @@ fn file_of_removed_model_is_deleted_on_save() {
     assert!(dir.join(format!("{new}.step")).exists());
     let _ = editor.element().directory().files("");
 }
+
+#[test]
+fn package_flip_and_move_align() {
+    let (_tmp, dir) = copy_element("pkg", RESC2012_PKG);
+    let mut editor: PackageEditor = open(&dir);
+    let original = editor.element().content();
+    let fpt = editor
+        .element()
+        .footprints()
+        .first()
+        .expect("footprint")
+        .uuid();
+    let mut fsm = PackageEditorFsm::new(LibraryEditorSettings::default());
+    let mut clip = MemoryClipboard::new();
+    run_pkg(&mut editor, &mut fsm, &mut clip, |fsm, ctx| {
+        assert!(fsm.set_footprint(ctx, Some(fpt)));
+        let pads: BTreeSet<_> = ctx
+            .editor
+            .element()
+            .footprints()
+            .by_uuid(&fpt)
+            .expect("fpt")
+            .pads()
+            .iter()
+            .map(|p| FootprintItem::Pad(p.uuid()))
+            .collect();
+        fsm.set_selection(pads);
+        let positions = fsm.move_align_positions(ctx).expect("positions");
+        assert_eq!(positions, [mm(0.975, 0.0), mm(-0.975, 0.0)]);
+        assert!(fsm.move_align(ctx, &[mm(1.0, 0.0), mm(-1.0, 0.0)]));
+        assert!(fsm.flip(ctx, Orientation::Horizontal));
+    });
+    let f = editor
+        .element()
+        .footprints()
+        .by_uuid(&fpt)
+        .expect("fpt")
+        .clone();
+    let pads: Vec<_> = f.pads().iter().collect();
+    // Flipped around the center (0/0): positions swapped, bottom side.
+    assert_eq!(pads[0].pad().position(), mm(-1.0, 0.0));
+    assert_eq!(pads[1].pad().position(), mm(1.0, 0.0));
+    assert!(
+        pads.iter()
+            .all(|p| p.pad().component_side() == librepcb_core::geometry::ComponentSide::Bottom)
+    );
+    assert_eq!(editor.history().len(), 2);
+    undo_all(&mut editor);
+    assert_eq!(editor.element().content(), original);
+}

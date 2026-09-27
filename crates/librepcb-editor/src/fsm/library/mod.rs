@@ -32,9 +32,11 @@
 //!   `immediate = true`); the group is committed when the operation
 //!   finishes and aborted (restoring the content) when it is canceled.
 //! - Info box texts are plain text (upstream HTML).
-//! - Not ported: adding images, DXF import, the "move/align" dialog (the
-//!   commands support it: [`TransformOp::SetPositions`](crate::library_editor::commands::TransformOp)),
-//!   pasting geometry into pads, resizing images.
+//! - The "move/align" dialog is the application's: it gets the positions
+//!   with [`LibraryEditorFsm::move_align_positions()`] and applies them
+//!   with [`LibraryEditorFsm::move_align()`].
+//! - Not ported: adding images, DXF import, pasting geometry into pads,
+//!   resizing images.
 
 pub mod hit_test;
 pub mod package;

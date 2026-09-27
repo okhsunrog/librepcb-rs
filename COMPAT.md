@@ -811,6 +811,32 @@ Rendering only; no file is affected.
   schematic (highlighted nets are reported), the "find" feature, aborting
   blocking tools of other editors (the application must abort them).
 
+### Library element editors (`library_editor`, `fsm::library`)
+
+- **Undo stack:** a group stores snapshots of the element content before
+  and after it (upstream: undo command objects). The grid interval and
+  message approvals are not part of the snapshots; changing them marks the
+  element as modified without undo, like upstream. A group without changes
+  is dropped.
+- **Auxiliary files:** image files of removed symbol images and STEP files
+  of removed 3D models are deleted when saving (upstream: immediately, by
+  `CmdImageRemove` / `CmdPackageModelRemove`, restored on undo). Writing a
+  STEP file (`AddPackageModel`, `EditPackageModel`) is not undone; files
+  written since the last save which are unreferenced at the next save are
+  deleted.
+- **Live previews** modify the element inside the open undo group (upstream:
+  edit commands with `immediate = true`); the undo steps are upstream's.
+- **Hit testing:** the FSMs query a view (`LibraryView`); the model based
+  `ModelHitTester` approximates texts by rectangles (0.7 × height per
+  character) and pins by their line; `SymbolScene`/`FootprintScene` map
+  their items to objects (zones are not drawn by `FootprintScene`, like the
+  upstream graphics export).
+- **Dialogs** (pin/pad/polygon properties, import pins, courtyard excess,
+  fix parameters) are requests to the application; check fixes take their
+  answers as `FixParams`.
+- Not ported: adding images and resizing them, DXF import, "paste
+  geometry" into pads; the clipboard data has no pixmap.
+
 ## project (output job runner)
 
 - **Graphics jobs** need a `GraphicsExporter` set by the caller

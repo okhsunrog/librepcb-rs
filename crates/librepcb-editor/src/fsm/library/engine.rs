@@ -400,6 +400,22 @@ impl<H: ElementHost> LibraryEditorFsm<H> {
             .unwrap_or(false)
     }
 
+    /// The positions of the selected items for the "move/align" dialog
+    /// (upstream `processMoveAlign()`); `None` if nothing is selected or
+    /// another tool is active.
+    pub fn move_align_positions(&mut self, ctx: &mut LibraryContext<'_, H>) -> Option<Vec<Point>> {
+        self.with_select_state(ctx, |s, cx| s.move_align_positions(cx))
+            .flatten()
+    }
+
+    /// Moves the selected items to the positions chosen in the
+    /// "move/align" dialog (same order as
+    /// [`move_align_positions()`](Self::move_align_positions)).
+    pub fn move_align(&mut self, ctx: &mut LibraryContext<'_, H>, positions: &[Point]) -> bool {
+        self.with_select_state(ctx, |s, cx| s.move_align(cx, positions))
+            .unwrap_or(false)
+    }
+
     // --- Input events ---
 
     /// A key was pressed.
