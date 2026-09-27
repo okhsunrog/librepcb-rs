@@ -18,8 +18,7 @@
 //!   in the scene crate (which depends on core). Without an exporter, these
 //!   jobs fail with [`OutputJobError::Unsupported`].
 //! - Not supported yet (the job fails with [`OutputJobError::Unsupported`]):
-//!   interactive HTML BOM and 3D (STEP) jobs, since the HTML BOM generator
-//!   and the STEP export are not ported yet.
+//!   3D (STEP) jobs, since the STEP export is not ported yet.
 //! - Archive jobs collect their input files in an in-memory transactional
 //!   file system (upstream opens a writable one in a temporary directory,
 //!   which is left behind); the archive content is the same.
@@ -32,7 +31,9 @@ use librepcb_i18n::tr;
 use super::board::{
     BoardExportError, BoardFabricationOutputSettings, BoardGerberExport, ExportInfo,
 };
-use super::board::{BoardPickPlaceGenerator, export_d356_netlist};
+use super::board::{
+    BoardInteractiveHtmlBomGenerator, BoardPickPlaceGenerator, export_d356_netlist,
+};
 use super::circuit::AssemblyVariant;
 use super::{
     AssemblyVariantId, BoardId, BomGenerator, Project, ProjectAttributeLookup, SchematicId,
@@ -49,8 +50,9 @@ use crate::fileio::{
 };
 use crate::job::{
     ArchiveOutputJob, BomOutputJob, CopyOutputJob, GerberExcellonOutputJob, GerberX3OutputJob,
-    GraphicsContentType, GraphicsOutputJob, LppzOutputJob, NetlistOutputJob, ObjectSet, OutputJob,
-    OutputJobKind, PickPlaceOutputJob, ProjectJsonOutputJob,
+    GraphicsContentType, GraphicsOutputJob, InteractiveHtmlBomOutputJob, LppzOutputJob,
+    NetlistOutputJob, ObjectSet, OutputJob, OutputJobKind, PickPlaceOutputJob,
+    ProjectJsonOutputJob,
 };
 use crate::types::Uuid;
 
@@ -68,8 +70,8 @@ pub enum OutputJobError {
         tr!(TR_CONTEXT, "You may need a more recent LibrePCB version to run this job.")
     )]
     UnknownJobType(String),
-    /// The job type is known, but not supported by this port yet (graphics,
-    /// interactive HTML BOM and 3D jobs). Not an upstream error.
+    /// The job type is known, but not supported by this port yet (3D jobs,
+    /// graphics jobs without exporter). Not an upstream error.
     #[error(
         "Output jobs of type '{0}' are not supported yet by this LibrePCB version (librepcb-rs)."
     )]
@@ -101,6 +103,9 @@ pub enum OutputJobError {
     /// Unsupported output file extension of a BOM job.
     #[error("Unsupported BOM format: '{0}'")]
     UnsupportedBomFormat(String),
+    /// Unsupported output file extension of an interactive BOM job.
+    #[error("Unsupported interactive BOM format: '{0}'")]
+    UnsupportedInteractiveBomFormat(String),
     /// Unsupported output file extension of an archive job.
     #[error("Unsupported archive format: '{0}'")]
     UnsupportedArchiveFormat(String),
@@ -386,7 +391,8 @@ impl<'a> OutputJobRunner<'a> {
                     return Err(OutputJobError::Unsupported(job.type_name().to_owned()));
                 }
             },
-            OutputJobKind::InteractiveHtmlBom(_) | OutputJobKind::Board3D(_) => {
+            OutputJobKind::InteractiveHtmlBom(j) => self.run_interactive_html_bom(uuid, j)?,
+            OutputJobKind::Board3D(_) => {
                 return Err(OutputJobError::Unsupported(job.type_name().to_owned()));
             }
             OutputJobKind::Unknown(_) => {
@@ -757,6 +763,48 @@ impl<'a> OutputJobRunner<'a> {
                 } else {
                     return Err(OutputJobError::UnsupportedBomFormat(fp.suffix().to_owned()));
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn run_interactive_html_bom(
+        &mut self,
+        uuid: Uuid,
+        job: &InteractiveHtmlBomOutputJob,
+    ) -> OutputJobResult<()> {
+        let boards = self.boards(&job.boards)?;
+        let variants = self.assembly_variants(&job.assembly_variants)?;
+        for board in boards {
+            // Rebuild planes to be sure no outdated planes are exported!
+            self.rebuild_outdated_planes(board)?;
+
+            let project = &*self.project;
+            let b = required_board(project, board)?;
+            for av in &variants {
+                let variant = required_variant(project, *av)?;
+                let lookup = ProjectAttributeLookup::for_board(project, b, Some(variant));
+                let fp = self
+                    .writer
+                    .begin_writing_file(&uuid, &output_path(&lookup, &job.output_path))?;
+                let suffix = fp.suffix().to_lowercase();
+                if !matches!(suffix.as_str(), "html" | "htm" | "xhtml") {
+                    return Err(OutputJobError::UnsupportedInteractiveBomFormat(
+                        fp.suffix().to_owned(),
+                    ));
+                }
+                let mut generator = BoardInteractiveHtmlBomGenerator::new(project, board, *av)?;
+                generator.set_custom_attributes(job.custom_attributes.clone());
+                generator.set_component_order(job.component_order.clone());
+                let mut ibom = generator.generate(self.info.creation_date)?;
+                ibom.set_view_config(job.view_mode, job.highlight_pin1, job.dark_mode);
+                ibom.set_board_rotation(job.board_rotation, job.offset_back_rotation);
+                ibom.set_show_silkscreen(job.show_silkscreen);
+                ibom.set_show_fabrication(job.show_fabrication);
+                ibom.set_show_pads(job.show_pads);
+                ibom.set_check_boxes(job.check_boxes.clone());
+                let html = ibom.generate_html()?;
+                file_utils::write_file(&fp, html.as_bytes())?;
             }
         }
         Ok(())

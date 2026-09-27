@@ -114,6 +114,11 @@ impl ContextPad<'_> {
         self.on_board().is_on_layer(layer)
     }
 
+    /// Upstream `BI_Pad::getSolderLayer()`.
+    pub fn solder_layer(&self) -> Layer {
+        self.on_board().solder_layer()
+    }
+
     /// Upstream `BI_Pad::getComponentSide()`.
     pub fn component_side(&self) -> ComponentSide {
         self.on_board().component_side()

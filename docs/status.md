@@ -6,7 +6,7 @@ covers where things stand and how the work has been organized.
 
 ## Where we are
 
-Milestone M1 (headless `librepcb-cli`) is done except the interactive HTML BOM;
+Milestone M1 (headless `librepcb-cli`) is done (without 3D/STEP);
 M1.5 (MCP) is in progress. About 1100 tests pass.
 
 Done, in `crates/librepcb-core` unless noted:
@@ -33,12 +33,14 @@ Done, in `crates/librepcb-core` unless noted:
 - **Checks:** ERC and DRC; messages and approvals match `librepcb-cli`
   on all upstream test projects (DRC: 37/37 boards).
 - **Exports:** plane fragments, Gerber/Excellon, pick & place, Gerber X3,
-  IPC-D-356A, BOM, project JSON; about 1000 files compared byte for byte
-  with `librepcb-cli`. Output jobs (`job`) and the output job runner.
+  IPC-D-356A, BOM, project JSON, interactive HTML BOM (`interactive-html-bom`
+  crate like upstream); about 1000 files compared byte for byte with
+  `librepcb-cli`. Output jobs (`job`) and the output job runner.
 - **File format migrations** v0.1 → v1 → v2, byte-identical incl. `jobs.lp`.
 - **`crates/librepcb-cli`:** port of the upstream CLI. Upstream
-  `tests/cli`: 162 passed, 7 failed (interactive HTML BOM jobs and
-  `--version`), 9 skipped (STEP).
+  `tests/cli`: 162 passed, 1 failed (`--version`), 15 skipped (STEP,
+  incl. the 6 `--run-jobs` cases whose job lists contain a STEP job: 3D
+  jobs fail like an upstream build without OpenCascade).
 - **`crates/librepcb-editor`:** undo stack and intent-level commands
   (components, wiring with forced net names, devices, traces, vias,
   planes, outline, autorouting) used by MCP and later the UI.
@@ -61,11 +63,10 @@ Done, in `crates/librepcb-core` unless noted:
    built-in router, DRC, output jobs); end-to-end design over stdio with
    the official libraries, verified by `librepcb-cli`
    (`LIBREPCB_TEST_LIBRARIES_DIR`). `jobs_run` skips job types which are
-   not ported yet (interactive HTML BOM, 3D).
-2. Interactive HTML BOM output job.
-3. Then M2 (viewer) per `roadmap.md`.
+   not ported yet (3D).
+2. Then M2 (viewer) per `roadmap.md`.
 
-Deliberately deferred: the interactive HTML BOM, 3D/STEP, and the
+Deliberately deferred: 3D/STEP and the
 Eagle/KiCad importers (M5).
 
 ## How the work is organized

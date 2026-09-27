@@ -7,8 +7,8 @@
 //! - Graphics exports (schematics, symbols, footprints, graphics output
 //!   jobs) are written by the scene crate (`librepcb_scene::export`); the
 //!   files differ from Qt's bytes.
-//! - The interactive HTML BOM, 3D/STEP exports and the STEP model commands
-//!   are not supported yet and fail with an error.
+//! - 3D/STEP exports (output jobs) and the STEP model commands are not
+//!   supported yet and fail like an upstream build without OpenCascade.
 //! - The DRC is not available yet (see [`drc`]).
 //! - `--version` prints no Qt and OpenCascade versions.
 //! - `--verbose` logging uses the `log`/`env_logger` format.
