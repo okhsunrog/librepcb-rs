@@ -19,8 +19,9 @@ use crate::tabs::TabId;
 
 /// The open form dialog.
 pub struct OpenDialog {
-    /// The project the dialog works on.
-    pub project: Rc<AppProject>,
+    /// The project the dialog works on (`None` for library editor
+    /// dialogs).
+    pub project: Option<Rc<AppProject>>,
     /// The tab which opened the dialog (for results going back to it).
     pub tab: Option<TabId>,
     /// The dialog.
@@ -49,6 +50,20 @@ impl State {
     pub(crate) fn open_form_dialog(
         &mut self,
         project: Rc<AppProject>,
+        tab: Option<TabId>,
+        dialog: Box<dyn FormDialog>,
+    ) {
+        self.open_dialog(Some(project), tab, dialog);
+    }
+
+    /// Shows a form dialog of a library editor tab (without project).
+    pub fn open_library_dialog(&mut self, tab: Option<TabId>, dialog: Box<dyn FormDialog>) {
+        self.open_dialog(None, tab, dialog);
+    }
+
+    fn open_dialog(
+        &mut self,
+        project: Option<Rc<AppProject>>,
         tab: Option<TabId>,
         dialog: Box<dyn FormDialog>,
     ) {
@@ -128,7 +143,7 @@ impl State {
             d.set_form_side_width(options.side_width);
         }
         let ctx = DialogContext {
-            project: &open.project,
+            project: open.project.as_ref(),
             workspace: Some(&workspace),
         };
         match open.dialog.preview(&ctx) {
@@ -151,7 +166,7 @@ impl State {
             return;
         };
         let ctx = DialogContext {
-            project: &open.project,
+            project: open.project.as_ref(),
             workspace: Some(&workspace),
         };
         open.dialog.field_event(&ctx, &id, event);
@@ -181,10 +196,10 @@ impl State {
         let Some(open) = self.form_dialog.as_mut() else {
             return;
         };
-        let project = Rc::clone(&open.project);
+        let project = open.project.clone();
         let tab = open.tab;
         let ctx = DialogContext {
-            project: &project,
+            project: project.as_ref(),
             workspace: Some(&workspace),
         };
         match open.dialog.apply(&ctx) {
@@ -198,10 +213,16 @@ impl State {
                 match applied {
                     Applied::Nothing => {}
                     Applied::Project => {
-                        self.project_changed_by_tab(&project);
+                        if let Some(project) = &project {
+                            self.project_changed_by_tab(project);
+                        }
                     }
                     Applied::Tab(result) => self.form_dialog_tab_result(tab, result),
-                    Applied::RunJobs { title, jobs } => self.run_jobs(&project, title, jobs),
+                    Applied::RunJobs { title, jobs } => {
+                        if let Some(project) = &project {
+                            self.run_jobs(project, title, jobs);
+                        }
+                    }
                 }
                 if !close {
                     self.refresh_form_dialog(false);
@@ -220,21 +241,25 @@ impl State {
         let Some(open) = self.form_dialog.as_mut() else {
             return;
         };
-        let project = Rc::clone(&open.project);
+        let project = open.project.clone();
         let ctx = DialogContext {
-            project: &project,
+            project: project.as_ref(),
             workspace: Some(&workspace),
         };
         match open.dialog.button(&ctx, index) {
             Ok(ButtonResult::Keep) => self.refresh_form_dialog(true),
             Ok(ButtonResult::Modified) => {
                 self.refresh_form_dialog(true);
-                self.project_changed_by_tab(&project);
+                if let Some(project) = &project {
+                    self.project_changed_by_tab(project);
+                }
             }
             Ok(ButtonResult::Close) => self.close_form_dialog(),
             Ok(ButtonResult::RunJobs { title, jobs }) => {
                 self.refresh_form_dialog(true);
-                self.run_jobs(&project, title, jobs);
+                if let Some(project) = &project {
+                    self.run_jobs(project, title, jobs);
+                }
             }
             Err(message) => {
                 if let Some(w) = self.window() {
@@ -255,6 +280,10 @@ impl State {
     }
 
     fn form_dialog_tab_result(&mut self, tab: Option<TabId>, result: TabDialogResult) {
+        if let TabDialogResult::RemoveLibraryElements(paths) = &result {
+            self.remove_library_elements(paths);
+            return;
+        }
         let Some((si, ti)) = tab.and_then(|t| self.find_tab(t)) else {
             return;
         };
@@ -265,6 +294,7 @@ impl State {
             TabDialogResult::ImportDxf(settings) => {
                 self.sections[si].tabs_mut()[ti].import_dxf(settings)
             }
+            TabDialogResult::RemoveLibraryElements(_) => return,
             TabDialogResult::Positions(_) => {
                 // Only the package editor uses the move/align dialog (M4).
                 log::debug!("Move/align result without a library editor tab.");

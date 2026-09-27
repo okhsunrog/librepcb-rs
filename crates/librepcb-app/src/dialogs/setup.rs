@@ -559,7 +559,7 @@ impl FormDialog for BoardSetupDialog {
         let f = &self.form;
         let name = ElementName::new(f.get_text("name").trim()).map_err(|e| e.to_string())?;
         let mut settings = {
-            let p = ctx.project.shared().lock();
+            let p = ctx.project()?.shared().lock();
             let board = p
                 .project()
                 .board(self.board)
@@ -595,7 +595,7 @@ impl FormDialog for BoardSetupDialog {
         settings.drc_settings = self.drc_settings()?;
         let board = self.board;
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardEdit", "Modify Board Setup"),
             |e| {
                 let renamed = e.project().board(board).is_some_and(|b| *b.name() != name);
@@ -1013,7 +1013,7 @@ impl FormDialog for ProjectSetupDialog {
         let author = f.get_text("author").trim().to_owned();
         let locales = self.locales.clone();
         let norms = self.norms.clone();
-        transaction(ctx.project, tr!(PSD, "Modify Project Setup"), |e| {
+        transaction(ctx.project()?, tr!(PSD, "Modify Project Setup"), |e| {
             e.execute(EditProjectMetadata {
                 name: Some(name),
                 author: Some(author),

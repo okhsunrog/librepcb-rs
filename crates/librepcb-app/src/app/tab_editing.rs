@@ -195,6 +195,14 @@ impl State {
                     let dialog = crate::dialogs::board::DxfImportDialog::new(fp, &layers, unit);
                     self.open_form_dialog(project, Some(id), Box::new(dialog));
                 }
+                TabRequest::OpenLibrary { .. }
+                | TabRequest::DownloadLibrary { .. }
+                | TabRequest::LibraryDownloaded(_)
+                | TabRequest::LibraryModified
+                | TabRequest::RescanLibraries
+                | TabRequest::OpenLibraryElement { .. }
+                | TabRequest::RemoveLibraryElements(_)
+                | TabRequest::ChooseLibraryIcon => self.apply_library_request(id, request),
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {
                         continue;

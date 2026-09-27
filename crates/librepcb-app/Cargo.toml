@@ -19,6 +19,7 @@ test = false
 workspace = true
 
 [dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["std", "clock"] }
 clap = { version = "4.6.7", features = ["derive"] }
 clipboard-rs = { version = "0.3.5", default-features = false, features = ["wayland"] }
 env_logger = "0.11.11"
@@ -28,6 +29,7 @@ librepcb-core = { version = "0.1.0", path = "../librepcb-core" }
 librepcb-editor = { version = "0.1.0", path = "../librepcb-editor" }
 librepcb-i18n = { version = "0.1.0", path = "../librepcb-i18n" }
 librepcb-mcp = { version = "0.1.0", path = "../librepcb-mcp", features = ["http"] }
+librepcb-network = { version = "0.1.0", path = "../librepcb-network" }
 librepcb-scene = { version = "0.1.0", path = "../librepcb-scene" }
 log = "0.4.34"
 open = "5.4.4"
@@ -36,7 +38,8 @@ png = "0.18.1"
 rfd = "0.17.2"
 slint = "1.18.1"
 thiserror = "2.0.21"
-tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "sync"] }
+tokio-util = "0.7.19"
 
 [features]
 # Slint's embedded MCP server for driving the UI from agents (see the crate

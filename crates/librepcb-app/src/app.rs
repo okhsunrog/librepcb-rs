@@ -39,13 +39,16 @@ use crate::notifications::{Notification, Notifications};
 use crate::project::AppProject;
 use crate::section::WindowSection;
 use crate::tabs::{
-    Board2dTab, SchematicTab, Tab, TabId, TabUpdate, convert_modifiers, format_cursor,
+    Board2dTab, DerivedWrite, SchematicTab, Tab, TabId, TabUpdate, convert_modifiers, format_cursor,
 };
 use crate::theme::UiTheme;
 use crate::workspace_models::{FileSystemTree, QuickAccess};
 
 mod add_component_host;
 mod dialog_host;
+mod libraries_panel;
+mod library_elements;
+mod library_host;
 mod tab_editing;
 
 pub use add_component_host::OpenAddComponent;
@@ -102,6 +105,13 @@ pub struct State {
     pub(crate) form_dialog: Option<OpenDialog>,
     /// The open "add component" dialog.
     pub(crate) add_component: Option<OpenAddComponent>,
+    /// The local libraries of the libraries panel.
+    pub(crate) local_libraries: crate::library_manager::LibrariesModel,
+    /// The remote libraries of the libraries panel.
+    pub(crate) remote_libraries: crate::library_manager::LibrariesModel,
+    /// The opened libraries (`Data.libraries`).
+    pub(crate) libraries: Vec<Rc<crate::open_library::OpenLibrary>>,
+    pub(crate) libraries_model: Rc<UiModel<ui::LibraryData>>,
 }
 
 thread_local! {
@@ -169,6 +179,10 @@ impl App {
                 editing: tab_editing::EditingState::default(),
                 form_dialog: None,
                 add_component: None,
+                local_libraries: crate::library_manager::LibrariesModel::new(false),
+                remote_libraries: crate::library_manager::LibrariesModel::new(true),
+                libraries: Vec::new(),
+                libraries_model: UiModel::shared(Vec::new()),
             })
         });
         let app = Self {
@@ -210,13 +224,13 @@ impl App {
         d.set_notifications_shown(false);
         d.set_quick_access_items(model_rc(s.quick_access.borrow().model()));
         d.set_workspace_folder_tree(model_rc(s.file_tree.borrow().model()));
-        d.set_local_libraries(vec_model(Vec::new()));
-        d.set_local_libraries_data(ui::LibraryListData::default());
-        d.set_remote_libraries(vec_model(Vec::new()));
-        d.set_remote_libraries_data(ui::LibraryListData::default());
+        d.set_local_libraries(model_rc(s.local_libraries.model()));
+        d.set_local_libraries_data(s.local_libraries.ui_data());
+        d.set_remote_libraries(model_rc(s.remote_libraries.model()));
+        d.set_remote_libraries_data(s.remote_libraries.ui_data());
         d.set_libraries_panel_filter(SharedString::new());
         d.set_libraries_rescan_in_progress(false);
-        d.set_libraries(vec_model(Vec::new()));
+        d.set_libraries(model_rc(&s.libraries_model));
         d.set_projects(model_rc(&s.projects_model));
         d.set_min_length(helpers::length_to_ui(Length::MIN));
         d.set_norms(vec_model(vec!["IEC 60617".into(), "IEEE 315".into()]));
@@ -384,12 +398,12 @@ impl App {
             });
         });
         let w = weak.clone();
-        b.on_trigger_library(move |_, action| {
-            deferred(&w, move |s| s.not_implemented(&format!("{action:?}")));
+        b.on_trigger_library(move |path, action| {
+            deferred(&w, move |s| s.trigger_library(&path, action));
         });
         let w = weak.clone();
-        b.on_trigger_library_element(move |_, action| {
-            deferred(&w, move |s| s.not_implemented(&format!("{action:?}")));
+        b.on_trigger_library_element(move |path, action| {
+            deferred(&w, move |s| s.trigger_library_element(&path, action));
         });
 
         // Scene rendering and events.
@@ -432,6 +446,7 @@ impl App {
             )
         });
         tab_editing::bind(&self.window, weak);
+        libraries_panel::bind(weak);
         dialog_host::bind(&self.window, weak);
         add_component_host::bind(&self.window, weak);
 
@@ -456,8 +471,22 @@ impl App {
         b.on_request_project_preview(|_, _, _| true);
         b.on_get_organizations_with_design_rules(|| vec_model(Vec::new()));
         b.on_can_drop_tab(|_, _| false);
-        b.on_libraries_key_pressed(|_| {
-            slint::private_unstable_api::re_exports::EventResult::Reject
+        let w = weak.clone();
+        b.on_libraries_key_pressed(move |event| {
+            use slint::private_unstable_api::re_exports::EventResult;
+            let handled = w
+                .upgrade()
+                .and_then(|s| {
+                    s.try_borrow_mut()
+                        .ok()
+                        .map(|mut s| s.libraries_filter_key(&event))
+                })
+                .unwrap_or(false);
+            if handled {
+                EventResult::Accept
+            } else {
+                EventResult::Reject
+            }
         });
         let w = weak.clone();
         b.on_toggle_theme(move || deferred(&w, |s| s.set_theme(s.theme.next())));
@@ -553,6 +582,11 @@ impl State {
         &self.sections
     }
 
+    /// Window sections, mutably (tests).
+    pub fn sections_mut(&mut self) -> &mut [WindowSection] {
+        &mut self.sections
+    }
+
     /// The workspace (shared with the embedded MCP server; lock order:
     /// workspace before project, never lock it while holding a project
     /// lock).
@@ -578,7 +612,8 @@ impl State {
     /// Connects the handlers of a section's models; they find the section
     /// by its tab models (sections may move).
     pub(crate) fn connect_section(&self, section: &WindowSection) {
-        let (tabs, schematic, board) = section.models();
+        let (tabs, derived) = section.models();
+        let (schematic, board) = (&derived.schematic, &derived.board);
         let tabs_ptr = Rc::as_ptr(tabs) as usize;
         let find = move |s: &State| {
             s.sections
@@ -590,11 +625,30 @@ impl State {
             deferred(&w, move |s| {
                 if let Some(i) = find(s)
                     && let Some(tab) = s.sections[i].tab_mut(row)
+                    && tab.set_ui_data(&data)
                 {
-                    tab.set_ui_data(&data);
+                    s.sections[i].refresh_derived(row, &s.projects);
                 }
             });
         });
+        macro_rules! connect {
+            ($model:ident, $variant:ident) => {
+                let w = self.this.clone();
+                derived.$model.set_handler(move |row, data| {
+                    deferred(&w, move |s| {
+                        if let Some(i) = find(s)
+                            && let Some(tab) = s.sections[i].tab_mut(row)
+                        {
+                            let update = tab.set_derived(DerivedWrite::$variant(data));
+                            s.apply_update(i, row, update);
+                        }
+                    });
+                });
+            };
+        }
+        connect!(create_library, CreateLibrary);
+        connect!(download_library, DownloadLibrary);
+        connect!(library, Library);
         let w = self.this.clone();
         schematic.set_handler(move |row, data: ui::SchematicTabData| {
             deferred(&w, move |s| {
@@ -924,8 +978,15 @@ impl State {
                 }
             }
             ui::Action::ProjectOpen => self.open_project_dialog(),
-            ui::Action::LibraryPanelEnsurePopulated => {}
             ui::Action::WorkspaceLibrariesRescan => self.start_library_scan(),
+            ui::Action::LibraryPanelEnsurePopulated
+            | ui::Action::LibraryPanelCheckForUpdates
+            | ui::Action::LibraryPanelCancelUpdateCheck
+            | ui::Action::LibraryPanelToggleAll
+            | ui::Action::LibraryPanelApply
+            | ui::Action::LibraryPanelCancel
+            | ui::Action::LibraryCreate
+            | ui::Action::LibraryDownload => self.trigger_libraries_action(action),
             other => self.not_implemented(&format!("{other:?}")),
         }
     }
@@ -1164,23 +1225,6 @@ impl State {
         }
     }
 
-    /// Updates the installed libraries (`Data.local-libraries`,
-    /// `Data.remote-libraries`) from the library database.
-    pub(crate) fn refresh_libraries(&mut self) {
-        let Some(w) = self.window() else { return };
-        let d = w.global::<ui::Data>();
-        let ws = self.workspace.lock();
-        let db = ws.library_db();
-        let remote_dir = ws.remote_libraries_path();
-        let locales = ws.settings().library_locale_order.get().clone();
-        let local = libraries::installed_libraries(db, &remote_dir, false, &locales);
-        let remote = libraries::installed_libraries(db, &remote_dir, true, &locales);
-        d.set_local_libraries_data(libraries::list_data(&local, false));
-        d.set_remote_libraries_data(libraries::list_data(&remote, true));
-        d.set_local_libraries(vec_model(local));
-        d.set_remote_libraries(vec_model(remote));
-    }
-
     /// Starts a background rescan of the workspace libraries.
     pub(crate) fn start_library_scan(&mut self) {
         if let Some(w) = self.window() {
@@ -1195,6 +1239,7 @@ impl State {
                 }
                 if ok {
                     s.refresh_libraries();
+                    s.refresh_library_tabs();
                 }
             });
         });

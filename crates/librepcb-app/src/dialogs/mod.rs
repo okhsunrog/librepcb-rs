@@ -37,6 +37,7 @@ pub mod attributes;
 pub mod board;
 pub mod form;
 pub mod geometry;
+pub mod library;
 pub mod move_align;
 pub mod output;
 pub mod review;
@@ -56,8 +57,8 @@ pub use form::{FieldEvent, Form, ListAction, ListButtons, ListItem};
 
 /// What a dialog works on.
 pub struct DialogContext<'a> {
-    /// The project.
-    pub project: &'a Rc<AppProject>,
+    /// The project (`None` for dialogs of the library editors).
+    pub project: Option<&'a Rc<AppProject>>,
     /// The workspace (library database, settings), if available.
     pub workspace: Option<&'a SharedWorkspace>,
 }
@@ -66,9 +67,22 @@ impl<'a> DialogContext<'a> {
     /// A context without workspace (tests, dialogs which do not need it).
     pub fn new(project: &'a Rc<AppProject>) -> Self {
         Self {
-            project,
+            project: Some(project),
             workspace: None,
         }
+    }
+
+    /// A context without project (library editor dialogs).
+    pub fn without_project() -> Self {
+        Self {
+            project: None,
+            workspace: None,
+        }
+    }
+
+    /// The project; an error for dialogs opened without project.
+    pub fn project(&self) -> Result<&'a Rc<AppProject>, String> {
+        self.project.ok_or_else(|| "No project".to_owned())
     }
 }
 
@@ -131,6 +145,8 @@ pub enum TabDialogResult {
     Positions(Vec<librepcb_core::types::Point>),
     /// The choices of the DXF import dialog.
     ImportDxf(librepcb_editor::fsm::board::DxfImportSettings),
+    /// Remove these library elements (confirmed).
+    RemoveLibraryElements(Vec<librepcb_core::fileio::FilePath>),
 }
 
 /// Buttons and size of a form dialog.

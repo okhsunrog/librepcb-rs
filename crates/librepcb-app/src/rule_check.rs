@@ -85,6 +85,8 @@ pub struct CheckMessage {
     pub message: RuleCheckMessage,
     /// The schematic of the locations (ERC messages only).
     pub schematic: Option<SchematicId>,
+    /// Whether the message can be fixed automatically (library checks).
+    pub autofix: bool,
 }
 
 /// What the UI requested by writing a message row.
@@ -98,6 +100,11 @@ pub enum RowAction {
         approval: SExpression,
         /// The new state.
         approved: bool,
+    },
+    /// Fix the message automatically.
+    Autofix {
+        /// Index of the message (after sorting).
+        index: usize,
     },
     /// Highlight the message (and zoom to its location).
     Highlight {
@@ -188,7 +195,7 @@ impl RuleCheckMessages {
                 description: e.message.description().into(),
                 approved: self.approvals.contains(e.message.approval()),
                 autofixed: false,
-                supports_autofix: false,
+                supports_autofix: e.autofix,
                 action_window_id: 0,
                 action: ui::RuleCheckMessageAction::None,
             })
@@ -227,6 +234,7 @@ impl RuleCheckMessages {
                 index: row,
                 zoom: true,
             },
+            ui::RuleCheckMessageAction::Autofix => RowAction::Autofix { index: row },
             _ => RowAction::None,
         }
     }
@@ -470,6 +478,7 @@ impl State {
                 .map(|m| CheckMessage {
                     schematic: m.schematic(),
                     message: m.into(),
+                    autofix: false,
                 })
                 .collect();
             (entries, proj.erc_approvals().clone(), proj.revision())
@@ -523,7 +532,7 @@ impl State {
             }
         };
         match action {
-            RowAction::None => {}
+            RowAction::None | RowAction::Autofix { .. } => {}
             RowAction::Approve { approval, approved } => {
                 self.set_message_approved(project, kind, approval, approved);
             }
@@ -638,7 +647,7 @@ impl State {
             match tab {
                 Tab::Schematic(t) => t.canvas_mut().zoom_to(rect),
                 Tab::Board2d(t) => t.canvas_mut().zoom_to(rect),
-                Tab::Home(_) => return,
+                _ => return,
             }
         }
         self.apply_update(si, ti, TabUpdate::repaint());
@@ -785,6 +794,7 @@ impl State {
                         .map(|m| CheckMessage {
                             message: m.message().clone(),
                             schematic: None,
+                            autofix: false,
                         })
                         .collect();
                     check
@@ -820,6 +830,7 @@ mod tests {
         CheckMessage {
             message: RuleCheckMessage::new(severity, text, "", key, Vec::new()),
             schematic: None,
+            autofix: false,
         }
     }
 

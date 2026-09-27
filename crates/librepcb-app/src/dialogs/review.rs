@@ -203,8 +203,11 @@ impl FormDialog for BomReviewDialog {
     }
 
     fn field_event(&mut self, ctx: &DialogContext<'_>, id: &str, event: FieldEvent) {
-        if matches!(id, "board" | "variant" | "attributes") && event == FieldEvent::Edited {
-            self.update_bom(ctx.project);
+        if matches!(id, "board" | "variant" | "attributes")
+            && event == FieldEvent::Edited
+            && let Ok(p) = ctx.project()
+        {
+            self.update_bom(p);
         }
     }
 
@@ -212,7 +215,7 @@ impl FormDialog for BomReviewDialog {
     fn apply(&mut self, ctx: &DialogContext<'_>) -> Result<Applied, String> {
         let attributes = split_attributes(&self.form.get_text("attributes"));
         let unchanged = ctx
-            .project
+            .project()?
             .shared()
             .lock()
             .project()
@@ -222,7 +225,7 @@ impl FormDialog for BomReviewDialog {
         if unchanged {
             return Ok(Applied::Nothing);
         }
-        transaction(ctx.project, tr!(BRD, "Review BOM"), |e| {
+        transaction(ctx.project()?, tr!(BRD, "Review BOM"), |e| {
             e.execute(EditProjectSettings {
                 custom_bom_attributes: Some(attributes),
                 ..EditProjectSettings::default()
@@ -421,7 +424,11 @@ impl FormDialog for PickPlaceGeneratorDialog {
 
     fn field_event(&mut self, ctx: &DialogContext<'_>, id: &str, event: FieldEvent) {
         match (id, event) {
-            ("variant", FieldEvent::Edited) => self.update_data(ctx.project),
+            ("variant", FieldEvent::Edited) => {
+                if let Ok(p) = ctx.project() {
+                    self.update_data(p);
+                }
+            }
             ("format", FieldEvent::Edited) => {
                 let gerber = self.form.get_index("format") == Some(2);
                 self.set_extension(if gerber { "gbr" } else { "csv" });

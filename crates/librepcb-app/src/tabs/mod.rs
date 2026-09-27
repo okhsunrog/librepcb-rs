@@ -13,8 +13,11 @@
 
 pub mod board_2d;
 pub mod board_view;
+pub mod create_library;
+pub mod download_library;
 pub mod editing;
 pub mod home;
+pub mod library;
 pub mod schematic;
 pub mod schematic_view;
 
@@ -31,6 +34,9 @@ use librepcb_editor::fsm::schematic::{ComponentChoice, SchematicTool};
 use slint::language::{PointerEvent, PointerEventButton, PointerEventKind};
 
 pub use board_2d::Board2dTab;
+pub use create_library::CreateLibraryTab;
+pub use download_library::DownloadLibraryTab;
+pub use library::LibraryTab;
 pub use schematic::SchematicTab;
 
 use crate::notifications::Notification;
@@ -62,6 +68,23 @@ pub enum Tab {
     Schematic(Box<SchematicTab>),
     /// A board (2D view).
     Board2d(Box<Board2dTab>),
+    /// The "create library" tab.
+    CreateLibrary(Box<CreateLibraryTab>),
+    /// The "download library" tab.
+    DownloadLibrary(Box<DownloadLibraryTab>),
+    /// A library (overview, metadata, checks).
+    Library(Box<LibraryTab>),
+}
+
+/// Per-kind tab data written by the UI.
+#[derive(Debug, Clone)]
+pub enum DerivedWrite {
+    /// `CreateLibraryTabData`.
+    CreateLibrary(ui::CreateLibraryTabData),
+    /// `DownloadLibraryTabData`.
+    DownloadLibrary(ui::DownloadLibraryTabData),
+    /// `LibraryTabData`.
+    Library(ui::LibraryTabData),
 }
 
 /// What an event or action changed in a tab.
@@ -164,6 +187,43 @@ pub enum TabRequest {
         /// The layers the polygons can be imported to.
         layers: Vec<librepcb_core::types::Layer>,
     },
+    /// Open the library tab of a library (e.g. a created one; `wizard`:
+    /// in wizard mode).
+    OpenLibrary {
+        /// The library directory.
+        path: librepcb_core::fileio::FilePath,
+        /// Wizard mode.
+        wizard: bool,
+    },
+    /// Start downloading a library (download library tab).
+    DownloadLibrary {
+        /// The ZIP URL.
+        url: librepcb_network::Url,
+        /// The destination directory.
+        dir: librepcb_core::fileio::FilePath,
+    },
+    /// A library was downloaded (highlight it after the rescan).
+    LibraryDownloaded(librepcb_core::fileio::FilePath),
+    /// The library of the tab was modified (update its other tabs and the
+    /// documents panel).
+    LibraryModified,
+    /// Rescan the workspace libraries (after saving).
+    RescanLibraries,
+    /// Open (or duplicate) a library element in its editor tab.
+    OpenLibraryElement {
+        /// The library directory.
+        library: librepcb_core::fileio::FilePath,
+        /// The element kind.
+        kind: ui::LibraryTreeViewItemType,
+        /// The element directory.
+        path: librepcb_core::fileio::FilePath,
+        /// Open a copy as new element.
+        duplicate: bool,
+    },
+    /// Remove library elements (directory, name) after asking the user.
+    RemoveLibraryElements(Vec<(librepcb_core::fileio::FilePath, String)>),
+    /// Choose a new library icon (PNG file).
+    ChooseLibraryIcon,
 }
 
 /// The item of a properties dialog request.
@@ -207,15 +267,47 @@ impl Tab {
             Self::Home(id) => *id,
             Self::Schematic(t) => t.id(),
             Self::Board2d(t) => t.id(),
+            Self::CreateLibrary(t) => t.id(),
+            Self::DownloadLibrary(t) => t.id(),
+            Self::Library(t) => t.id(),
+        }
+    }
+
+    /// The directory of the library or library element shown by the tab
+    /// (upstream `LibraryEditorTab::getDirectoryPath()`).
+    pub fn directory_path(&self) -> Option<librepcb_core::fileio::FilePath> {
+        match self {
+            Self::Library(t) => Some(t.library().path().clone()),
+            _ => None,
+        }
+    }
+
+    /// The library shown by the tab, if any.
+    pub fn library(&self) -> Option<&Rc<crate::open_library::OpenLibrary>> {
+        match self {
+            Self::Library(t) => Some(t.library()),
+            _ => None,
+        }
+    }
+
+    /// Applies per-kind data written by the UI.
+    pub fn set_derived(&mut self, data: DerivedWrite) -> TabUpdate {
+        match (self, data) {
+            (Self::CreateLibrary(t), DerivedWrite::CreateLibrary(d)) => t.set_derived_ui_data(&d),
+            (Self::DownloadLibrary(t), DerivedWrite::DownloadLibrary(d)) => {
+                t.set_derived_ui_data(&d)
+            }
+            (Self::Library(t), DerivedWrite::Library(d)) => t.set_derived_ui_data(&d),
+            _ => TabUpdate::default(),
         }
     }
 
     /// The project shown by the tab, if any.
     pub fn project(&self) -> Option<&Rc<AppProject>> {
         match self {
-            Self::Home(_) => None,
             Self::Schematic(t) => Some(t.project()),
             Self::Board2d(t) => Some(t.project()),
+            _ => None,
         }
     }
 
@@ -225,6 +317,9 @@ impl Tab {
             Self::Home(_) => return home::ui_data(),
             Self::Schematic(t) => t.ui_data(),
             Self::Board2d(t) => t.ui_data(),
+            Self::CreateLibrary(t) => return t.ui_data(),
+            Self::DownloadLibrary(t) => return t.ui_data(),
+            Self::Library(t) => return t.ui_data(),
         };
         // The graphics export (PDF) is handled by the application (see
         // `outputs.rs`).
@@ -236,9 +331,10 @@ impl Tab {
     /// whether it changed.
     pub fn set_ui_data(&mut self, data: &ui::TabData) -> bool {
         match self {
-            Self::Home(_) => false,
             Self::Schematic(t) => t.set_find_term(&data.find_term),
             Self::Board2d(t) => t.set_find_term(&data.find_term),
+            Self::Library(t) => t.set_find_term(&data.find_term),
+            _ => false,
         }
     }
 
@@ -264,6 +360,9 @@ impl Tab {
             Self::Home(_) => TabUpdate::default(),
             Self::Schematic(t) => t.trigger(action),
             Self::Board2d(t) => t.trigger(action),
+            Self::CreateLibrary(t) => t.trigger(action),
+            Self::DownloadLibrary(t) => t.trigger(action),
+            Self::Library(t) => t.trigger(action),
         };
         if action == ui::TabAction::Close && !matches!(self, Self::Home(_)) {
             return TabUpdate {
@@ -277,7 +376,10 @@ impl Tab {
     /// Renders the scene for `Backend.render-scene`.
     pub fn render_scene(&mut self, width: f32, height: f32, scale_factor: f32) -> slint::Image {
         match self {
-            Self::Home(_) => slint::Image::default(),
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => slint::Image::default(),
             Self::Schematic(t) => t.render_scene(width, height, scale_factor),
             Self::Board2d(t) => t.render_scene(width, height, scale_factor),
         }
@@ -287,9 +389,9 @@ impl Tab {
     pub fn pointer_event(&mut self, pos: Point, event: &PointerEvent) -> TabUpdate {
         let (kind, button, modifiers) = convert_pointer_event(event);
         match self {
-            Self::Home(_) => TabUpdate::default(),
             Self::Schematic(t) => t.pointer_event(kind, button, pos, modifiers),
             Self::Board2d(t) => t.pointer_event(kind, button, pos, modifiers),
+            _ => TabUpdate::default(),
         }
     }
 
@@ -297,7 +399,10 @@ impl Tab {
     /// handled.
     pub fn key_pressed(&mut self, event: &slint::language::KeyEvent) -> (bool, TabUpdate) {
         match self {
-            Self::Home(_) => (false, TabUpdate::default()),
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => (false, TabUpdate::default()),
             Self::Schematic(t) => t.key_event(event, true),
             Self::Board2d(t) => t.key_event(event, true),
         }
@@ -307,7 +412,10 @@ impl Tab {
     /// handled.
     pub fn key_released(&mut self, event: &slint::language::KeyEvent) -> (bool, TabUpdate) {
         match self {
-            Self::Home(_) => (false, TabUpdate::default()),
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => (false, TabUpdate::default()),
             Self::Schematic(t) => t.key_event(event, false),
             Self::Board2d(t) => t.key_event(event, false),
         }
@@ -316,7 +424,10 @@ impl Tab {
     /// An entry of the last requested context menu was chosen.
     pub fn context_menu_action(&mut self, index: usize) -> TabUpdate {
         match self {
-            Self::Home(_) => TabUpdate::default(),
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => TabUpdate::default(),
             Self::Schematic(t) => t.context_menu_action(index),
             Self::Board2d(t) => t.context_menu_action(index),
         }
@@ -371,7 +482,10 @@ impl Tab {
     /// The length unit for dialogs opened by the tab (the grid unit).
     pub fn length_unit(&self) -> Option<LengthUnit> {
         match self {
-            Self::Home(_) => None,
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => None,
             Self::Schematic(t) => Some(t.length_unit()),
             Self::Board2d(t) => Some(t.length_unit()),
         }
@@ -382,7 +496,10 @@ impl Tab {
     /// upstream `abortBlockingToolsInOtherEditors()`).
     pub fn abort_blocking_tool(&mut self) -> TabUpdate {
         match self {
-            Self::Home(_) => TabUpdate::default(),
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => TabUpdate::default(),
             Self::Schematic(t) => t.abort_blocking_tool(),
             Self::Board2d(t) => t.abort_blocking_tool(),
         }
@@ -391,7 +508,10 @@ impl Tab {
     /// What this tab cross-probes to the other tabs of its project.
     pub fn cross_probe(&self) -> Option<CrossProbe> {
         match self {
-            Self::Home(_) => None,
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => None,
             Self::Schematic(t) => Some(t.cross_probe()),
             Self::Board2d(t) => Some(t.cross_probe()),
         }
@@ -400,7 +520,10 @@ impl Tab {
     /// Highlights what another tab of the project cross-probes.
     pub fn set_cross_probe(&mut self, probe: &CrossProbe) -> TabUpdate {
         match self {
-            Self::Home(_) => TabUpdate::default(),
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => TabUpdate::default(),
             Self::Schematic(t) => t.set_cross_probe(probe),
             Self::Board2d(t) => t.set_cross_probe(probe),
         }
@@ -409,7 +532,10 @@ impl Tab {
     /// Handles `Backend.scene-scrolled`; returns whether it was handled.
     pub fn scrolled(&mut self, pos: Point, delta: (f64, f64), modifiers: Modifiers) -> bool {
         match self {
-            Self::Home(_) => false,
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => false,
             Self::Schematic(t) => t.scrolled(pos, delta.into(), modifiers),
             Self::Board2d(t) => t.scrolled(pos, delta.into(), modifiers),
         }
@@ -443,7 +569,10 @@ impl Tab {
     /// image).
     pub fn bump_frame(&mut self) {
         match self {
-            Self::Home(_) => {}
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => {}
             Self::Schematic(t) => t.bump_frame(),
             Self::Board2d(t) => t.bump_frame(),
         }
@@ -452,7 +581,10 @@ impl Tab {
     /// Applies the schematic or board grid style (workspace settings).
     pub fn set_grid_styles(&mut self, schematic: GridStyle, board: GridStyle) -> TabUpdate {
         match self {
-            Self::Home(_) => TabUpdate::default(),
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => TabUpdate::default(),
             Self::Schematic(t) => t.set_grid_style(schematic),
             Self::Board2d(t) => t.set_grid_style(board),
         }
@@ -461,7 +593,10 @@ impl Tab {
     /// Called when the project changed (e.g. through MCP): rebuild scenes.
     pub fn project_modified(&mut self) -> TabUpdate {
         match self {
-            Self::Home(_) => TabUpdate::default(),
+            Self::Home(_)
+            | Self::CreateLibrary(_)
+            | Self::DownloadLibrary(_)
+            | Self::Library(_) => TabUpdate::default(),
             Self::Schematic(t) => t.rebuild_if_modified(),
             Self::Board2d(t) => t.rebuild_if_modified(),
         }

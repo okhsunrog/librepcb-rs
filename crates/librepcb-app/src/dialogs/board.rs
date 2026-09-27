@@ -374,7 +374,7 @@ impl FormDialog for DeviceDialog {
             "Change properties of {0}",
             self.name.as_str()
         );
-        transaction(ctx.project, text, |e| {
+        transaction(ctx.project()?, text, |e| {
             e.execute(EditComponent {
                 component: component.into(),
                 name: Some(name),
@@ -617,7 +617,7 @@ impl FormDialog for ViaDialog {
         via.set_exposure_config(chosen_mask_config(form, "exposure"));
         let segment = self.segment;
         let text = tr!("librepcb::editor::CmdBoardViaEdit", "Edit via");
-        transaction(ctx.project, text.clone(), |e| {
+        transaction(ctx.project()?, text.clone(), |e| {
             e.apply_mutations(
                 text,
                 vec![Mutation::Board(BoardMutation::UpdateNetSegmentElements {
@@ -847,7 +847,7 @@ impl FormDialog for PadDialog {
         }
         let segment = self.segment;
         let text = tr!("librepcb::editor::CmdBoardPadEdit", "Edit pad");
-        transaction(ctx.project, text.clone(), |e| {
+        transaction(ctx.project()?, text.clone(), |e| {
             e.apply_mutations(
                 text,
                 vec![Mutation::Board(BoardMutation::UpdateNetSegmentElements {
@@ -1122,7 +1122,7 @@ impl FormDialog for PlaneDialog {
         let outline = chosen_path(form, &self.outline);
         let (board, plane) = (self.board, self.plane);
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardPlaneEdit", "Edit plane"),
             |e| {
                 e.execute(EditPlane {
@@ -1222,7 +1222,7 @@ impl FormDialog for PolygonDialog {
         let board = self.board;
         let item = BoardItem::Polygon(polygon.clone());
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardPolygonEdit", "Edit polygon"),
             |e| {
                 e.execute(UpdateBoardItem {
@@ -1423,7 +1423,7 @@ impl FormDialog for StrokeTextDialog {
         match self.device {
             None => {
                 let item = BoardItem::StrokeText(text.clone());
-                transaction(ctx.project, label, |e| {
+                transaction(ctx.project()?, label, |e| {
                     e.execute(UpdateBoardItem {
                         board: Some(board),
                         item,
@@ -1432,7 +1432,7 @@ impl FormDialog for StrokeTextDialog {
             }
             Some(c) => {
                 let mut device = ctx
-                    .project
+                    .project()?
                     .shared()
                     .lock()
                     .project()
@@ -1441,7 +1441,7 @@ impl FormDialog for StrokeTextDialog {
                     .cloned()
                     .ok_or_else(|| "Device not found".to_owned())?;
                 device.insert_stroke_text(text.clone());
-                transaction(ctx.project, label.clone(), |e| {
+                transaction(ctx.project()?, label.clone(), |e| {
                     e.apply_mutations(
                         label,
                         vec![Mutation::Board(BoardMutation::UpdateDevice {
@@ -1528,7 +1528,7 @@ impl FormDialog for HoleDialog {
         let board = self.board;
         let item = BoardItem::Hole(hole.clone());
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardHoleEdit", "Edit hole"),
             |e| {
                 e.execute(UpdateBoardItem {
@@ -1677,7 +1677,7 @@ impl FormDialog for ZoneDialog {
         let board = self.board;
         let item = BoardItem::Zone(zone.clone());
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardZoneEdit", "Edit zone"),
             |e| {
                 e.execute(UpdateBoardItem {
