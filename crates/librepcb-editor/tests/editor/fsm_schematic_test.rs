@@ -1449,3 +1449,49 @@ fn move_add_and_remove_polygon_vertices() {
     assert_eq!(poly(&h).vertices().len(), 5);
     assert_eq!(poly(&h).vertices()[1].pos, mm(35.56, -2.54));
 }
+
+#[test]
+fn find_symbols_and_nets() {
+    use librepcb_editor::fsm::find::FindCandidate;
+    let mut h = Harness::new();
+    h.editor
+        .execute(ConnectPinToNet {
+            pin: PinRef::new("R1", "1"),
+            net: librepcb_core::types::CircuitIdentifier::new("VCC").unwrap(),
+            label: true,
+            stub_length: None,
+        })
+        .unwrap();
+    h.sync.sync(h.editor.project(), &mut h.scene).unwrap();
+    let r2 = h.symbol("R2");
+    h.run(|fsm, ctx| fsm.refresh_find_suggestions(ctx));
+    let suggestions = h.fsm.search().suggestions().to_vec();
+    assert!(suggestions.contains(&FindCandidate::component("R1")));
+    assert!(suggestions.contains(&FindCandidate::net("VCC")));
+    h.fsm.set_find_term("r2");
+    let result = h.run(|fsm, ctx| fsm.find_next(ctx));
+    assert_eq!(result.objects, vec![FindCandidate::component("R2")]);
+    assert!(result.zoom_rect.is_some());
+    assert_eq!(
+        h.fsm.selection().iter().copied().collect::<Vec<_>>(),
+        vec![SchematicItem::Symbol(r2)]
+    );
+    assert!(h.fsm.view_state().info_box.contains("R2"));
+
+    h.fsm.set_find_term("VCC");
+    let result = h.run(|fsm, ctx| fsm.find_next(ctx));
+    assert_eq!(result.nets.len(), 1);
+    let sel = h.fsm.selection();
+    assert!(sel.iter().any(|i| matches!(i, SchematicItem::NetLabel(..))));
+    assert!(sel.iter().any(|i| matches!(i, SchematicItem::NetLine(..))));
+    assert!(
+        sel.iter()
+            .any(|i| matches!(i, SchematicItem::SymbolPin(..)))
+    );
+
+    // Nothing found: empty selection, no zoom.
+    h.fsm.set_find_term("nothing");
+    let result = h.run(|fsm, ctx| fsm.find_next(ctx));
+    assert!(result.zoom_rect.is_none());
+    assert!(h.fsm.selection().is_empty());
+}

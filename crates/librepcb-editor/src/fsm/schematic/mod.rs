@@ -39,6 +39,7 @@ mod drag;
 mod draw_bus;
 mod draw_polygon;
 mod draw_wire;
+mod find;
 mod hit_test;
 mod measure;
 mod select;
@@ -559,6 +560,7 @@ pub struct SchematicEditorFsm {
     entered: bool,
     states: States,
     out: Output,
+    search: crate::fsm::find::SearchContext,
 }
 
 macro_rules! dispatch {
@@ -593,6 +595,7 @@ impl SchematicEditorFsm {
             entered: false,
             states: States::default(),
             out: Output::default(),
+            search: crate::fsm::find::SearchContext::new(),
         }
     }
 
