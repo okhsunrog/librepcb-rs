@@ -24,8 +24,8 @@ use librepcb_core::types::Uuid;
 use librepcb_core::workspace::{CategoryTreeNode, ElementKind, LibraryDb};
 use librepcb_editor::fsm::schematic::ComponentChoice;
 use librepcb_i18n::tr;
-use librepcb_scene::{RenderOptions, RenderSize, render_scene};
 use librepcb_scene::{ColorScheme, FootprintScene, SymbolScene};
+use librepcb_scene::{RenderOptions, RenderSize, render_scene};
 use slint::{Image, Rgba8Pixel, SharedPixelBuffer, SharedString};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -189,7 +189,12 @@ impl AddComponentDialog {
             for n in nodes {
                 let open = expanded.contains(&n.uuid);
                 rows.push(Some(n.uuid));
-                items.push(tree_item(level, n.name.clone(), !n.children.is_empty(), open));
+                items.push(tree_item(
+                    level,
+                    n.name.clone(),
+                    !n.children.is_empty(),
+                    open,
+                ));
                 if open {
                     add(&n.children, level + 1, expanded, rows, items);
                 }
@@ -399,7 +404,11 @@ impl AddComponentDialog {
         if select_first_device && !self.nodes.is_empty() {
             self.nodes[0].expanded = true;
             self.rebuild_rows();
-            let row = if self.nodes[0].devices.is_empty() { 0 } else { 1 };
+            let row = if self.nodes[0].devices.is_empty() {
+                0
+            } else {
+                1
+            };
             self.select_row(row);
         } else if !self.rows.is_empty() {
             self.select_row(0);
@@ -492,7 +501,10 @@ impl AddComponentDialog {
                 .and_then(|dir| open_dir(&dir))
                 .and_then(|dir| Component::open(dir).ok());
             if component.is_none() {
-                self.view.error = tr!("librepcb::editor::AddComponentDialog", "Failed to open the component.");
+                self.view.error = tr!(
+                    "librepcb::editor::AddComponentDialog",
+                    "Failed to open the component."
+                );
             }
             self.set_selected_component(component);
         }
@@ -503,7 +515,10 @@ impl AddComponentDialog {
     }
 
     fn set_selected_component(&mut self, component: Option<Component>) {
-        self.view.component_name = tr!("librepcb::editor::AddComponentDialog", "No component selected");
+        self.view.component_name = tr!(
+            "librepcb::editor::AddComponentDialog",
+            "No component selected"
+        );
         self.view.component_description.clear();
         self.view.symbol_variants.clear();
         self.variants.clear();
@@ -511,11 +526,7 @@ impl AddComponentDialog {
         self.component = component;
         self.set_selected_device(None);
         if let Some(cmp) = &self.component {
-            self.view.component_name = cmp
-                .metadata()
-                .names()
-                .value(&self.locale_order)
-                .to_string();
+            self.view.component_name = cmp.metadata().names().value(&self.locale_order).to_string();
             self.view.component_description = cmp
                 .metadata()
                 .descriptions()

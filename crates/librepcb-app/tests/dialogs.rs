@@ -107,7 +107,15 @@ fn symbol_properties() {
         let mut row = attributes.borrow().rows()[last].clone();
         row.value = "RC0805".into();
         attributes.borrow_mut().row_written(last, &row);
-        assert_eq!(dialog.form().field("attributes").unwrap().attributes.row_count(), rows.len() + 1);
+        assert_eq!(
+            dialog
+                .form()
+                .field("attributes")
+                .unwrap()
+                .attributes
+                .row_count(),
+            rows.len() + 1
+        );
     }
     assert_eq!(apply(dialog, &project), Ok(Applied::Project));
     assert_eq!(undo_index(&project), index + 1);
@@ -136,7 +144,10 @@ fn symbol_properties() {
     {
         let p = project.shared().lock();
         let circuit = p.project().circuit();
-        assert_eq!(circuit.component_instance_by_name("R2").unwrap().0, r1_component);
+        assert_eq!(
+            circuit.component_instance_by_name("R2").unwrap().0,
+            r1_component
+        );
         assert!(circuit.component_instance_by_name("R1").is_some());
     }
     undo(&project);
@@ -187,7 +198,9 @@ fn net_label_rename() {
     assert_eq!(dialog.form().get_text("name"), "GND");
     // Rename the whole net (upstream default: only this segment).
     edit(dialog.as_mut(), &project, "scope", |f| f.index = 1);
-    edit(dialog.as_mut(), &project, "name", |f| f.text = "gnd 2".into());
+    edit(dialog.as_mut(), &project, "name", |f| {
+        f.text = "gnd 2".into()
+    });
     // Cleaned like upstream (spaces become underscores, case is kept).
     assert!(dialog.form().get_text("description").contains("gnd_2"));
     assert_eq!(apply(dialog.as_mut(), &project), Ok(Applied::Project));
@@ -267,7 +280,9 @@ fn schematic_polygon_and_text() {
         LengthUnit::Millimeters,
     )
     .unwrap();
-    edit(dialog.as_mut(), &project, "text", |f| f.text = "World".into());
+    edit(dialog.as_mut(), &project, "text", |f| {
+        f.text = "World".into()
+    });
     edit(dialog.as_mut(), &project, "halign", |f| f.index = 2);
     assert_eq!(apply(dialog.as_mut(), &project), Ok(Applied::Project));
     {
@@ -278,7 +293,10 @@ fn schematic_polygon_and_text() {
     }
     undo(&project);
     let p = project.shared().lock();
-    assert_eq!(p.project().schematic(sch).unwrap().texts()[&tu].text(), "Hello");
+    assert_eq!(
+        p.project().schematic(sch).unwrap().texts()[&tu].text(),
+        "Hello"
+    );
 }
 
 #[test]
@@ -292,7 +310,10 @@ fn device_properties() {
         let prj = p.project();
         let (c, _) = prj.circuit().component_instance_by_name("R2").unwrap();
         let d = prj.board(board).unwrap().device(c).unwrap();
-        (c, d.pads(prj.library(), prj.circuit()).unwrap()[0].position())
+        (
+            c,
+            d.pads(prj.library(), prj.circuit()).unwrap()[0].position(),
+        )
     };
     tab.click(pad);
     let update = tab.trigger(ui::TabAction::EditProperties);
@@ -358,8 +379,12 @@ fn via_properties() {
     assert!(dialog.form().get_auto("drill"));
     assert!(dialog.form().get_auto("size"));
     // Manual size unchecks the automatic drill (upstream behavior).
-    edit(dialog.as_mut(), &project, "size", |f| f.auto_checked = false);
-    edit(dialog.as_mut(), &project, "drill", |f| f.auto_checked = false);
+    edit(dialog.as_mut(), &project, "size", |f| {
+        f.auto_checked = false
+    });
+    edit(dialog.as_mut(), &project, "drill", |f| {
+        f.auto_checked = false
+    });
     edit(dialog.as_mut(), &project, "drill", |f| {
         f.length.value = librepcb_app::helpers::length_to_ui(len(0.4));
     });
@@ -371,8 +396,13 @@ fn via_properties() {
     assert_eq!(apply(dialog.as_mut(), &project), Ok(Applied::Project));
     {
         let p = project.shared().lock();
-        let v = &p.project().board(board).unwrap().net_segment(via.segment).unwrap().vias()
-            [&via.via];
+        let v = &p
+            .project()
+            .board(board)
+            .unwrap()
+            .net_segment(via.segment)
+            .unwrap()
+            .vias()[&via.via];
         assert_eq!(v.drill_diameter().map(|d| *d), Some(len(0.4)));
         assert_eq!(v.size().map(|d| *d), Some(len(0.8)));
         assert!(matches!(v.exposure_config(), MaskConfig::Manual(_)));
@@ -384,8 +414,13 @@ fn via_properties() {
     assert!(apply(dialog.as_mut(), &project).is_err());
     undo(&project);
     let p = project.shared().lock();
-    let v =
-        &p.project().board(board).unwrap().net_segment(via.segment).unwrap().vias()[&via.via];
+    let v = &p
+        .project()
+        .board(board)
+        .unwrap()
+        .net_segment(via.segment)
+        .unwrap()
+        .vias()[&via.via];
     assert_eq!(v.drill_diameter(), None);
 }
 
@@ -409,12 +444,18 @@ fn plane_properties() {
     assert!(dialog.form().field("thermal_gap").unwrap().enabled);
     edit(dialog.as_mut(), &project, "connect_style", |f| f.index = 2);
     assert!(!dialog.form().field("thermal_gap").unwrap().enabled);
-    edit(dialog.as_mut(), &project, "priority", |f| f.text = "x".into());
+    edit(dialog.as_mut(), &project, "priority", |f| {
+        f.text = "x".into()
+    });
     assert!(!dialog.form().field("priority").unwrap().error.is_empty());
     assert!(apply(dialog.as_mut(), &project).is_err());
-    edit(dialog.as_mut(), &project, "priority", |f| f.text = "3".into());
+    edit(dialog.as_mut(), &project, "priority", |f| {
+        f.text = "3".into()
+    });
     edit(dialog.as_mut(), &project, "net", |f| f.index = 0);
-    edit(dialog.as_mut(), &project, "keep_islands", |f| f.checked = true);
+    edit(dialog.as_mut(), &project, "keep_islands", |f| {
+        f.checked = true
+    });
     assert_eq!(apply(dialog.as_mut(), &project), Ok(Applied::Project));
     {
         let p = project.shared().lock();
@@ -429,7 +470,15 @@ fn plane_properties() {
     }
     undo(&project);
     let p = project.shared().lock();
-    assert_eq!(p.project().board(board).unwrap().plane(plane).unwrap().priority(), 0);
+    assert_eq!(
+        p.project()
+            .board(board)
+            .unwrap()
+            .plane(plane)
+            .unwrap()
+            .priority(),
+        0
+    );
 }
 
 #[test]
@@ -482,7 +531,9 @@ fn board_geometry_items() {
 
     // Stroke text.
     let mut dialog = board_item(&project, board, BoardItemRef::StrokeText(text));
-    edit(dialog.as_mut(), &project, "text", |f| f.text = "REV A".into());
+    edit(dialog.as_mut(), &project, "text", |f| {
+        f.text = "REV A".into()
+    });
     edit(dialog.as_mut(), &project, "letter_spacing_auto", |f| {
         f.checked = false;
     });
@@ -571,5 +622,9 @@ fn line_width_dialog() {
         )))
     );
     // Lists report their actions.
-    let _ = (FieldEvent::Edited, ListAction::Select(0), SharedString::new());
+    let _ = (
+        FieldEvent::Edited,
+        ListAction::Select(0),
+        SharedString::new(),
+    );
 }

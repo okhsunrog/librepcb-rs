@@ -45,10 +45,7 @@ impl MoveAlignDialog {
     pub fn new(positions: Vec<Point>, unit: LengthUnit) -> Self {
         // Spread in X and Y direction.
         let spread = |f: fn(&Point) -> Length| {
-            let (min, max) = (
-                positions.iter().map(f).min(),
-                positions.iter().map(f).max(),
-            );
+            let (min, max) = (positions.iter().map(f).min(), positions.iter().map(f).max());
             match (min, max) {
                 (Some(min), Some(max)) if positions.len() >= 2 => max - min,
                 _ => Length::new(0),
@@ -143,12 +140,14 @@ impl MoveAlignDialog {
         f.set_enabled(
             "align_vertically",
             pitch
-                && (!f.get_checked("interval_x_on") || f.get_length("interval_x") != Length::new(0)),
+                && (!f.get_checked("interval_x_on")
+                    || f.get_length("interval_x") != Length::new(0)),
         );
         f.set_enabled(
             "align_horizontally",
             pitch
-                && (!f.get_checked("interval_y_on") || f.get_length("interval_y") != Length::new(0)),
+                && (!f.get_checked("interval_y_on")
+                    || f.get_length("interval_y") != Length::new(0)),
         );
     }
 
@@ -261,6 +260,8 @@ impl FormDialog for MoveAlignDialog {
     }
 
     fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
-        Ok(Applied::Tab(TabDialogResult::Positions(self.new_positions())))
+        Ok(Applied::Tab(TabDialogResult::Positions(
+            self.new_positions(),
+        )))
     }
 }

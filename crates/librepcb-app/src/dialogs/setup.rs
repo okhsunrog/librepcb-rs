@@ -30,8 +30,8 @@ use std::rc::Rc;
 
 use super::attributes::AttributeEditor;
 use super::{
-    Applied, DialogContext, DialogOptions, FieldEvent, Form, FormDialog, ListAction,
-    ListButtons, ListItem, transaction,
+    Applied, DialogContext, DialogOptions, FieldEvent, Form, FormDialog, ListAction, ListButtons,
+    ListItem, transaction,
 };
 use crate::length_edit::steps;
 use crate::project::AppProject;
@@ -288,7 +288,9 @@ impl BoardSetupDialog {
             "solder_resist",
             starred(&tr!(BSD, "Solder Resist:")),
             &solder_resist_names,
-            solder_resist.iter().position(|c| *c == settings.solder_resist),
+            solder_resist
+                .iter()
+                .position(|c| *c == settings.solder_resist),
         );
         form.choice(
             "silkscreen_color",
@@ -403,11 +405,7 @@ impl BoardSetupDialog {
         // Tab: DRC Settings.
         form.page(tr!(BSD, "DRC Settings"));
         form.label("drc_sources", tr!(BSD, "Configuration:"), "");
-        form.button(
-            "drc_defaults",
-            "",
-            tr!(BSD, "Reset to Default Settings"),
-        );
+        form.button("drc_defaults", "", tr!(BSD, "Reset to Default Settings"));
         form.button(
             "drc_clear_sources",
             "",
@@ -451,13 +449,11 @@ impl BoardSetupDialog {
 
     /// Upstream `loadDrcSettings()` and `loadDrcSources()`.
     fn load_drc_settings(&mut self, s: &BoardDesignRuleCheckSettings) {
-        for (id, _, _, get, _) in DRC_CLEARANCES
-            .iter()
-            .chain(DRC_MINIMUMS.iter())
-        {
+        for (id, _, _, get, _) in DRC_CLEARANCES.iter().chain(DRC_MINIMUMS.iter()) {
             self.form.set_length(id, *get(s));
         }
-        self.form.set_checked("drc_blind_vias", s.blind_vias_allowed());
+        self.form
+            .set_checked("drc_blind_vias", s.blind_vias_allowed());
         self.form
             .set_checked("drc_buried_vias", s.buried_vias_allowed());
         self.form.set_index(
@@ -514,10 +510,7 @@ impl BoardSetupDialog {
     fn drc_settings(&self) -> Result<BoardDesignRuleCheckSettings, String> {
         let f = &self.form;
         let mut s = self.drc.clone();
-        for (id, _, _, _, set) in DRC_CLEARANCES
-            .iter()
-            .chain(DRC_MINIMUMS.iter())
-        {
+        for (id, _, _, _, set) in DRC_CLEARANCES.iter().chain(DRC_MINIMUMS.iter()) {
             set(&mut s, unsigned(f, id)?);
         }
         s.set_blind_vias_allowed(f.get_checked("drc_blind_vias"));
@@ -577,7 +570,9 @@ impl FormDialog for BoardSetupDialog {
             settings.inner_layer_count = count as u32;
         }
         settings.pcb_thickness = positive(f, "pcb_thickness")?;
-        if let Some(color) = f.get_index("solder_resist").and_then(|i| self.solder_resist.get(i))
+        if let Some(color) = f
+            .get_index("solder_resist")
+            .and_then(|i| self.solder_resist.get(i))
         {
             settings.solder_resist = *color;
         }
@@ -599,23 +594,24 @@ impl FormDialog for BoardSetupDialog {
         settings.design_rules = self.design_rules(settings.design_rules.clone())?;
         settings.drc_settings = self.drc_settings()?;
         let board = self.board;
-        transaction(ctx.project, tr!("librepcb::editor::CmdBoardEdit", "Modify Board Setup"), |e| {
-            let renamed = e
-                .project()
-                .board(board)
-                .is_some_and(|b| *b.name() != name);
-            if renamed {
-                e.execute(RenameBoard {
-                    board,
-                    name: name.clone(),
-                })?;
-            }
-            e.execute(EditBoardSettings {
-                board: Some(board),
-                settings: Some(Box::new(settings.clone())),
-                ..EditBoardSettings::default()
-            })
-        })
+        transaction(
+            ctx.project,
+            tr!("librepcb::editor::CmdBoardEdit", "Modify Board Setup"),
+            |e| {
+                let renamed = e.project().board(board).is_some_and(|b| *b.name() != name);
+                if renamed {
+                    e.execute(RenameBoard {
+                        board,
+                        name: name.clone(),
+                    })?;
+                }
+                e.execute(EditBoardSettings {
+                    board: Some(board),
+                    settings: Some(Box::new(settings.clone())),
+                    ..EditBoardSettings::default()
+                })
+            },
+        )
         .map_err(|e| format!("{}\n\n{e}", tr!(BSD, "Could not apply settings")))?;
         Ok(Applied::Project)
     }
@@ -780,7 +776,14 @@ impl ProjectSetupDialog {
             },
         );
         form.text("variant_name", tr!(PSD, "Name:"), "");
-        form.text("variant_description", tr!("librepcb::editor::AssemblyVariantListEditorWidget", "Description"), "");
+        form.text(
+            "variant_description",
+            tr!(
+                "librepcb::editor::AssemblyVariantListEditorWidget",
+                "Description"
+            ),
+            "",
+        );
         form.set_enabled("variant_name", false);
         form.set_enabled("variant_description", false);
 
@@ -809,7 +812,8 @@ impl ProjectSetupDialog {
         variant: Option<usize>,
     ) {
         let items = |v: &[String]| v.iter().map(ListItem::text).collect::<Vec<_>>();
-        self.form.set_items("locales", &items(&self.locales), locale);
+        self.form
+            .set_items("locales", &items(&self.locales), locale);
         self.form.set_items("norms", &items(&self.norms), norm);
         let classes: Vec<ListItem> = self
             .net_classes
@@ -921,9 +925,7 @@ impl FormDialog for ProjectSetupDialog {
                         });
                         Some(self.net_classes.len() - 1)
                     }
-                    ListAction::Remove(i)
-                        if self.net_classes.get(i).is_some_and(|n| !n.used) =>
-                    {
+                    ListAction::Remove(i) if self.net_classes.get(i).is_some_and(|n| !n.used) => {
                         self.net_classes.remove(i);
                         None
                     }
@@ -1049,7 +1051,11 @@ impl FormDialog for ProjectSetupDialog {
                         })?;
                     }
                     Some(id) => {
-                        let old = e.project().circuit().net_class(*id).map(|n| n.name().clone());
+                        let old = e
+                            .project()
+                            .circuit()
+                            .net_class(*id)
+                            .map(|n| n.name().clone());
                         if old.as_ref() != Some(name) {
                             e.execute(EditNetClass {
                                 net_class: *id,

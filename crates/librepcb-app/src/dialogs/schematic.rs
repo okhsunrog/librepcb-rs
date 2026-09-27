@@ -18,8 +18,8 @@ use librepcb_core::attribute::AttributeList;
 use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::project::circuit::ComponentAssemblyOptionList;
 use librepcb_core::project::{
-    AssemblyVariantId, BusSegmentId, BusSegmentRef, ComponentInstanceId, Mutation,
-    NetSegmentId, NetSegmentRef, SchematicId, SchematicMutation, SymbolId, SymbolRef,
+    AssemblyVariantId, BusSegmentId, BusSegmentRef, ComponentInstanceId, Mutation, NetSegmentId,
+    NetSegmentRef, SchematicId, SchematicMutation, SymbolId, SymbolRef,
 };
 use librepcb_core::types::{BusName, CircuitIdentifier, Layer, Length, LengthUnit, Uuid};
 use librepcb_editor::commands::{
@@ -89,7 +89,10 @@ impl SymbolPropertiesDialog {
         let has_name = !cmp.is_pure_schematic_only(resolved.lib_component);
         let mut form = Form::new(unit);
 
-        form.header(tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Component"));
+        form.header(tr!(
+            "librepcb::editor::SymbolInstancePropertiesDialog",
+            "Component"
+        ));
         if has_name {
             form.text(
                 "name",
@@ -111,7 +114,10 @@ impl SymbolPropertiesDialog {
             .unwrap_or_default();
         form.label(
             "lib_component",
-            tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Component:"),
+            tr!(
+                "librepcb::editor::SymbolInstancePropertiesDialog",
+                "Component:"
+            ),
             format!(
                 "{} ({})",
                 resolved.lib_component.metadata().names().value(locales),
@@ -127,29 +133,53 @@ impl SymbolPropertiesDialog {
         form.header(if suffix.is_empty() {
             tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Gate")
         } else {
-            tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Gate '{0}'", suffix)
+            tr!(
+                "librepcb::editor::SymbolInstancePropertiesDialog",
+                "Gate '{0}'",
+                suffix
+            )
         });
         position_fields(
             &mut form,
-            &tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Pos. X:"),
-            &tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Pos. Y:"),
+            &tr!(
+                "librepcb::editor::SymbolInstancePropertiesDialog",
+                "Pos. X:"
+            ),
+            &tr!(
+                "librepcb::editor::SymbolInstancePropertiesDialog",
+                "Pos. Y:"
+            ),
             sym.position(),
         );
         form.angle(
             "rotation",
-            tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Rotation:"),
+            tr!(
+                "librepcb::editor::SymbolInstancePropertiesDialog",
+                "Rotation:"
+            ),
             sym.rotation(),
         );
         form.checkbox(
             "mirror",
-            tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Mirror:"),
+            tr!(
+                "librepcb::editor::SymbolInstancePropertiesDialog",
+                "Mirror:"
+            ),
             "",
             sym.mirrored(),
         );
         form.label(
             "lib_symbol",
-            tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Symbol:"),
-            resolved.lib_symbol.metadata().names().value(locales).as_str(),
+            tr!(
+                "librepcb::editor::SymbolInstancePropertiesDialog",
+                "Symbol:"
+            ),
+            resolved
+                .lib_symbol
+                .metadata()
+                .names()
+                .value(locales)
+                .as_str(),
         );
 
         let attributes = AttributeEditor::new(cmp.attributes());
@@ -176,7 +206,11 @@ impl SymbolPropertiesDialog {
             })
             .collect();
         let options = cmp.assembly_options().clone();
-        let title = tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Properties of {0}", sym_name);
+        let title = tr!(
+            "librepcb::editor::SymbolInstancePropertiesDialog",
+            "Properties of {0}",
+            sym_name
+        );
         let component = cmp.id();
         drop(p);
         let mut dialog = Self {
@@ -224,11 +258,19 @@ impl SymbolPropertiesDialog {
     }
 
     fn add_assembly_fields(&mut self) {
-        self.form
-            .header(tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Assembly Options (BOM/PnP)"));
+        self.form.header(tr!(
+            "librepcb::editor::SymbolInstancePropertiesDialog",
+            "Assembly Options (BOM/PnP)"
+        ));
         let columns = vec![
-            tr!("librepcb::editor::ComponentAssemblyOptionListEditorWidget", "Device"),
-            tr!("librepcb::editor::ComponentAssemblyOptionListEditorWidget", "Parts"),
+            tr!(
+                "librepcb::editor::ComponentAssemblyOptionListEditorWidget",
+                "Device"
+            ),
+            tr!(
+                "librepcb::editor::ComponentAssemblyOptionListEditorWidget",
+                "Parts"
+            ),
             tr!("librepcb::editor::ProjectSetupDialog", "Assembly Variants"),
         ];
         let items = self.option_items();
@@ -256,11 +298,11 @@ impl SymbolPropertiesDialog {
     }
 
     fn refresh_options(&self, selected: Option<usize>) {
-        self.form.set_items("options", &self.option_items(), selected);
+        self.form
+            .set_items("options", &self.option_items(), selected);
         self.form
             .set_items("option_variants", &self.variant_items(selected), None);
-        self.form
-            .set_enabled("option_variants", selected.is_some());
+        self.form.set_enabled("option_variants", selected.is_some());
     }
 
     /// The attribute editor (tests).
@@ -328,10 +370,7 @@ impl FormDialog for SymbolPropertiesDialog {
         let form = &self.form;
         let attributes: AttributeList = self.attributes.borrow().list()?;
         let new_name = if self.has_name {
-            Some(
-                CircuitIdentifier::new(form.get_text("name").trim())
-                    .map_err(|e| e.to_string())?,
-            )
+            Some(CircuitIdentifier::new(form.get_text("name").trim()).map_err(|e| e.to_string())?)
         } else {
             None
         };
@@ -355,7 +394,12 @@ impl FormDialog for SymbolPropertiesDialog {
             if self.swap_confirmed.as_deref() != Some(new.as_str()) {
                 self.swap_confirmed = Some(new.as_str().to_owned());
                 let tmpl = |a: &str, b: &str| {
-                    tr!("librepcb::editor::SymbolInstancePropertiesDialog", "{0} gets renamed to {1}", a, b)
+                    tr!(
+                        "librepcb::editor::SymbolInstancePropertiesDialog",
+                        "{0} gets renamed to {1}",
+                        a,
+                        b
+                    )
                 };
                 return Err(format!(
                     "{}\n\n • {}\n • {}\n\n{}",
@@ -366,7 +410,10 @@ impl FormDialog for SymbolPropertiesDialog {
                     ),
                     tmpl(new.as_str(), old_name.as_str()),
                     tmpl(old_name.as_str(), new.as_str()),
-                    tr!("librepcb::editor::SymbolInstancePropertiesDialog", "Click OK again to swap the names.")
+                    tr!(
+                        "librepcb::editor::SymbolInstancePropertiesDialog",
+                        "Click OK again to swap the names."
+                    )
                 ));
             }
             let _ = other;
@@ -522,7 +569,10 @@ impl RenameSegmentDialog {
             RenameSegment::Net(_) => (
                 tr!("librepcb::editor::RenameNetSegmentDialog", "Net name:"),
                 vec![
-                    tr!("librepcb::editor::RenameNetSegmentDialog", "Rename only this net segment"),
+                    tr!(
+                        "librepcb::editor::RenameNetSegmentDialog",
+                        "Rename only this net segment"
+                    ),
                     tr!(
                         "librepcb::editor::RenameNetSegmentDialog",
                         "Rename whole net ({0} segments)",
@@ -533,7 +583,10 @@ impl RenameSegmentDialog {
             RenameSegment::Bus(_) => (
                 tr!("librepcb::editor::RenameBusSegmentDialog", "Bus name:"),
                 vec![
-                    tr!("librepcb::editor::RenameBusSegmentDialog", "Rename only this bus segment"),
+                    tr!(
+                        "librepcb::editor::RenameBusSegmentDialog",
+                        "Rename only this bus segment"
+                    ),
                     tr!(
                         "librepcb::editor::RenameBusSegmentDialog",
                         "Rename whole bus ({0} segments)",
@@ -603,9 +656,15 @@ impl RenameSegmentDialog {
         let old = self.old_name.as_str();
         let n = name.as_str();
         let (action, desc) = if !valid {
-            (RenameAction::InvalidName, tr!(self.context(), "Invalid name!"))
+            (
+                RenameAction::InvalidName,
+                tr!(self.context(), "Invalid name!"),
+            )
         } else if n == old {
-            (RenameAction::None, tr!(self.context(), "No change is made."))
+            (
+                RenameAction::None,
+                tr!(self.context(), "No change is made."),
+            )
         } else if whole && exists {
             (
                 RenameAction::Merge,
@@ -695,9 +754,15 @@ impl RenameSegmentDialog {
 impl FormDialog for RenameSegmentDialog {
     fn title(&self) -> String {
         if self.is_bus() {
-            tr!("librepcb::editor::RenameBusSegmentDialog", "Rename Bus Segment")
+            tr!(
+                "librepcb::editor::RenameBusSegmentDialog",
+                "Rename Bus Segment"
+            )
         } else {
-            tr!("librepcb::editor::RenameNetSegmentDialog", "Rename net segment")
+            tr!(
+                "librepcb::editor::RenameNetSegmentDialog",
+                "Rename net segment"
+            )
         }
     }
 
@@ -732,9 +797,14 @@ impl FormDialog for RenameSegmentDialog {
                 let name = BusName::new(name).map_err(|e| e.to_string())?;
                 let whole_bus = matches!(action, RenameAction::RenameWhole | RenameAction::Merge);
                 let text = match action {
-                    RenameAction::Merge => tr!("librepcb::editor::CmdCombineBuses", "Combine Net Signals"),
+                    RenameAction::Merge => {
+                        tr!("librepcb::editor::CmdCombineBuses", "Combine Net Signals")
+                    }
                     RenameAction::RenameWhole => tr!("librepcb::editor::CmdBusEdit", "Edit Bus"),
-                    _ => tr!("librepcb::editor::RenameBusSegmentDialog", "Change Bus of Bus Segment"),
+                    _ => tr!(
+                        "librepcb::editor::RenameBusSegmentDialog",
+                        "Change Bus of Bus Segment"
+                    ),
                 };
                 transaction(ctx.project, text, |e| {
                     e.execute(RenameBusSegment {
@@ -749,7 +819,10 @@ impl FormDialog for RenameSegmentDialog {
                 let net = CircuitIdentifier::new(name).map_err(|e| e.to_string())?;
                 let merge = action == RenameAction::Merge;
                 let text = if merge {
-                    tr!("librepcb::editor::CmdCombineNetSignals", "Combine Net Signals")
+                    tr!(
+                        "librepcb::editor::CmdCombineNetSignals",
+                        "Combine Net Signals"
+                    )
                 } else {
                     tr!("librepcb::editor::CmdNetSignalEdit", "Edit netsignal")
                 };
@@ -768,7 +841,10 @@ impl FormDialog for RenameSegmentDialog {
                 let net = CircuitIdentifier::new(name).map_err(|e| e.to_string())?;
                 transaction(
                     ctx.project,
-                    tr!("librepcb::editor::RenameNetSegmentDialog", "Change net of net segment"),
+                    tr!(
+                        "librepcb::editor::RenameNetSegmentDialog",
+                        "Change net of net segment"
+                    ),
                     |e| e.execute(ChangeNetOfSchematicSegment { segment, net }),
                 )?;
                 Ok(Applied::Project)
@@ -841,7 +917,10 @@ impl SchematicPolygonDialog {
 
 impl FormDialog for SchematicPolygonDialog {
     fn title(&self) -> String {
-        tr!("librepcb::editor::PolygonPropertiesDialog", "Polygon Properties")
+        tr!(
+            "librepcb::editor::PolygonPropertiesDialog",
+            "Polygon Properties"
+        )
     }
 
     fn form(&self) -> &Form {

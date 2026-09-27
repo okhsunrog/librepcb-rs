@@ -36,7 +36,9 @@ fn list(dialog: &mut dyn FormDialog, project: &Rc<AppProject>, id: &str, action:
 }
 
 fn set_length(dialog: &mut dyn FormDialog, project: &Rc<AppProject>, id: &str, value: Length) {
-    edit(dialog, project, id, |f| f.length.value = length_to_ui(value));
+    edit(dialog, project, id, |f| {
+        f.length.value = length_to_ui(value)
+    });
 }
 
 fn apply(dialog: &mut dyn FormDialog, project: &Rc<AppProject>) -> Result<Applied, String> {
@@ -78,7 +80,12 @@ fn bus_segment_rename() {
     let bus_name = |project: &AppProject| {
         let p = project.shared().lock();
         let seg = &p.project().schematic(sch).unwrap().bus_segments()[&segment];
-        p.project().circuit().bus(seg.bus()).unwrap().name().to_string()
+        p.project()
+            .circuit()
+            .bus(seg.bus())
+            .unwrap()
+            .name()
+            .to_string()
     };
     let old = bus_name(&project);
     let target = PropertiesTarget::BusSegment(sch, segment.0);
@@ -87,7 +94,9 @@ fn bus_segment_rename() {
     assert_eq!(dialog.form().get_text("name"), old);
     // Default: only this segment (the bus has two segments).
     assert_eq!(dialog.form().get_index("scope"), Some(0));
-    edit(dialog.as_mut(), &project, "name", |f| f.text = "D[0..7]".into());
+    edit(dialog.as_mut(), &project, "name", |f| {
+        f.text = "D[0..7]".into()
+    });
     assert!(
         dialog
             .form()
@@ -107,8 +116,15 @@ fn bus_segment_rename() {
     // Rename the whole bus.
     let mut dialog = dialogs::open_properties(&project, &target, LengthUnit::Millimeters).unwrap();
     edit(dialog.as_mut(), &project, "scope", |f| f.index = 1);
-    edit(dialog.as_mut(), &project, "name", |f| f.text = "ADDR".into());
-    assert!(dialog.form().get_text("description").contains("renamed to 'ADDR'"));
+    edit(dialog.as_mut(), &project, "name", |f| {
+        f.text = "ADDR".into()
+    });
+    assert!(
+        dialog
+            .form()
+            .get_text("description")
+            .contains("renamed to 'ADDR'")
+    );
     assert_eq!(apply(dialog.as_mut(), &project), Ok(Applied::Project));
     {
         let p = project.shared().lock();
@@ -188,10 +204,7 @@ fn board_setup() {
         assert!(s.silkscreen_layers_top.contains(&Layer::TOP_LEGEND));
         assert_eq!(*s.design_rules.default_trace_width(), len(0.3));
         assert!(s.design_rules.pad_cmp_side_auto_annular_ring());
-        assert_eq!(
-            *s.design_rules.stop_mask_clearance().min_value(),
-            len(0.05)
-        );
+        assert_eq!(*s.design_rules.stop_mask_clearance().min_value(), len(0.05));
         assert_eq!(*s.drc_settings.min_copper_copper_clearance(), len(0.15));
         assert!(s.drc_settings.blind_vias_allowed());
         assert_eq!(

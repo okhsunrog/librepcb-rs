@@ -174,7 +174,9 @@ impl State {
             Tab::Home(_) => return false,
         };
         use crate::dialogs::output::{GraphicsExportDialog, GraphicsExportKind as K};
-        let unit = t.length_unit().unwrap_or(librepcb_core::types::LengthUnit::Millimeters);
+        let unit = t
+            .length_unit()
+            .unwrap_or(librepcb_core::types::LengthUnit::Millimeters);
         let graphics = match (action, board) {
             (ui::TabAction::ExportPdf, None) => Some(K::SchematicPdf),
             (ui::TabAction::ExportPdf, Some(b)) => Some(K::BoardPdf(b)),
@@ -201,10 +203,7 @@ impl State {
                 let dialog = crate::dialogs::review::BomReviewDialog::new(&project, b);
                 self.show_form_dialog(project, Box::new(dialog));
             }
-            (
-                ui::TabAction::Print | ui::TabAction::ExportSpecctra,
-                _,
-            ) => {
+            (ui::TabAction::Print | ui::TabAction::ExportSpecctra, _) => {
                 self.not_implemented(&format!("{action:?}"));
             }
             _ => return false,

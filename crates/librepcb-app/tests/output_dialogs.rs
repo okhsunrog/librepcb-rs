@@ -9,7 +9,9 @@ use std::rc::Rc;
 
 use common::*;
 use librepcb_app::dialogs::output::{GraphicsExportDialog, GraphicsExportKind, OutputJobsDialog};
-use librepcb_app::dialogs::{Applied, ButtonResult, DialogContext, FieldEvent, FormDialog, ListAction};
+use librepcb_app::dialogs::{
+    Applied, ButtonResult, DialogContext, FieldEvent, FormDialog, ListAction,
+};
 use librepcb_app::outputs::run_output_jobs;
 use librepcb_app::project::AppProject;
 use librepcb_app::ui;
@@ -33,7 +35,9 @@ fn list(dialog: &mut dyn FormDialog, project: &Rc<AppProject>, id: &str, action:
 }
 
 fn click(dialog: &mut dyn FormDialog, project: &Rc<AppProject>, id: &str) {
-    edit(dialog, project, id, |f| f.action = ui::FormFieldAction::Clicked);
+    edit(dialog, project, id, |f| {
+        f.action = ui::FormFieldAction::Clicked
+    });
 }
 
 fn run(project: &AppProject, jobs: &[OutputJob]) -> Vec<String> {
@@ -46,8 +50,11 @@ fn run(project: &AppProject, jobs: &[OutputJob]) -> Vec<String> {
 fn graphics_export() {
     let dir = tempfile::tempdir().unwrap();
     let (project, _, _) = create_project(dir.path());
-    let mut dialog =
-        GraphicsExportDialog::new(&project, GraphicsExportKind::SchematicPdf, LengthUnit::Millimeters);
+    let mut dialog = GraphicsExportDialog::new(
+        &project,
+        GraphicsExportKind::SchematicPdf,
+        LengthUnit::Millimeters,
+    );
     assert_eq!(dialog.title(), "Export PDF");
     let d: &mut dyn FormDialog = &mut dialog;
     let a4 = d
@@ -66,7 +73,9 @@ fn graphics_export() {
     let first_on = layers.iter().position(|c| *c).unwrap();
     list(d, &project, "g_layers", ListAction::Toggle(first_on));
     assert!(!d.form().get_list_checked("g_layers")[first_on]);
-    edit(d, &project, "g_output", |f| f.text = "sch/{{PROJECT}}.pdf".into());
+    edit(d, &project, "g_output", |f| {
+        f.text = "sch/{{PROJECT}}.pdf".into()
+    });
     let Ok(Applied::RunJobs { jobs, .. }) = d.apply(&DialogContext::new(&project)) else {
         panic!("jobs expected");
     };
@@ -77,10 +86,7 @@ fn graphics_export() {
     assert_eq!(c.page_size.as_deref(), Some("A4"));
     assert_eq!(c.orientation, PageOrientation::Landscape);
     assert_eq!(c.background_color, librepcb_core::types::Color::WHITE);
-    assert_eq!(
-        c.layers.len(),
-        layers.iter().filter(|c| **c).count() - 1
-    );
+    assert_eq!(c.layers.len(), layers.iter().filter(|c| **c).count() - 1);
     let files = run(&project, &jobs);
     assert_eq!(files.len(), 1);
     assert!(files[0].ends_with(".pdf"), "{files:?}");
@@ -92,10 +98,7 @@ fn graphics_export() {
         GraphicsExportKind::BoardImage(board),
         LengthUnit::Millimeters,
     );
-    assert_eq!(
-        dialog.form().field("g_pages").unwrap().items.row_count(),
-        1
-    );
+    assert_eq!(dialog.form().field("g_pages").unwrap().items.row_count(), 1);
     edit(&mut dialog, &project, "g_dpi", |f| f.text = "100".into());
     let job = dialog.job().unwrap();
     let OutputJobKind::Graphics(g) = job.kind() else {
@@ -119,24 +122,35 @@ fn output_jobs() {
 
     // Add a netlist job and a BOM job, rename and configure them.
     let types = d.form().field("add_type").unwrap().options;
-    let netlist = types
-        .iter()
-        .position(|t| t.contains("Netlist"))
-        .unwrap();
+    let netlist = types.iter().position(|t| t.contains("Netlist")).unwrap();
     edit(d, &project, "add_type", |f| f.index = netlist as i32);
     click(d, &project, "add");
     edit(d, &project, "name", |f| f.text = "My Netlist".into());
-    edit(d, &project, "output", |f| f.text = "net/{{PROJECT}}.d356".into());
+    edit(d, &project, "output", |f| {
+        f.text = "net/{{PROJECT}}.d356".into()
+    });
     edit(d, &project, "boards", |f| f.index = 0);
-    let bom = types.iter().position(|t| t.to_lowercase().contains("bill of")).unwrap();
+    let bom = types
+        .iter()
+        .position(|t| t.to_lowercase().contains("bill of"))
+        .unwrap();
     edit(d, &project, "add_type", |f| f.index = bom as i32);
     click(d, &project, "add");
-    edit(d, &project, "attributes", |f| f.text = "MPN, MANUFACTURER".into());
+    edit(d, &project, "attributes", |f| {
+        f.text = "MPN, MANUFACTURER".into()
+    });
     // Back to the netlist job: its settings were kept.
     let rows = d.form().field("jobs").unwrap().items.row_count();
     let netlist_row = (0..rows)
         .find(|i| {
-            d.form().field("jobs").unwrap().items.row_data(*i).unwrap().cells.row_data(0)
+            d.form()
+                .field("jobs")
+                .unwrap()
+                .items
+                .row_data(*i)
+                .unwrap()
+                .cells
+                .row_data(0)
                 == Some("My Netlist".into())
         })
         .unwrap();
@@ -155,7 +169,10 @@ fn output_jobs() {
 
     // Duplicate and remove.
     list(d, &project, "jobs", ListAction::Duplicate(netlist_row));
-    assert_eq!(d.form().field("jobs").unwrap().items.row_count(), initial + 3);
+    assert_eq!(
+        d.form().field("jobs").unwrap().items.row_count(),
+        initial + 3
+    );
     list(d, &project, "jobs", ListAction::Remove(netlist_row + 1));
 
     // Apply: one undo step.
@@ -179,7 +196,10 @@ fn output_jobs() {
     // Unchanged: nothing to apply.
     assert_eq!(d.apply(&DialogContext::new(&project)), Ok(Applied::Nothing));
     project.shared().lock().editor.undo().unwrap();
-    assert_eq!(project.shared().lock().project().output_jobs().len(), initial);
+    assert_eq!(
+        project.shared().lock().project().output_jobs().len(),
+        initial
+    );
 }
 
 #[test]
@@ -193,18 +213,34 @@ fn bom_review() {
     assert!(header.len() >= 3, "{header:?}");
     // R1 and R2 have the same device: one row.
     assert_eq!(rows.len(), 1, "{rows:?}");
-    assert!(rows[0].iter().any(|c| c.contains("R1") && c.contains("R2")), "{rows:?}");
-    edit(&mut dialog, &project, "attributes", |f| f.text = "MPN, Foo".into());
+    assert!(
+        rows[0].iter().any(|c| c.contains("R1") && c.contains("R2")),
+        "{rows:?}"
+    );
+    edit(&mut dialog, &project, "attributes", |f| {
+        f.text = "MPN, Foo".into()
+    });
     let (header2, _) = dialog.table();
     assert_eq!(header2.len(), header.len() + 2, "{header2:?}");
     let index = undo_index(&project);
-    assert_eq!(dialog.apply(&DialogContext::new(&project)), Ok(Applied::Project));
+    assert_eq!(
+        dialog.apply(&DialogContext::new(&project)),
+        Ok(Applied::Project)
+    );
     assert_eq!(undo_index(&project), index + 1);
     assert_eq!(
-        project.shared().lock().project().settings().custom_bom_attributes,
+        project
+            .shared()
+            .lock()
+            .project()
+            .settings()
+            .custom_bom_attributes,
         vec!["MPN", "Foo"]
     );
-    assert_eq!(dialog.apply(&DialogContext::new(&project)), Ok(Applied::Nothing));
+    assert_eq!(
+        dialog.apply(&DialogContext::new(&project)),
+        Ok(Applied::Nothing)
+    );
 }
 
 #[test]
@@ -213,10 +249,7 @@ fn pick_place_generator() {
     let dir = tempfile::tempdir().unwrap();
     let (project, _, board) = create_project(dir.path());
     let mut dialog = PickPlaceGeneratorDialog::new(&project, board).unwrap();
-    assert_eq!(
-        dialog.form().field("data").unwrap().items.row_count(),
-        2
-    );
+    assert_eq!(dialog.form().field("data").unwrap().items.row_count(), 2);
     let jobs = match dialog.apply(&DialogContext::new(&project)) {
         Ok(Applied::RunJobs { jobs, .. }) => jobs,
         other => panic!("jobs expected: {other:?}"),

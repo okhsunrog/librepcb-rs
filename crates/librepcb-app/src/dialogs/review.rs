@@ -12,14 +12,19 @@
 //! Directory" is not offered.
 
 use librepcb_core::export::{PickPlaceCsvWriter, PickPlaceSides};
-use librepcb_core::job::{GerberX3OutputJob, ObjectSet, OutputJob, OutputJobKind, PickPlaceOutputJob};
+use librepcb_core::job::{
+    GerberX3OutputJob, ObjectSet, OutputJob, OutputJobKind, PickPlaceOutputJob,
+};
 use librepcb_core::project::board::BoardPickPlaceGenerator;
 use librepcb_core::project::{AssemblyVariantId, BoardId, BomGenerator};
 use librepcb_core::types::LengthUnit;
 use librepcb_editor::commands::EditProjectSettings;
 use librepcb_i18n::tr;
 
-use super::{Applied, DialogContext, DialogOptions, FieldEvent, Form, FormDialog, ListButtons, ListItem, transaction};
+use super::{
+    Applied, DialogContext, DialogOptions, FieldEvent, Form, FormDialog, ListButtons, ListItem,
+    transaction,
+};
 use crate::project::AppProject;
 
 const BRD: &str = "librepcb::editor::BomReviewDialog";
@@ -88,7 +93,11 @@ impl BomReviewDialog {
             "board",
             tr!(BRD, "Board:"),
             &board_names,
-            Some(board.and_then(|b| boards.iter().position(|(id, _)| *id == b)).map_or(0, |i| i + 1)),
+            Some(
+                board
+                    .and_then(|b| boards.iter().position(|(id, _)| *id == b))
+                    .map_or(0, |i| i + 1),
+            ),
         );
         let variant_names: Vec<String> = variants.iter().map(|(_, n)| n.clone()).collect();
         form.choice(
@@ -105,7 +114,10 @@ impl BomReviewDialog {
         form.list("bom", "", &[], &[], 14, ListButtons::default());
         form.note(
             "note",
-            format!("ⓘ {}", tr!(BRD, "Gray rows are not exported (do not mount).")),
+            format!(
+                "ⓘ {}",
+                tr!(BRD, "Gray rows are not exported (do not mount).")
+            ),
         );
         let dialog = Self {
             form,
@@ -141,7 +153,10 @@ impl BomReviewDialog {
         match writer.generate_csv() {
             Ok(csv) => {
                 let rows = table_rows(csv.values(), |i| {
-                    csv.values().get(i).and_then(|r| r.first()).is_some_and(|q| q == "0")
+                    csv.values()
+                        .get(i)
+                        .and_then(|r| r.first())
+                        .is_some_and(|q| q == "0")
                 });
                 self.form.update("bom", |f| {
                     f.columns = crate::models::vec_model(
@@ -157,9 +172,15 @@ impl BomReviewDialog {
     /// The BOM table (tests): header and rows.
     pub fn table(&self) -> (Vec<String>, Vec<Vec<String>>) {
         let field = self.form.field("bom").unwrap_or_default();
-        let header = slint::Model::iter(&field.columns).map(|s| s.to_string()).collect();
+        let header = slint::Model::iter(&field.columns)
+            .map(|s| s.to_string())
+            .collect();
         let rows = slint::Model::iter(&field.items)
-            .map(|i| slint::Model::iter(&i.cells).map(|s| s.to_string()).collect())
+            .map(|i| {
+                slint::Model::iter(&i.cells)
+                    .map(|s| s.to_string())
+                    .collect()
+            })
             .collect();
         (header, rows)
     }
@@ -190,8 +211,14 @@ impl FormDialog for BomReviewDialog {
     /// Stores the custom BOM attributes in the project settings.
     fn apply(&mut self, ctx: &DialogContext<'_>) -> Result<Applied, String> {
         let attributes = split_attributes(&self.form.get_text("attributes"));
-        let unchanged =
-            ctx.project.shared().lock().project().settings().custom_bom_attributes == attributes;
+        let unchanged = ctx
+            .project
+            .shared()
+            .lock()
+            .project()
+            .settings()
+            .custom_bom_attributes
+            == attributes;
         if unchanged {
             return Ok(Applied::Nothing);
         }
@@ -264,7 +291,10 @@ impl PickPlaceGeneratorDialog {
         form.list("data", "", &[], &[], 10, ListButtons::default());
         form.note(
             "note",
-            format!("ⓘ {}", tr!(PPD, "Gray rows are not exported (do not mount).")),
+            format!(
+                "ⓘ {}",
+                tr!(PPD, "Gray rows are not exported (do not mount).")
+            ),
         );
         let dialog = Self {
             form,
@@ -332,7 +362,9 @@ impl PickPlaceGeneratorDialog {
     /// The job generating the files (tests).
     pub fn job(&self) -> Result<OutputJob, String> {
         let f = &self.form;
-        let variant = self.variant().ok_or_else(|| "No assembly variant.".to_owned())?;
+        let variant = self
+            .variant()
+            .ok_or_else(|| "No assembly variant.".to_owned())?;
         let boards = ObjectSet::custom([self.board]);
         let variants = ObjectSet::custom([variant]);
         let (top, bottom) = (f.get_checked("top"), f.get_checked("bottom"));

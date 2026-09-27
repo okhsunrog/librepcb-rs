@@ -232,4 +232,3 @@ pub fn trace_count(project: &AppProject, board: BoardId) -> usize {
 pub fn undo_index(project: &AppProject) -> usize {
     project.shared().lock().editor.undo_stack().index()
 }
-

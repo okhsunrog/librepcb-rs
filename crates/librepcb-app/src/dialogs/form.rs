@@ -492,7 +492,9 @@ impl Form {
 
     /// The text of a field.
     pub fn get_text(&self, id: &str) -> String {
-        self.field(id).map(|f| f.text.to_string()).unwrap_or_default()
+        self.field(id)
+            .map(|f| f.text.to_string())
+            .unwrap_or_default()
     }
 
     /// The check state of a check box.

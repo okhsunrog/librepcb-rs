@@ -28,9 +28,9 @@ use std::collections::BTreeSet;
 use librepcb_core::export::{GraphicsExportSettings, PageOrientation, PageSize};
 use librepcb_core::job::{
     ArchiveOutputJob, Board3DOutputJob, BomOutputJob, CopyOutputJob, GerberExcellonOutputJob,
-    GerberX3OutputJob, GraphicsContentType, GraphicsOutputJob,
-    InteractiveHtmlBomOutputJob, LppzOutputJob, NetlistOutputJob, ObjectSet, OutputJob,
-    OutputJobKind, OutputJobList, PickPlaceOutputJob, ProjectJsonOutputJob,
+    GerberX3OutputJob, GraphicsContentType, GraphicsOutputJob, InteractiveHtmlBomOutputJob,
+    LppzOutputJob, NetlistOutputJob, ObjectSet, OutputJob, OutputJobKind, OutputJobList,
+    PickPlaceOutputJob, ProjectJsonOutputJob,
 };
 use librepcb_core::project::{AssemblyVariantId, BoardId, Mutation};
 use librepcb_core::types::{
@@ -267,7 +267,9 @@ impl GraphicsJobEditor {
             "g_page_size",
             tr!(GOJ, "Page size:"),
             &names,
-            sizes.iter().position(|s| s.map(str::to_owned) == c.page_size),
+            sizes
+                .iter()
+                .position(|s| s.map(str::to_owned) == c.page_size),
         );
         form.radio(
             "g_orientation",
@@ -294,7 +296,8 @@ impl GraphicsJobEditor {
         form.ratio(
             "g_scale",
             "",
-            c.scale.map_or(librepcb_core::types::Ratio::from_percent(100), |s| *s),
+            c.scale
+                .map_or(librepcb_core::types::Ratio::from_percent(100), |s| *s),
             1,
             i32::MAX,
         );
@@ -311,7 +314,12 @@ impl GraphicsJobEditor {
                 0
             },
         );
-        form.length("g_margin_left", tr!(GOJ, "Margins:"), *c.margin_left, Length::new(0));
+        form.length(
+            "g_margin_left",
+            tr!(GOJ, "Margins:"),
+            *c.margin_left,
+            Length::new(0),
+        );
         form.length("g_margin_right", "", *c.margin_right, Length::new(0));
         form.length("g_margin_top", "", *c.margin_top, Length::new(0));
         form.length("g_margin_bottom", "", *c.margin_bottom, Length::new(0));
@@ -361,7 +369,9 @@ impl GraphicsJobEditor {
         let items: Vec<ListItem> = roles
             .iter()
             .map(|(role, color)| ListItem {
-                color: Some(slint::Color::from_argb_u8(color.a, color.r, color.g, color.b)),
+                color: Some(slint::Color::from_argb_u8(
+                    color.a, color.r, color.g, color.b,
+                )),
                 ..ListItem::check(role_name(role), c.layers.contains_key(role))
             })
             .collect();
@@ -421,7 +431,9 @@ impl GraphicsJobEditor {
             .parse::<u32>()
             .ok()
             .filter(|d| (1..=10_000).contains(d))
-            .ok_or_else(|| tr!(GOJ, "Resolution:").replace(':', "") + ": " + &tr!("SlintHelpers", "Invalid"))?;
+            .ok_or_else(|| {
+                tr!(GOJ, "Resolution:").replace(':', "") + ": " + &tr!("SlintHelpers", "Invalid")
+            })?;
         c.scale = if form.get_checked("g_scale_auto") {
             None
         } else {
@@ -432,7 +444,8 @@ impl GraphicsJobEditor {
             Some(2) => Color::BLACK,
             _ => Color::TRANSPARENT,
         };
-        let unsigned = |id: &str| UnsignedLength::new(form.get_length(id)).map_err(|e| e.to_string());
+        let unsigned =
+            |id: &str| UnsignedLength::new(form.get_length(id)).map_err(|e| e.to_string());
         c.margin_left = unsigned("g_margin_left")?;
         c.margin_right = unsigned("g_margin_right")?;
         c.margin_top = unsigned("g_margin_top")?;
@@ -449,7 +462,8 @@ impl GraphicsJobEditor {
             .map(|((r, color), _)| (r.clone(), *color))
             .collect();
         if form.contains("g_boards") {
-            c.boards = chosen_object_set(form, "g_boards", &opt_items(&objects.boards, String::new()));
+            c.boards =
+                chosen_object_set(form, "g_boards", &opt_items(&objects.boards, String::new()));
             c.assembly_variants = chosen_object_set(
                 form,
                 "g_variants",
@@ -460,7 +474,13 @@ impl GraphicsJobEditor {
     }
 
     /// Handles an event; returns `true` if it was a field of this editor.
-    fn event(&mut self, form: &mut Form, objects: &ProjectObjects, id: &str, event: &FieldEvent) -> bool {
+    fn event(
+        &mut self,
+        form: &mut Form,
+        objects: &ProjectObjects,
+        id: &str,
+        event: &FieldEvent,
+    ) -> bool {
         if !id.starts_with("g_") {
             return false;
         }
@@ -469,7 +489,9 @@ impl GraphicsJobEditor {
                 let _ = self.sync(form, objects);
                 match action {
                     ListAction::Select(i) => self.page = *i,
-                    ListAction::Remove(i) if *i < self.job.content.len() && self.job.content.len() > 1 => {
+                    ListAction::Remove(i)
+                        if *i < self.job.content.len() && self.job.content.len() > 1 =>
+                    {
                         self.job.content.remove(*i);
                         self.page = 0;
                     }
@@ -503,7 +525,9 @@ impl GraphicsJobEditor {
                     .iter()
                     .zip(&checked)
                     .map(|((role, color), on)| ListItem {
-                        color: Some(slint::Color::from_argb_u8(color.a, color.r, color.g, color.b)),
+                        color: Some(slint::Color::from_argb_u8(
+                            color.a, color.r, color.g, color.b,
+                        )),
                         ..ListItem::check(role_name(role), *on)
                     })
                     .collect();
@@ -546,12 +570,16 @@ impl GraphicsExportDialog {
     pub fn new(project: &AppProject, kind: GraphicsExportKind, unit: LengthUnit) -> Self {
         let objects = ProjectObjects::new(project);
         let (mut job, title, image) = match kind {
-            GraphicsExportKind::SchematicPdf => {
-                (GraphicsOutputJob::schematic_pdf(), tr!(GED, "Export PDF"), false)
-            }
-            GraphicsExportKind::SchematicImage => {
-                (GraphicsOutputJob::schematic_pdf(), tr!(GED, "Export Image"), true)
-            }
+            GraphicsExportKind::SchematicPdf => (
+                GraphicsOutputJob::schematic_pdf(),
+                tr!(GED, "Export PDF"),
+                false,
+            ),
+            GraphicsExportKind::SchematicImage => (
+                GraphicsOutputJob::schematic_pdf(),
+                tr!(GED, "Export Image"),
+                true,
+            ),
             GraphicsExportKind::BoardPdf(_) => (
                 GraphicsOutputJob::board_assembly_pdf(),
                 tr!(GED, "Export PDF"),
@@ -626,8 +654,7 @@ impl FormDialog for GraphicsExportDialog {
     }
 
     fn field_event(&mut self, _ctx: &DialogContext<'_>, id: &str, event: FieldEvent) {
-        self.editor
-            .event(&mut self.form, &self.objects, id, &event);
+        self.editor.event(&mut self.form, &self.objects, id, &event);
     }
 
     fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
@@ -699,10 +726,9 @@ fn job_presets() -> Vec<JobPreset> {
             OutputJob::new_default::<Board3DOutputJob>().type_tr(),
             |_| OutputJob::new_default::<Board3DOutputJob>(),
         ),
-        (
-            OutputJob::new_default::<CopyOutputJob>().type_tr(),
-            |_| OutputJob::new_default::<CopyOutputJob>(),
-        ),
+        (OutputJob::new_default::<CopyOutputJob>().type_tr(), |_| {
+            OutputJob::new_default::<CopyOutputJob>()
+        }),
         (
             OutputJob::new_default::<ArchiveOutputJob>().type_tr(),
             |_| OutputJob::new_default::<ArchiveOutputJob>(),
@@ -711,10 +737,9 @@ fn job_presets() -> Vec<JobPreset> {
             OutputJob::new_default::<ProjectJsonOutputJob>().type_tr(),
             |_| OutputJob::new_default::<ProjectJsonOutputJob>(),
         ),
-        (
-            OutputJob::new_default::<LppzOutputJob>().type_tr(),
-            |_| OutputJob::new_default::<LppzOutputJob>(),
-        ),
+        (OutputJob::new_default::<LppzOutputJob>().type_tr(), |_| {
+            OutputJob::new_default::<LppzOutputJob>()
+        }),
     ]
 }
 
@@ -839,7 +864,10 @@ impl OutputJobsDialog {
             OutputJobKind::Graphics(g) => {
                 f.note(
                     "description",
-                    tr!(GOJ, "Customizable PDF/image export for schematics and boards."),
+                    tr!(
+                        GOJ,
+                        "Customizable PDF/image export for schematics and boards."
+                    ),
                 );
                 let mut editor = GraphicsJobEditor::new(g.clone());
                 editor.build(f, o, true);
@@ -859,12 +887,32 @@ impl OutputJobsDialog {
                 for (id, label, value) in [
                     ("suffix_outlines", "Outlines:", &g.suffix_outlines),
                     ("suffix_copper_top", "Top Copper:", &g.suffix_copper_top),
-                    ("suffix_copper_inner", "Inner Copper:", &g.suffix_copper_inner),
+                    (
+                        "suffix_copper_inner",
+                        "Inner Copper:",
+                        &g.suffix_copper_inner,
+                    ),
                     ("suffix_copper_bot", "Bottom Copper:", &g.suffix_copper_bot),
-                    ("suffix_solder_mask_top", "Top Stopmask:", &g.suffix_solder_mask_top),
-                    ("suffix_solder_mask_bot", "Bottom Stopmask:", &g.suffix_solder_mask_bot),
-                    ("suffix_silkscreen_top", "Top Silkscreen:", &g.suffix_silkscreen_top),
-                    ("suffix_silkscreen_bot", "Bottom Silkscreen:", &g.suffix_silkscreen_bot),
+                    (
+                        "suffix_solder_mask_top",
+                        "Top Stopmask:",
+                        &g.suffix_solder_mask_top,
+                    ),
+                    (
+                        "suffix_solder_mask_bot",
+                        "Bottom Stopmask:",
+                        &g.suffix_solder_mask_bot,
+                    ),
+                    (
+                        "suffix_silkscreen_top",
+                        "Top Silkscreen:",
+                        &g.suffix_silkscreen_top,
+                    ),
+                    (
+                        "suffix_silkscreen_bot",
+                        "Bottom Silkscreen:",
+                        &g.suffix_silkscreen_bot,
+                    ),
                     ("suffix_drills_npth", "Drills NPTH:", &g.suffix_drills_npth),
                     ("suffix_drills_pth", "Drills PTH:", &g.suffix_drills_pth),
                     (
@@ -905,13 +953,26 @@ impl OutputJobsDialog {
             }
             OutputJobKind::PickPlace(j) => {
                 let c = "librepcb::editor::PickPlaceOutputJobWidget";
-                f.note("description", tr!(c, "CSV pick&place position file export for boards."));
+                f.note(
+                    "description",
+                    tr!(c, "CSV pick&place position file export for boards."),
+                );
                 boards(f, &j.boards);
                 variants(f, &j.assembly_variants);
-                f.checkbox("tech_tht", tr!(c, "Technologies:"), tr!(c, "THT"), j.technologies.tht);
+                f.checkbox(
+                    "tech_tht",
+                    tr!(c, "Technologies:"),
+                    tr!(c, "THT"),
+                    j.technologies.tht,
+                );
                 f.checkbox("tech_smt", "", tr!(c, "SMT"), j.technologies.smt);
                 f.checkbox("tech_mixed", "", tr!(c, "Mixed"), j.technologies.mixed);
-                f.checkbox("tech_fiducial", "", tr!(c, "Fiducial"), j.technologies.fiducial);
+                f.checkbox(
+                    "tech_fiducial",
+                    "",
+                    tr!(c, "Fiducial"),
+                    j.technologies.fiducial,
+                );
                 f.checkbox("tech_other", "", tr!(c, "Other"), j.technologies.other);
                 f.checkbox(
                     "include_comment",
@@ -921,7 +982,12 @@ impl OutputJobsDialog {
                 );
                 f.checkbox("create_top", "", tr!(c, "Output Top:"), j.create_top);
                 f.text("output_top", "", &j.output_path_top);
-                f.checkbox("create_bottom", "", tr!(c, "Output Bottom:"), j.create_bottom);
+                f.checkbox(
+                    "create_bottom",
+                    "",
+                    tr!(c, "Output Bottom:"),
+                    j.create_bottom,
+                );
                 f.text("output_bottom", "", &j.output_path_bottom);
                 f.checkbox("create_both", "", tr!(c, "Output Combined:"), j.create_both);
                 f.text("output_both", "", &j.output_path_both);
@@ -937,18 +1003,36 @@ impl OutputJobsDialog {
                 );
                 boards(f, &j.boards);
                 variants(f, &j.assembly_variants);
-                f.checkbox("cmp_top", "", tr!(c, "Top Components:"), j.enable_components_top);
+                f.checkbox(
+                    "cmp_top",
+                    "",
+                    tr!(c, "Top Components:"),
+                    j.enable_components_top,
+                );
                 f.text("output_cmp_top", "", &j.output_path_components_top);
-                f.checkbox("cmp_bot", "", tr!(c, "Bottom Components:"), j.enable_components_bot);
+                f.checkbox(
+                    "cmp_bot",
+                    "",
+                    tr!(c, "Bottom Components:"),
+                    j.enable_components_bot,
+                );
                 f.text("output_cmp_bot", "", &j.output_path_components_bot);
                 f.checkbox("glue_top", "", tr!(c, "Top Glue Mask:"), j.enable_glue_top);
                 f.text("output_glue_top", "", &j.output_path_glue_top);
-                f.checkbox("glue_bot", "", tr!(c, "Bottom Glue Mask:"), j.enable_glue_bot);
+                f.checkbox(
+                    "glue_bot",
+                    "",
+                    tr!(c, "Bottom Glue Mask:"),
+                    j.enable_glue_bot,
+                );
                 f.text("output_glue_bot", "", &j.output_path_glue_bot);
             }
             OutputJobKind::Netlist(j) => {
                 let c = "librepcb::editor::NetlistOutputJobWidget";
-                f.note("description", tr!(c, "IPC D-356A netlist export for boards."));
+                f.note(
+                    "description",
+                    tr!(c, "IPC D-356A netlist export for boards."),
+                );
                 f.text("output", tr!(c, "Output:"), &j.output_path);
                 boards(f, &j.boards);
             }
@@ -958,7 +1042,11 @@ impl OutputJobsDialog {
                     tr!(bctx, "Bill of materials (BOM) export to CSV files."),
                 );
                 f.text("output", tr!(bctx, "Output:"), &j.output_path);
-                f.text("attributes", tr!(bctx, "Custom Attributes:"), csv(&j.custom_attributes));
+                f.text(
+                    "attributes",
+                    tr!(bctx, "Custom Attributes:"),
+                    csv(&j.custom_attributes),
+                );
                 f.update("attributes", |x| {
                     x.placeholder = tr!(bctx, "Comma-separated attributes (optional)").into();
                 });
@@ -968,9 +1056,16 @@ impl OutputJobsDialog {
             }
             OutputJobKind::InteractiveHtmlBom(j) => {
                 let c = "librepcb::editor::InteractiveHtmlBomOutputJobWidget";
-                f.note("description", tr!(c, "Interactive HTML bill of materials (BOM) export."));
+                f.note(
+                    "description",
+                    tr!(c, "Interactive HTML bill of materials (BOM) export."),
+                );
                 f.text("output", tr!(c, "Output:"), &j.output_path);
-                f.text("attributes", tr!(c, "Custom Attributes:"), csv(&j.custom_attributes));
+                f.text(
+                    "attributes",
+                    tr!(c, "Custom Attributes:"),
+                    csv(&j.custom_attributes),
+                );
                 boards(f, &j.boards);
                 variants(f, &j.assembly_variants);
                 f.checkbox("dark_mode", "", "Dark Mode", j.dark_mode);
@@ -999,7 +1094,10 @@ impl OutputJobsDialog {
                 let c = "librepcb::editor::ProjectJsonOutputJobWidget";
                 f.note(
                     "description",
-                    tr!(c, "Export general project data to a machine-readable JSON file."),
+                    tr!(
+                        c,
+                        "Export general project data to a machine-readable JSON file."
+                    ),
                 );
                 f.text("output", tr!(c, "Output:"), &j.output_path);
             }
@@ -1007,7 +1105,10 @@ impl OutputJobsDialog {
                 let c = "librepcb::editor::LppzOutputJobWidget";
                 f.note(
                     "description",
-                    tr!(c, "Store a snapshot of the whole project as a *.lppz archive."),
+                    tr!(
+                        c,
+                        "Store a snapshot of the whole project as a *.lppz archive."
+                    ),
                 );
                 f.text("output", tr!(c, "Output:"), &j.output_path);
             }
@@ -1044,16 +1145,28 @@ impl OutputJobsDialog {
                 let c = "librepcb::editor::ArchiveOutputJobWidget";
                 f.note(
                     "description",
-                    tr!(c, "Bundle the output of other jobs in a single archive file."),
+                    tr!(
+                        c,
+                        "Bundle the output of other jobs in a single archive file."
+                    ),
                 );
                 f.text("output", tr!(c, "Output:"), &j.output_path);
                 let items: Vec<ListItem> = self
                     .jobs
                     .iter()
                     .filter(|x| x.uuid() != job.uuid())
-                    .map(|x| ListItem::check(x.name().as_str(), j.input_jobs.contains_key(&x.uuid())))
+                    .map(|x| {
+                        ListItem::check(x.name().as_str(), j.input_jobs.contains_key(&x.uuid()))
+                    })
                     .collect();
-                f.list("inputs", tr!(c, "Content:"), &[], &items, 6, ListButtons::default());
+                f.list(
+                    "inputs",
+                    tr!(c, "Content:"),
+                    &[],
+                    &items,
+                    6,
+                    ListButtons::default(),
+                );
             }
             _ => {
                 f.note(
@@ -1081,8 +1194,8 @@ impl OutputJobsDialog {
             .map(OutputJob::uuid)
             .collect();
         let job = &mut self.jobs[i];
-        let name = ElementName::new(ElementName::clean(&f.get_text("name")))
-            .map_err(|e| e.to_string())?;
+        let name =
+            ElementName::new(ElementName::clean(&f.get_text("name"))).map_err(|e| e.to_string())?;
         job.set_name(name);
         let text = |id: &str| f.get_text(id).trim().to_owned();
         match job.kind_mut() {

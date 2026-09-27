@@ -168,8 +168,7 @@ impl State {
                         continue;
                     };
                     let unit = t_unit.unwrap_or(librepcb_core::types::LengthUnit::Millimeters);
-                    if let Some(dialog) = crate::dialogs::open_properties(&project, &target, unit)
-                    {
+                    if let Some(dialog) = crate::dialogs::open_properties(&project, &target, unit) {
                         self.open_form_dialog(project, Some(id), dialog);
                     }
                 }

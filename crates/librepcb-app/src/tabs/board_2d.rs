@@ -39,9 +39,8 @@ use librepcb_scene::{BoardObject, BoardScene, BoardSceneLayer, BoardSide, ColorS
 
 use super::board_view::{BoardSceneView, board_item};
 use super::editing::{
-    DoubleClick, OverlayColors, Overlays, error_notification, fsm_key_event,
-    fsm_modifiers, info_box_text, mouse_cursor, point_from_world, point_to_world, to_multi_line,
-    to_single_line,
+    DoubleClick, OverlayColors, Overlays, error_notification, fsm_key_event, fsm_modifiers,
+    info_box_text, mouse_cursor, point_from_world, point_to_world, to_multi_line, to_single_line,
 };
 use super::{
     ContextMenuEntry, CrossProbe, PropertiesTarget, TabId, TabRequest, TabUpdate, feature,

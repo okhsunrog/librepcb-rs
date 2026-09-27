@@ -38,9 +38,8 @@ use librepcb_i18n::tr;
 use librepcb_scene::{ColorScheme, SceneSync, SchematicObject, SchematicScene};
 
 use super::editing::{
-    DoubleClick, OverlayColors, Overlays, error_notification, fsm_key_event,
-    fsm_modifiers, info_box_text, mouse_cursor, point_from_world, point_to_world, to_multi_line,
-    to_single_line,
+    DoubleClick, OverlayColors, Overlays, error_notification, fsm_key_event, fsm_modifiers,
+    info_box_text, mouse_cursor, point_from_world, point_to_world, to_multi_line, to_single_line,
 };
 use super::schematic_view::{SchematicSceneView, schematic_item};
 use super::{
@@ -520,9 +519,9 @@ impl SchematicTab {
                     .push(TabRequest::AddComponent { search_term });
             }
             SchematicRequest::SymbolProperties(symbol) => {
-                update.requests.push(TabRequest::Properties(PropertiesTarget::Symbol(
-                    symbol,
-                )));
+                update
+                    .requests
+                    .push(TabRequest::Properties(PropertiesTarget::Symbol(symbol)));
             }
             SchematicRequest::NetLabelProperties(segment, _) => {
                 update
