@@ -73,7 +73,9 @@ Every write is one undo step \"AI: <tool>\" (undo/redo/history) and returns the 
 entities, the change events and the new revision; pass expected_revision to avoid lost \
 updates. Results: {outcome: complete|partial|failed, revision, result, warnings}; errors have a \
 stable kind (not_found, invalid_argument, conflict, stale_revision, no_project, no_workspace, \
-io, network, not_available, internal). Nothing is written to disk before project_save.";
+io, network, not_available, refused, internal). Nothing is written to disk before project_save. \
+When the server runs inside the LibrePCB app, the user sees your edits live and shares the undo \
+history; the app may refuse opening or closing projects (kind refused).";
 
 /// Message prefix of rmcp's argument deserialization errors.
 const DESERIALIZE_ERROR_PREFIX: &str = "failed to deserialize parameters:";

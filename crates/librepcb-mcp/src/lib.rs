@@ -39,6 +39,38 @@
 //! vice versa); close the project (`project_close`) before editing it in
 //! LibrePCB.
 //!
+//! # Embedding in an application
+//!
+//! The desktop app runs the same server in-process ("watch the agent",
+//! `docs/ui-design.md`, decision 4), sharing its open project so agent
+//! edits appear live and land in the same undo history:
+//!
+//! ```ignore
+//! let state = McpState::new(Arc::new(my_host));         // impl McpHost
+//! state.set_workspace(Some(workspace));                  // SharedWorkspace
+//! state.set_project(Some(project));                      // SharedProject (active tab)
+//! let server = transport::start_http(                    // feature `http`
+//!     state.clone(),
+//!     ([127, 0, 0, 1], transport::EMBEDDED_PORT).into(), // 8766
+//!     runtime.handle(),                                  // the app's tokio runtime
+//! )?;
+//! // ... server.url() == "http://127.0.0.1:8766/mcp"; dropping `server` stops it.
+//! ```
+//!
+//! - The host owns the workspace and projects as
+//!   `Arc<parking_lot::Mutex<_>>` ([`SharedWorkspace`], [`SharedProject`]
+//!   = `Arc<Mutex<`[`OpenProject`]`>>` of the editor crate) and edits them
+//!   itself; the server locks them only during one synchronous tool step
+//!   (workspace before project; never across `.await`).
+//! - [`McpHost`] decides about `workspace_open`/`_create`,
+//!   `project_open`/`_create`/`_close` ([`HostDecision`]: allow, refuse
+//!   with a message (kind `refused`), or delegate, e.g. open the project
+//!   in a tab and hand it over) and receives a [`ChangeNotice`] (tool,
+//!   revisions, touched schematics/boards as [`Focus`]) after every call
+//!   which changed something; [`McpState::subscribe()`] offers the same as
+//!   a `watch` channel. The UI then pulls `Project::changes_since()`.
+//! - The binary is a host too ([`StandaloneHost`]: allows everything).
+//!
 //! # Conventions
 //!
 //! - Units: millimeters and degrees (JSON numbers), converted exactly to
@@ -85,7 +117,10 @@
 //! # Modules
 //!
 //! - [`server`]: rmcp tool registration, `spawn_blocking` wrapper.
-//! - [`session`]: workspace, open project (editor) and its lock.
+//! - [`host`]: the host interface and the shared server state.
+//! - [`transport`]: stdio and streamable HTTP serving.
+//! - [`session`]: workspace and open project (shared handles, locked per
+//!   tool call).
 //! - [`tools`]: the tool implementations (synchronous, testable without
 //!   MCP).
 //! - [`resolve`], [`units`], [`views`], [`outcome`], [`error`]: shared

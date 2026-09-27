@@ -24,12 +24,23 @@ wires, device placement, routing helpers) lives in `librepcb-editor`.
 ## Process and state
 
 - Binary `librepcb-mcp` (stdio by default, `--http <addr>` for streamable
-  HTTP). One server process holds at most one workspace and one open
-  project: `Session { workspace: Option<Workspace>, project: Option<OpenProject> }`
-  behind `Arc<parking_lot::Mutex<_>>`. Tools run their synchronous core work
-  in `tokio::task::spawn_blocking`; the lock is never held across `.await`.
+  HTTP), or embedded in the desktop app (see below). One server holds at
+  most one workspace and one project, as shared handles
+  (`SessionSlots { workspace: Option<SharedWorkspace>, project:
+  Option<SharedProject> }` in `McpState`, shared by all MCP client
+  sessions), where `SharedWorkspace = Arc<parking_lot::Mutex<Workspace>>`
+  and `SharedProject = Arc<parking_lot::Mutex<OpenProject>>`. Tools run
+  their synchronous core work in `tokio::task::spawn_blocking` through
+  `McpState::call()`: tool calls are serialized, the workspace and then
+  the project are locked into a `Session` (whose fields are the lock
+  guards, so tool code reads `session.project()` as before), the tool
+  runs, replaced handles (open/create/close) are written back and the
+  locks are released before the host is notified. No lock is ever held
+  across `.await`.
 - `OpenProject { editor: ProjectEditor, file_system (lock), saved_revision,
-  upgraded }`. The `ProjectEditor` (editor crate) owns the project, its
+  upgraded }` lives in the editor crate (`librepcb_editor::OpenProject`,
+  `OpenProject::open()` locks and loads), so the app opens projects the
+  same way. The `ProjectEditor` (editor crate) owns the project, its
   undo stack and the library element source (the workspace library
   database, shared via `Workspace::shared_library_db()`). Unsaved changes
   are the undo stack's clean state (plus a pending file format upgrade).
@@ -42,6 +53,60 @@ wires, device placement, routing helpers) lives in `librepcb-editor`.
   project library only and on library directories passed explicitly.
   `--workspace <dir>` or `workspace_open` selects one; `workspace_create`
   makes a fresh one (used by tests and first-time setup).
+
+## Embedded in the application
+
+The desktop app starts the server in-process ("watch the agent",
+`ui-design.md` decision 4); the standalone binary is just another host.
+
+- Library API (`librepcb_mcp::{host, transport}`): the host creates
+  `McpState::new(Arc<dyn McpHost>)`, hands over its own handles with
+  `set_workspace()` / `set_project()` (e.g. the project of the active
+  tab; takes effect with the next tool call) and starts
+  `transport::start_http(state, addr, &runtime_handle)` (feature `http`)
+  from any thread: it binds synchronously (a busy port fails at once),
+  spawns the streamable HTTP service (`http://<addr>/mcp`, loopback
+  `Host` headers only) on the host's tokio runtime and returns an
+  `HttpServerHandle` (`url()`, `stop()`, `shutdown().await`; dropping it
+  stops the server). Port convention: 8766 (`transport::EMBEDDED_PORT`)
+  for our server; Slint's UI debugging MCP server uses 8765.
+  `transport::serve_stdio(state)` / `serve_http(state, listener, token)`
+  are what the binary uses.
+- `McpHost` (all methods default to the standalone behavior): before
+  `workspace_open`/`workspace_create`, `project_open`, `project_create`
+  and `project_close`, the server asks the host on a blocking thread with
+  no lock held; `HostDecision::Allow` (the server does it; the host sees
+  the new project in the notice and can open a tab for it),
+  `Refuse(message)` (tool error kind `refused` with the host's message) or
+  `Delegated(value)` (the host did it itself, e.g. opened the project in
+  a tab and hands over its `SharedProject`; for close: the session just
+  detaches). Closing only drops the session's handle: a project the host
+  still holds stays open and locked. Preconditions (no project open,
+  unsaved changes) are checked before the host is asked.
+- Change notification: after every tool call which changed the
+  session's project (revision, undo stack state, clean state; i.e. all
+  write tools, undo/redo, save, derived data) or replaced the workspace
+  or project, the server calls `McpHost::changed(&ChangeNotice)` (no
+  locks held; keep it short, e.g. post to the UI thread) and bumps the
+  `tokio::sync::watch<u64>` channel of `McpState::subscribe()`.
+  `ChangeNotice { sequence, tool, project, project_replaced,
+  workspace_replaced, revision_before, revision, focus }`; `focus` lists
+  the schematics and boards touched by the call (from the change
+  journal), so the UI can show them. The UI pulls
+  `Project::changes_since(cursor)` and repaints; read tools and failed
+  writes notify nobody.
+- Concurrency: UI and MCP edit the same `ProjectEditor` under the same
+  mutex, so they share one undo stack: agent writes are groups
+  `"AI: <tool>"`, UI commands have their own texts, and undo/redo from
+  either side undoes the latest group whoever made it. Agents pass
+  `expected_revision` to detect user edits in between (`stale_revision`).
+  An open UI group (interactive command in progress) makes agent writes
+  fail with `conflict` instead of mixing into it. Lock order for hosts:
+  workspace before project, and never call `McpState` setters while
+  holding a lock of the current workspace. Long operations keep the
+  snapshot/work/apply split (Freerouting, library download): the locks
+  are released while the external work runs, and the apply step checks
+  the revision.
 
 ## Tool conventions
 
@@ -68,7 +133,8 @@ wires, device placement, routing helpers) lives in `librepcb-editor`.
   `{ "outcome": "complete"|"partial"|"failed", "revision": n, "result": {...},
   "warnings": [...] }`. Errors map `project::Error` & co. to stable kinds
   (`not_found`, `invalid_argument`, `conflict`, `stale_revision`,
-  `no_project`, `io`, `internal`) plus the upstream message.
+  `no_project`, `no_workspace`, `io`, `network`, `not_available`, `refused`
+  (host application), `internal`) plus the upstream message.
 - Checks never read as passing when they did not run: `run_drc` returns
   `ran: true` and the message list, or an error.
 
