@@ -16,11 +16,6 @@
 //!
 //! Only the footer of the migration log (application version and time of
 //! the upgrade) is excluded from the comparison.
-//!
-//! TODO: `project/jobs.lp` is still written back verbatim (after the
-//! migration) until `core/job` is ported (the output jobs are kept as raw
-//! S-expression), while upstream re-serializes it, so differences in this
-//! file are only reported, not treated as failure ([`PENDING_FILE_NAMES`]).
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -39,10 +34,6 @@ use librepcb_core::library::pkg::Package;
 use librepcb_core::library::sym::Symbol;
 use librepcb_core::library::{Library, LibraryBaseElement};
 use librepcb_core::project::ProjectLoader;
-
-/// Files which are not re-serialized yet (see the module documentation):
-/// boards (`board.lp`, `settings.user.lp`) and output jobs (`jobs.lp`).
-const PENDING_FILE_NAMES: &[&str] = &["jobs.lp"];
 
 fn data_dir() -> PathBuf {
     Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data")
@@ -196,7 +187,6 @@ fn describe_diff(expected: &[u8], actual: &[u8]) -> String {
 struct Comparison {
     identical: usize,
     failures: Vec<String>,
-    pending: Vec<String>,
 }
 
 fn compare(name: &str, upstream: &Path, ours: &Path, result: &mut Comparison) {
@@ -222,17 +212,11 @@ fn compare(name: &str, upstream: &Path, ours: &Path, result: &mut Comparison) {
             result.identical += 1;
             continue;
         }
-        let message = format!(
+        result.failures.push(format!(
             "{name}/{}: {}",
             file.display(),
             describe_diff(&expected, &actual)
-        );
-        let file_name = file.file_name().unwrap().to_string_lossy();
-        if PENDING_FILE_NAMES.contains(&file_name.as_ref()) {
-            result.pending.push(message);
-        } else {
-            result.failures.push(message);
-        }
+        ));
     }
 }
 
@@ -319,13 +303,7 @@ fn upgrade_like_upstream_cli() {
         checked.push(name);
     }
 
-    println!(
-        "compared {checked:?}: {} identical files, {} pending (not yet re-serialized) \
-         differences:\n{}",
-        result.identical,
-        result.pending.len(),
-        result.pending.join("\n")
-    );
+    println!("compared {checked:?}: {} identical files", result.identical);
     assert!(
         result.failures.is_empty(),
         "{} differences to upstream:\n{}",

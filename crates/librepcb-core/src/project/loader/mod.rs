@@ -29,6 +29,7 @@ use super::ref_index::RefIndex;
 use crate::application;
 use crate::attribute::AttributeList;
 use crate::fileio::{FilePath, FileSystem, TransactionalDirectory, VersionFile};
+use crate::job::OutputJobList;
 use crate::library::LibraryBaseElement;
 use crate::serialization::{DeserializeObject, Mode, SExpression, file_format_migrations};
 use crate::types::Version;
@@ -217,8 +218,8 @@ fn load_settings(p: &mut Project) -> Result<()> {
 }
 
 fn load_output_jobs(p: &mut Project) -> Result<()> {
-    // Kept as raw S-expression until the `job` module is ported.
-    p.output_jobs = parse_file(p, "project/jobs.lp")?;
+    let root = parse_file(p, "project/jobs.lp")?;
+    p.output_jobs = OutputJobList::deserialize(&root)?;
     Ok(())
 }
 

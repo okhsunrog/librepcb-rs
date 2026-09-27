@@ -11,6 +11,10 @@
 //! - [`D356NetlistGenerator`]: IPC-D-356A netlists.
 //! - [`Bom`] + [`BomCsvWriter`]: bill of materials as CSV.
 //! - [`PickPlaceData`] + [`PickPlaceCsvWriter`]: pick&place CSV files.
+//! - [`GraphicsExportSettings`]: settings of graphics exports (plain data,
+//!   used by the graphics output job), and the option enums of the
+//!   interactive HTML BOM ([`InteractiveHtmlBomViewMode`],
+//!   [`InteractiveHtmlBomHighlightPin1Mode`]).
 //!
 //! All generated content is byte-identical to upstream. Values that upstream
 //! takes from the environment (`Application::getVersion()`,
@@ -29,6 +33,8 @@ mod gerber_aperture_list;
 mod gerber_attribute;
 mod gerber_attribute_writer;
 mod gerber_generator;
+mod graphics_export_settings;
+mod interactive_html_bom;
 mod pick_place_csv_writer;
 mod pick_place_data;
 mod timestamp;
@@ -47,6 +53,9 @@ pub use gerber_attribute_writer::GerberAttributeWriter;
 pub use gerber_generator::{
     ComponentAttributes, GerberFileInfo, GerberGenerator, ObjectAttributes,
 };
+pub use graphics_export_settings::{GraphicsExportSettings, PageOrientation};
+pub(crate) use graphics_export_settings::{scale_from_sexpression, scale_to_sexpression};
+pub use interactive_html_bom::{InteractiveHtmlBomHighlightPin1Mode, InteractiveHtmlBomViewMode};
 pub use pick_place_csv_writer::{PickPlaceCsvWriter, PickPlaceSides};
 pub use pick_place_data::{PickPlaceData, PickPlaceDataItem, PickPlaceType};
 pub use timestamp::Timestamp;
