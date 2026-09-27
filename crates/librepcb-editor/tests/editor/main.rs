@@ -8,4 +8,5 @@ mod real_library_test;
 mod serde_test;
 mod specctra_test;
 mod undo_stack_test;
+mod wiring_test;
 mod workflow_test;

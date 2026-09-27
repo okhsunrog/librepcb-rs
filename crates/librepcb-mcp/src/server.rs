@@ -4,6 +4,8 @@
 //! Every tool runs its core work in `tokio::task::spawn_blocking` with the
 //! session lock held only inside the blocking closure (never across
 //! `.await`). Results use the envelope of [`outcome`](crate::outcome).
+//! `autoroute` with Freerouting runs the router between two locked steps
+//! (export, strict import), so other tools stay responsive meanwhile.
 
 use std::sync::Arc;
 
@@ -16,28 +18,51 @@ use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router
 use crate::error::{ToolError, ToolResult};
 use crate::outcome::{ToolOutput, error_result};
 use crate::session::Session;
+use crate::tools::board_edit::{
+    AutorouteArgs, AutoroutePlan, BoardAddArgs, BoardArgs, BoardSetOutlineArgs, DesignRulesSetArgs,
+    DeviceAutoPlaceArgs, DevicePlaceArgs, PlaneAddArgs, SpecctraExportArgs, SpecctraImportArgs,
+    TraceAddArgs, TraceRemoveArgs, ViaAddArgs,
+};
 use crate::tools::circuit::{ComponentGetArgs, NetListArgs};
 use crate::tools::layout::{BoardGetArgs, SchematicGetArgs};
 use crate::tools::library::{LibraryElementArgs, LibraryInstallArgs, LibrarySearchArgs};
 use crate::tools::mutation::{MutationApplyArgs, MutationSchemaArgs};
 use crate::tools::output::{
-    ErcArgs, ExportBomArgs, ExportFabricationArgs, ExportNetlistArgs, ExportPickPlaceArgs,
-    RenderArgs,
+    DrcArgs, ErcArgs, ExportBomArgs, ExportFabricationArgs, ExportNetlistArgs, ExportPickPlaceArgs,
+    JobsRunArgs, RenderArgs,
 };
 use crate::tools::project::{
     ProjectCloseArgs, ProjectCreateArgs, ProjectOpenArgs, ProjectSaveArgs, WorkspacePathArgs,
 };
-use crate::tools::{circuit, layout, library, mutation, output, project};
+use crate::tools::schematic_edit::{
+    ComponentAddArgs, ComponentRemoveArgs, ComponentUpdateArgs, ConnectArgs, DisconnectArgs,
+    NetClassSetArgs, NetRenameArgs, SchematicAddArgs, SymbolMoveArgs,
+};
+use crate::tools::write::UndoArgs;
+use crate::tools::{
+    board_edit, circuit, layout, library, mutation, output, project, schematic_edit, write,
+};
 
-/// Instructions sent to the client on initialization.
-const INSTRUCTIONS: &str = "LibrePCB MCP server: design schematics and boards of LibrePCB \
-projects. One workspace (libraries) and one project are open at a time: use project_open or \
-project_create first, project_save to write the files (upstream LibrePCB opens them). Units: \
-millimeters and degrees. Address entities by designator (\"R1\"), pin (\"R1.1\" pad name or \
-\"U1.VCC\" signal name), net name, schematic/board name or index; UUIDs work everywhere. \
-Every result has {outcome, revision, result, warnings}; errors have a stable kind \
-(not_found, invalid_argument, conflict, stale_revision, no_project, no_workspace, io, network, \
-internal). Pass expected_revision to write tools to avoid lost updates.";
+/// Instructions sent to the client on initialization (the agent's
+/// workflow guide).
+pub const INSTRUCTIONS: &str = "LibrePCB MCP server: design schematics and PCBs end to end; \
+the files open in upstream LibrePCB. One workspace (libraries) and one project are open at a \
+time.\n\
+Workflow: workspace_open/workspace_create -> library_install (e.g. [\"LibrePCB Base\"]) or \
+library_rescan -> library_search (find parts) -> project_create -> component_add (part = name or \
+device/component UUID; placed automatically) -> connect (net + pins, e.g. net \"VCC\", pins \
+[\"J1.1\",\"R1.1\"]; supply symbols like GND/VCC force their net name) -> erc_run -> \
+board_set_outline (width/height mm) -> device_auto_place (or device_place) -> autoroute -> \
+plane_add (net \"GND\", bottom) -> drc_run -> export_fabrication / jobs_run -> project_save.\n\
+Addressing: designators (\"R1\"), pins \"R1.1\" (pad name) or \"U1.VCC\" (signal name), net \
+names, schematic/board names or indices; UUIDs work everywhere. Units: millimeters and degrees \
+(y upwards). Read tools: project_summary, component_get, netlist, schematic_get, board_get, \
+unrouted, render (PNG to look at the design).\n\
+Every write is one undo step \"AI: <tool>\" (undo/redo/history) and returns the re-read \
+entities, the change events and the new revision; pass expected_revision to avoid lost \
+updates. Results: {outcome: complete|partial|failed, revision, result, warnings}; errors have a \
+stable kind (not_found, invalid_argument, conflict, stale_revision, no_project, no_workspace, \
+io, network, not_available, internal). Nothing is written to disk before project_save.";
 
 /// The LibrePCB MCP server (cheap to clone; clones share the session).
 #[derive(Clone)]
@@ -100,7 +125,7 @@ impl LibrePcbMcp {
     {
         let result = self
             .blocking(move |s| {
-                let revision = |s: &Session| s.project.as_ref().map(|p| p.project.revision());
+                let revision = |s: &Session| s.project.as_ref().map(|p| p.project().revision());
                 Ok(match f(s) {
                     Ok(mut out) => {
                         out.revision = revision(s);
@@ -201,6 +226,30 @@ impl LibrePcbMcp {
         self.run(|s| project::project_summary(s)).await
     }
 
+    #[tool(description = "Undo the last write step(s) (each write tool is one step).")]
+    async fn undo(
+        &self,
+        Parameters(args): Parameters<UndoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| write::undo_redo(s, args, false)).await
+    }
+
+    #[tool(description = "Redo undone write step(s).")]
+    async fn redo(
+        &self,
+        Parameters(args): Parameters<UndoArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| write::undo_redo(s, args, true)).await
+    }
+
+    #[tool(
+        description = "The undo history (\"AI: <tool>\" steps, done or undone) and whether \
+                       there are unsaved changes."
+    )]
+    async fn history(&self) -> Result<CallToolResult, McpError> {
+        self.run(|s| write::history(s)).await
+    }
+
     // --- Library -------------------------------------------------------------
 
     #[tool(description = "List the libraries installed in the workspace.")]
@@ -241,7 +290,8 @@ impl LibrePcbMcp {
     #[tool(
         description = "Search library elements (components, devices, packages, symbols) by \
                        keyword or part number in the workspace libraries and the project \
-                       library."
+                       library. Devices are components with a footprint (what component_add \
+                       needs for the board)."
     )]
     async fn library_search(
         &self,
@@ -270,14 +320,106 @@ impl LibrePcbMcp {
     }
 
     #[tool(
-        description = "Details of a component: signals with nets, placed symbols with pin \
-                       positions, devices with pad positions."
+        description = "Details of a component: signals with nets (pin names for connect), \
+                       placed symbols with pin positions, devices with pad positions."
     )]
     async fn component_get(
         &self,
         Parameters(args): Parameters<ComponentGetArgs>,
     ) -> Result<CallToolResult, McpError> {
         self.run(move |s| circuit::component_get(s, args)).await
+    }
+
+    #[tool(
+        description = "Add a component to the circuit and place all its symbols on a \
+                       schematic page (free place if no position). `part`: device or \
+                       component UUID or a name like \"Resistor\" / \"LED 3mm\" / \"GND\" \
+                       (supply symbols). Library elements are copied into the project \
+                       library. Returns the designator and the pins."
+    )]
+    async fn component_add(
+        &self,
+        Parameters(args): Parameters<ComponentAddArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::component_add(s, args))
+            .await
+    }
+
+    #[tool(
+        description = "Remove a component with its symbols, wires at its pins and its devices \
+                       on all boards."
+    )]
+    async fn component_remove(
+        &self,
+        Parameters(args): Parameters<ComponentRemoveArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::component_remove(s, args))
+            .await
+    }
+
+    #[tool(description = "Change designator, value and/or attributes of a component.")]
+    async fn component_update(
+        &self,
+        Parameters(args): Parameters<ComponentUpdateArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::component_update(s, args))
+            .await
+    }
+
+    #[tool(
+        description = "Move, rotate or mirror a symbol (gate) on its schematic page, or move \
+                       it to a free place (auto=true). Wires follow."
+    )]
+    async fn symbol_move(
+        &self,
+        Parameters(args): Parameters<SymbolMoveArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::symbol_move(s, args))
+            .await
+    }
+
+    #[tool(
+        description = "Connect pins to a net (created or merged as needed) and draw the \
+                       schematic: nearby pins are wired, distant pins get a stub wire with a \
+                       net label. Pins: \"R1.1\" (pad) or \"U1.VCC\" (signal). Call once per \
+                       net with all its pins."
+    )]
+    async fn connect(
+        &self,
+        Parameters(args): Parameters<ConnectArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::connect(s, args)).await
+    }
+
+    #[tool(
+        description = "Disconnect pins from their nets (removes the wires at the pins and \
+                       traces at their pads)."
+    )]
+    async fn disconnect(
+        &self,
+        Parameters(args): Parameters<DisconnectArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::disconnect(s, args)).await
+    }
+
+    #[tool(description = "Rename a net (optionally merging it into an existing net).")]
+    async fn net_rename(
+        &self,
+        Parameters(args): Parameters<NetRenameArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::net_rename(s, args)).await
+    }
+
+    #[tool(
+        description = "Create or edit a net class (default trace width, via drill) and \
+                       assign nets to it (e.g. wider power traces)."
+    )]
+    async fn net_class_set(
+        &self,
+        Parameters(args): Parameters<NetClassSetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::net_class_set(s, args))
+            .await
     }
 
     #[tool(description = "Nets with their pins (R1.1 style), pads and routing items.")]
@@ -309,6 +451,15 @@ impl LibrePcbMcp {
         self.run(move |s| layout::schematic_get(s, args)).await
     }
 
+    #[tool(description = "Add a schematic page.")]
+    async fn schematic_add(
+        &self,
+        Parameters(args): Parameters<SchematicAddArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| schematic_edit::schematic_add(s, args))
+            .await
+    }
+
     // --- Board -----------------------------------------------------------------
 
     #[tool(
@@ -322,6 +473,181 @@ impl LibrePcbMcp {
         self.run(move |s| layout::board_get(s, args)).await
     }
 
+    #[tool(description = "Add a board (default settings, 100x80 mm outline).")]
+    async fn board_add(
+        &self,
+        Parameters(args): Parameters<BoardAddArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::board_add(s, args)).await
+    }
+
+    #[tool(
+        description = "Replace the board outline: rectangle (width, height in mm, optional \
+                       origin = bottom left corner and corner_radius) or polygon."
+    )]
+    async fn board_set_outline(
+        &self,
+        Parameters(args): Parameters<BoardSetOutlineArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::board_set_outline(s, args))
+            .await
+    }
+
+    #[tool(
+        description = "Place (or move) the device of a component on a board: position (mm), \
+                       rotation (deg), side top/bottom, optional device/footprint UUID to \
+                       change the footprint."
+    )]
+    async fn device_place(
+        &self,
+        Parameters(args): Parameters<DevicePlaceArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::device_place(s, args)).await
+    }
+
+    #[tool(
+        description = "Place all unplaced devices (or the given ones) inside the board \
+                       outline, packed in rows without overlapping footprints, keeping \
+                       spacing (mm) and the board edge clearance."
+    )]
+    async fn device_auto_place(
+        &self,
+        Parameters(args): Parameters<DeviceAutoPlaceArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::device_auto_place(s, args))
+            .await
+    }
+
+    #[tool(
+        description = "Draw a trace between pads (\"R1.1\"), vias/junctions (UUID) or points \
+                       (mm) over optional corner points, on one copper layer."
+    )]
+    async fn trace_add(
+        &self,
+        Parameters(args): Parameters<TraceAddArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::trace_add(s, args)).await
+    }
+
+    #[tool(description = "Add a through-hole via of a net (traces at its position connect).")]
+    async fn via_add(
+        &self,
+        Parameters(args): Parameters<ViaAddArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::via_add(s, args)).await
+    }
+
+    #[tool(description = "Remove traces and vias: of nets, by UUID, or all (all=true).")]
+    async fn trace_remove(
+        &self,
+        Parameters(args): Parameters<TraceRemoveArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::trace_remove(s, args)).await
+    }
+
+    #[tool(
+        description = "Add a copper plane (pour) of a net, e.g. GND on the bottom layer; \
+                       default outline: the whole board. Filled by planes_rebuild, drc_run \
+                       and exports."
+    )]
+    async fn plane_add(
+        &self,
+        Parameters(args): Parameters<PlaneAddArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::plane_add(s, args)).await
+    }
+
+    #[tool(
+        description = "Set board design rules (default trace width, via drill) and DRC \
+                       minimums (clearances, widths, drills) in mm, or the inner layer count."
+    )]
+    async fn design_rules_set(
+        &self,
+        Parameters(args): Parameters<DesignRulesSetArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::design_rules_set(s, args))
+            .await
+    }
+
+    #[tool(description = "Fill the copper planes of a board (derived data, not an undo step).")]
+    async fn planes_rebuild(
+        &self,
+        Parameters(args): Parameters<BoardArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::planes_rebuild(s, args)).await
+    }
+
+    #[tool(description = "The unrouted connections (air wires) and unplaced devices of a board.")]
+    async fn unrouted(
+        &self,
+        Parameters(args): Parameters<BoardArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::unrouted(s, args)).await
+    }
+
+    #[tool(
+        description = "Route the unrouted connections of a board. backend: auto (default: \
+                       Freerouting if installed, else builtin), builtin (grid router; \
+                       supports nets/layers filters), freerouting. Place devices first."
+    )]
+    async fn autoroute(
+        &self,
+        Parameters(args): Parameters<AutorouteArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        // Prepare under the lock; Freerouting then runs without the lock.
+        let expected = args.expected_revision;
+        let plan = match self
+            .blocking(move |s| board_edit::autoroute_prepare(s, args))
+            .await
+        {
+            Ok(plan) => plan,
+            Err(e) => return self.run(move |_| Err(e)).await,
+        };
+        match plan {
+            AutoroutePlan::Builtin(command, notes) => {
+                self.run(move |s| board_edit::autoroute_builtin(s, *command, expected, notes))
+                    .await
+            }
+            AutoroutePlan::Freerouting(job) => {
+                let (job, output) = match tokio::task::spawn_blocking(move || {
+                    let output = job.run();
+                    (job, output)
+                })
+                .await
+                {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let e = ToolError::internal(format!("Freerouting task failed: {e}"));
+                        return self.run(move |_| Err(e)).await;
+                    }
+                };
+                self.run(move |s| board_edit::autoroute_freerouting_finish(s, *job, output))
+                    .await
+            }
+        }
+    }
+
+    #[tool(description = "Export a board as Specctra DSN file (for external autorouters).")]
+    async fn specctra_export(
+        &self,
+        Parameters(args): Parameters<SpecctraExportArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::specctra_export(s, args))
+            .await
+    }
+
+    #[tool(
+        description = "Import a Specctra session (*.ses) of an external autorouter: replaces \
+                       the traces and vias of the board."
+    )]
+    async fn specctra_import(
+        &self,
+        Parameters(args): Parameters<SpecctraImportArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| board_edit::specctra_import(s, args))
+            .await
+    }
+
     // --- Checks and outputs ------------------------------------------------------
 
     #[tool(
@@ -333,6 +659,18 @@ impl LibrePcbMcp {
         Parameters(args): Parameters<ErcArgs>,
     ) -> Result<CallToolResult, McpError> {
         self.run(move |s| output::erc_run(s, args)).await
+    }
+
+    #[tool(
+        description = "Run the design rule check of a board (planes and air wires are rebuilt \
+                       first); returns ran=true, counts and messages (severity, approved, \
+                       location)."
+    )]
+    async fn drc_run(
+        &self,
+        Parameters(args): Parameters<DrcArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| output::drc_run(s, args)).await
     }
 
     #[tool(
@@ -376,6 +714,17 @@ impl LibrePcbMcp {
     }
 
     #[tool(
+        description = "Run output jobs of the project (default: all; Gerber, BOM, pick&place, \
+                       ...) like upstream's output jobs dialog; returns the written files."
+    )]
+    async fn jobs_run(
+        &self,
+        Parameters(args): Parameters<JobsRunArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| output::jobs_run(s, args)).await
+    }
+
+    #[tool(
         description = "Render a schematic page or a board side as PNG image, to look at the \
                        design."
     )]
@@ -390,8 +739,8 @@ impl LibrePcbMcp {
 
     #[tool(
         description = "Apply a raw core Mutation (serde JSON, integer nanometers) with full \
-                       validation; returns the new revision and the change events. Prefer \
-                       the intent-level tools; see mutation_schema."
+                       validation as one undo step; returns the new revision and the change \
+                       events. Prefer the intent-level tools; see mutation_schema."
     )]
     async fn mutation_apply(
         &self,

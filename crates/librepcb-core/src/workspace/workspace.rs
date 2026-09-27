@@ -76,7 +76,7 @@ pub struct Workspace {
     libraries_path: FilePath,
     file_system: Arc<TransactionalFileSystem>,
     settings: WorkspaceSettings,
-    library_db: LibraryDb,
+    library_db: Arc<LibraryDb>,
 }
 
 static_assertions::assert_impl_all!(Workspace: Send, Sync);
@@ -170,7 +170,7 @@ impl Workspace {
 
         // Load library database.
         file_utils::make_path(&libraries_path)?;
-        let library_db = LibraryDb::open(&libraries_path)?;
+        let library_db = Arc::new(LibraryDb::open(&libraries_path)?);
 
         log::debug!("Successfully opened workspace.");
         Ok(Self {
@@ -248,6 +248,13 @@ impl Workspace {
     /// Returns the library database.
     pub fn library_db(&self) -> &LibraryDb {
         &self.library_db
+    }
+
+    /// Returns a shared handle of the library database (e.g. for an editor
+    /// which copies library elements into a project while the workspace
+    /// stays open).
+    pub fn shared_library_db(&self) -> Arc<LibraryDb> {
+        Arc::clone(&self.library_db)
     }
 
     /// Saves the (modified) settings to disk.

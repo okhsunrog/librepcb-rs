@@ -67,6 +67,7 @@ pub fn run_cli(cli: &Path, args: &[&str]) -> (bool, String) {
         .env("LC_ALL", "C")
         .env("LANG", "C")
         .env("LANGUAGE", "C")
+        .env("LIBREPCB_SUPPRESS_DEPRECATION_WARNINGS", "1")
         .output()
         .unwrap();
     (

@@ -262,6 +262,42 @@ impl ProjectEditor {
         self.undo_stack.redo(&mut self.project)
     }
 
+    /// Runs `f` with mutable access to the project to update derived data
+    /// which is not part of the undo history and not saved: plane
+    /// fragments and air wires (e.g. [`Project::rebuild_planes()`],
+    /// [`Project::run_drc()`], exports and output jobs, which rebuild
+    /// planes first). Upstream does this outside the undo stack as well
+    /// (`BoardPlaneFragmentsBuilder`, `Board::forceAirWiresRebuild()`).
+    ///
+    /// `f` must not apply model mutations: they would bypass the undo
+    /// stack (checked in debug builds, logged as error otherwise). Fails
+    /// while a group is active.
+    pub fn update_derived_data<R>(&mut self, f: impl FnOnce(&mut Project) -> R) -> Result<R> {
+        use librepcb_core::project::{BoardChange, Change, ChangesSince};
+        if self.undo_stack.is_group_active() {
+            return Err(Error::GroupActive);
+        }
+        let before = self.project.revision();
+        let result = f(&mut self.project);
+        let only_derived = match self.project.changes_since(before) {
+            ChangesSince::Changes(changes) => changes.iter().all(|c| {
+                matches!(
+                    c,
+                    Change::Board {
+                        change: BoardChange::AirWires(..) | BoardChange::PlaneFragments(..),
+                        ..
+                    }
+                )
+            }),
+            ChangesSince::Resync => false,
+        };
+        if !only_derived {
+            log::error!("update_derived_data() modified more than derived data");
+            debug_assert!(only_derived, "update_derived_data() modified model data");
+        }
+        Ok(result)
+    }
+
     /// Whether the project is unmodified since the last save.
     pub fn is_clean(&self) -> bool {
         self.undo_stack.is_clean()

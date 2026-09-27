@@ -727,11 +727,11 @@ impl Command for ConnectPins {
 }
 
 /// Default length of pin stubs (2.54 mm).
-const DEFAULT_STUB_LENGTH: Length = Length::new(2_540_000);
+pub(crate) const DEFAULT_STUB_LENGTH: Length = Length::new(2_540_000);
 
 /// Returns rotation and mirror state of a net label at `pos` whose wire
 /// continues towards `dir_pos` (upstream `updateNetLabelPosition()`).
-fn net_label_orientation(pos: Point, dir_pos: Point) -> (Angle, bool) {
+pub(crate) fn net_label_orientation(pos: Point, dir_pos: Point) -> (Angle, bool) {
     let dir = toolbox::angle_between_points(pos, dir_pos).rounded(Angle::DEG90);
     let mirror = dir.mapped_to_0_360deg() >= Angle::DEG180;
     let rotation = if mirror { dir + Angle::DEG180 } else { dir };

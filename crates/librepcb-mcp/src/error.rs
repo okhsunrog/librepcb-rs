@@ -35,6 +35,9 @@ pub enum ErrorKind {
     Network,
     /// Unexpected internal failure.
     Internal,
+    /// The requested feature or backend is not available in this build
+    /// (e.g. an external router which is not integrated).
+    NotAvailable,
 }
 
 impl ErrorKind {
@@ -50,6 +53,7 @@ impl ErrorKind {
             Self::Io => "io",
             Self::Network => "network",
             Self::Internal => "internal",
+            Self::NotAvailable => "not_available",
         }
     }
 }
@@ -186,6 +190,25 @@ fn project_kind(e: &project::Error) -> ErrorKind {
 impl From<project::Error> for ToolError {
     fn from(e: project::Error) -> Self {
         Self::new(project_kind(&e), e.to_string())
+    }
+}
+
+impl From<librepcb_editor::Error> for ToolError {
+    fn from(e: librepcb_editor::Error) -> Self {
+        use librepcb_editor::Error as E;
+        let kind = match &e {
+            E::Project(p) => project_kind(p),
+            E::FileIo(f) => file_io_kind(f),
+            E::NotFound { .. } | E::NotInLibrarySource { .. } | E::NotInProjectLibrary { .. } => {
+                ErrorKind::NotFound
+            }
+            E::GroupActive | E::NoGroupActive => ErrorKind::Conflict,
+            E::DeviceNotCompatible | E::AllGatesPlaced(..) | E::NetMismatch(..) => {
+                ErrorKind::Conflict
+            }
+            _ => ErrorKind::InvalidArgument,
+        };
+        Self::new(kind, e.to_string())
     }
 }
 

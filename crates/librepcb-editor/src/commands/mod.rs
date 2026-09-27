@@ -21,6 +21,8 @@
 //! - [`autoroute`]: routing of air wires with the built-in autorouter.
 //! - [`board`]: traces, vias, planes, outlines, other board items, board
 //!   settings, removal of board items.
+//! - [`wiring`]: net-level connecting and disconnecting of pins (agents).
+//! - [`placement`]: automatic placement of symbols and devices (agents).
 //! - [`specctra`]: Specctra DSN export and session import (external
 //!   autorouters).
 
@@ -29,10 +31,12 @@ pub mod board;
 pub mod circuit;
 pub mod component;
 pub mod library;
+pub mod placement;
 pub mod project;
 mod resolve;
 pub mod schematic;
 pub mod specctra;
+pub mod wiring;
 
 use librepcb_core::project::{ComponentInstanceId, Mutation, NetSignalId};
 
@@ -44,9 +48,11 @@ pub use board::*;
 pub use circuit::*;
 pub use component::*;
 pub use library::*;
+pub use placement::*;
 pub use project::*;
 pub use schematic::*;
 pub use specctra::*;
+pub use wiring::*;
 
 /// Reference to a component instance: its UUID or its name (designator,
 /// e.g. `"R1"`).

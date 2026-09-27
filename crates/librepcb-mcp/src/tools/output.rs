@@ -1,9 +1,11 @@
-//! Checks and outputs: `erc_run`, `export_fabrication`, `export_bom`,
-//! `export_pick_place`, `export_netlist`, `jobs_list`, `render`.
+//! Checks and outputs: `erc_run`, `drc_run`, `export_fabrication`,
+//! `export_bom`, `export_pick_place`, `export_netlist`, `jobs_list`,
+//! `jobs_run`, `render`.
 //!
 //! Output files default to `<project>/output/<version>/...` like the
 //! default output jobs of upstream; tools return the written paths.
-//! (The output job runner is not ported yet, so there is no `jobs_run`.)
+//! `drc_run`, `export_fabrication` and `jobs_run` rebuild planes and air
+//! wires first (derived data outside the undo history, like upstream).
 
 use librepcb_core::export::{BomCsvWriter, PickPlaceSides, Timestamp};
 use librepcb_core::fileio::FilePath;
@@ -13,7 +15,9 @@ use librepcb_core::project::board::{
     export_pick_place_csv,
 };
 use librepcb_core::project::erc::run_erc;
-use librepcb_core::project::{AssemblyVariantId, BomGenerator, Project};
+use librepcb_core::project::{
+    AssemblyVariantId, BomGenerator, OutputJobEvent, OutputJobRunner, Project,
+};
 use librepcb_core::rule_check::Severity;
 use librepcb_scene::{BoardSide, RenderOptions, RenderSize};
 use schemars::JsonSchema;
@@ -146,7 +150,7 @@ fn severity_str(s: Severity) -> &'static str {
 
 /// `erc_run`.
 pub fn erc_run(session: &Session, args: ErcArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let messages = run_erc(p);
     let mut list = Vec::new();
     let (mut errors, mut warnings, mut hints, mut approved) = (0, 0, 0, 0);
@@ -271,8 +275,8 @@ pub fn export_fabrication(
     session: &mut Session,
     args: ExportFabricationArgs,
 ) -> ToolResult<ToolOutput> {
-    let project = &mut session.project_mut()?.project;
-    let (_, board, b) = resolve::board(project, args.board.as_deref())?;
+    let open = session.project_mut()?;
+    let (_, board, b) = resolve::board(open.project(), args.board.as_deref())?;
     let settings: Option<BoardFabricationOutputSettings> = match &args.output_dir {
         Some(dir) => {
             let dir = absolute_path(dir)?;
@@ -283,7 +287,10 @@ pub fn export_fabrication(
         None => None,
     };
     let info = ExportInfo::now(env!("CARGO_PKG_VERSION"));
-    let files = export_fabrication_data(project, board, settings.as_ref(), &info)?;
+    // Exporting rebuilds the planes (derived data, not undoable).
+    let files = open.editor.update_derived_data(|project| {
+        export_fabrication_data(project, board, settings.as_ref(), &info)
+    })??;
     let files: Vec<String> = files.iter().map(FilePath::to_native).collect();
     ToolOutput::new(
         format!(
@@ -297,7 +304,7 @@ pub fn export_fabrication(
 
 /// `export_bom`.
 pub fn export_bom(session: &Session, args: ExportBomArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let board = match &args.board {
         Some(b) => Some(resolve::board(p, Some(b))?.2),
         None => None,
@@ -328,7 +335,7 @@ pub fn export_bom(session: &Session, args: ExportBomArgs) -> ToolResult<ToolOutp
 
 /// `export_pick_place`.
 pub fn export_pick_place(session: &Session, args: ExportPickPlaceArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let (_, board, _) = resolve::board(p, args.board.as_deref())?;
     let (variant, variant_name) = assembly_variant(p, args.assembly_variant.as_deref())?;
     let (sides, side_name) = match args.side.unwrap_or(SideArg::Both) {
@@ -365,7 +372,7 @@ pub fn export_pick_place(session: &Session, args: ExportPickPlaceArgs) -> ToolRe
 
 /// `export_netlist`.
 pub fn export_netlist(session: &Session, args: ExportNetlistArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let (_, board, _) = resolve::board(p, args.board.as_deref())?;
     let default = output_dir(p)?.path_to(&format!("{}_netlist.d356", project_file_base(p)));
     let file = output_file(args.output.as_deref(), default)?;
@@ -379,7 +386,7 @@ pub fn export_netlist(session: &Session, args: ExportNetlistArgs) -> ToolResult<
 
 /// `jobs_list`.
 pub fn jobs_list(session: &Session) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let jobs: Vec<Value> = p
         .output_jobs()
         .iter()
@@ -392,11 +399,7 @@ pub fn jobs_list(session: &Session) -> ToolResult<ToolOutput> {
         })
         .collect();
     ToolOutput::new(
-        format!(
-            "{} output job(s). Running output jobs is not supported yet; use the export_* \
-             tools.",
-            jobs.len()
-        ),
+        format!("{} output job(s) (run them with jobs_run).", jobs.len()),
         json!({ "jobs": jobs }),
     )
 }
@@ -412,7 +415,7 @@ fn job_type(kind: &OutputJobKind) -> String {
 
 /// `render`.
 pub fn render(session: &Session, args: RenderArgs) -> ToolResult<ToolOutput> {
-    let p = &session.project()?.project;
+    let p = session.project()?.project();
     let width = args.width.unwrap_or(1600).clamp(64, 4096);
     let height = args.height.unwrap_or(1200).clamp(64, 4096);
     let options = RenderOptions {
@@ -452,4 +455,210 @@ pub fn render(session: &Session, args: RenderArgs) -> ToolResult<ToolOutput> {
         json!({ "width": width, "height": height, "bytes": png.len(), "mime_type": "image/png" }),
     )?
     .image(png))
+}
+
+/// Arguments of `drc_run`.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+pub struct DrcArgs {
+    /// Board name, index or UUID (default: first board).
+    #[serde(default)]
+    pub board: Option<String>,
+    /// Also list approved (ignored) messages (default false).
+    #[serde(default)]
+    pub include_approved: bool,
+}
+
+/// `drc_run`.
+pub fn drc_run(session: &mut Session, args: DrcArgs) -> ToolResult<ToolOutput> {
+    let open = session.project_mut()?;
+    let (_, board, _) = resolve::board(open.project(), args.board.as_deref())?;
+    // A full check rebuilds planes and air wires (derived data).
+    let result = open
+        .editor
+        .update_derived_data(|p| p.run_drc(board, None, false, &|_| {}))?
+        .map_err(|e| ToolError::internal(format!("The DRC could not run: {e}")))?;
+    let p = open.project();
+    let approvals = p
+        .board(board)
+        .map(|b| b.drc_approvals().clone())
+        .unwrap_or_default();
+    let mut list = Vec::new();
+    let (mut errors, mut warnings, mut hints, mut approved) = (0, 0, 0, 0);
+    for m in &result.messages {
+        let is_approved = approvals.contains(m.approval());
+        let msg = m.message();
+        if is_approved {
+            approved += 1;
+        } else {
+            match msg.severity() {
+                Severity::Error => errors += 1,
+                Severity::Warning => warnings += 1,
+                Severity::Hint => hints += 1,
+            }
+        }
+        if is_approved && !args.include_approved {
+            continue;
+        }
+        list.push(json!({
+            "severity": severity_str(msg.severity()),
+            "message": msg.message(),
+            "description": msg.description(),
+            "kind": format!("{:?}", m.kind()),
+            "approved": is_approved,
+            "locations": msg.locations().iter().map(views::path).collect::<Vec<_>>(),
+        }));
+    }
+    list.sort_by(|a, b| {
+        let rank = |v: &Value| match v["severity"].as_str() {
+            Some("error") => 0,
+            Some("warning") => 1,
+            _ => 2,
+        };
+        rank(a)
+            .cmp(&rank(b))
+            .then_with(|| a["message"].as_str().cmp(&b["message"].as_str()))
+    });
+    let lines: Vec<String> = list
+        .iter()
+        .filter(|m| m["approved"] == json!(false))
+        .take(50)
+        .map(|m| {
+            format!(
+                "[{}] {}",
+                m["severity"].as_str().unwrap_or_default().to_uppercase(),
+                m["message"].as_str().unwrap_or_default()
+            )
+        })
+        .collect();
+    let summary = format!(
+        "DRC ran: {errors} error(s), {warnings} warning(s), {hints} hint(s), {approved} \
+         approved.{}{}",
+        if lines.is_empty() { "" } else { "\n" },
+        lines.join("\n")
+    );
+    let out = ToolOutput::new(
+        summary,
+        json!({
+            "ran": true,
+            "errors": errors,
+            "warnings": warnings,
+            "hints": hints,
+            "approved": approved,
+            "messages": list,
+            "check_errors": result.errors,
+        }),
+    )?;
+    Ok(if result.errors.is_empty() {
+        out
+    } else {
+        let text = format!("Some checks failed: {}", result.errors.join("; "));
+        out.partial().warn(text)
+    })
+}
+
+/// Arguments of `jobs_run`.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+pub struct JobsRunArgs {
+    /// Names or UUIDs of the output jobs to run (default: all).
+    #[serde(default)]
+    pub jobs: Vec<String>,
+    /// Output directory (default: `<project>/output/<version>`).
+    #[serde(default)]
+    pub output_dir: Option<String>,
+}
+
+/// `jobs_run`.
+pub fn jobs_run(session: &mut Session, args: JobsRunArgs) -> ToolResult<ToolOutput> {
+    let open = session.project_mut()?;
+    let all = open.project().output_jobs().clone();
+    let skip_unsupported = args.jobs.is_empty();
+    let jobs: Vec<_> = if args.jobs.is_empty() {
+        all.iter().cloned().collect()
+    } else {
+        args.jobs
+            .iter()
+            .map(|key| {
+                all.iter()
+                    .find(|j| {
+                        j.name().as_str() == key.trim()
+                            || resolve::parse_uuid(key).is_some_and(|u| u == j.uuid())
+                    })
+                    .cloned()
+                    .ok_or_else(|| {
+                        ToolError::not_found(format!(
+                            "There is no output job \"{key}\" (see jobs_list)."
+                        ))
+                    })
+            })
+            .collect::<ToolResult<_>>()?
+    };
+    let count = jobs.len();
+    if count == 0 {
+        return Ok(ToolOutput::new(
+            "No output jobs to run (use the export_* tools).",
+            json!({ "files": [] }),
+        )?
+        .warn("The project has no output jobs."));
+    }
+    let output_dir = args.output_dir.as_deref().map(absolute_path).transpose()?;
+    let info = ExportInfo::now(env!("CARGO_PKG_VERSION"));
+    let written = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+    let warnings = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+    let (w, warn) = (
+        std::sync::Arc::clone(&written),
+        std::sync::Arc::clone(&warnings),
+    );
+    let result = open.editor.update_derived_data(move |project| {
+        let mut runner = OutputJobRunner::new(project, info)?;
+        runner.set_observer(Some(Box::new(move |event| match event {
+            OutputJobEvent::AboutToWriteFile(fp) => w.lock().push(fp.to_native()),
+            OutputJobEvent::Warning(msg) => warn.lock().push(msg.to_string()),
+            _ => {}
+        })));
+        if let Some(dir) = &output_dir {
+            runner.set_output_directory(dir);
+        }
+        let dir = runner.output_directory().to_native();
+        // Job by job, so job types which are not ported yet can be skipped
+        // (when running all jobs).
+        let mut skipped = Vec::new();
+        for job in &jobs {
+            match runner.run(std::slice::from_ref(job)) {
+                Err(librepcb_core::project::OutputJobError::Unsupported(kind))
+                    if skip_unsupported =>
+                {
+                    skipped.push(format!(
+                        "Skipped the output job \"{}\" ({kind} jobs are not supported yet).",
+                        job.name().as_str()
+                    ));
+                }
+                Err(librepcb_core::project::OutputJobError::ArchiveDependencyNotRun)
+                    if skip_unsupported && !skipped.is_empty() =>
+                {
+                    skipped.push(format!(
+                        "Skipped the output job \"{}\" (it archives files of a skipped job).",
+                        job.name().as_str()
+                    ));
+                }
+                other => other?,
+            }
+        }
+        Ok::<_, librepcb_core::project::OutputJobError>((dir, skipped))
+    })?;
+    let (dir, skipped) =
+        result.map_err(|e| ToolError::new(crate::error::ErrorKind::Io, e.to_string()))?;
+    let mut files = written.lock().clone();
+    files.sort();
+    files.dedup();
+    let mut warnings = warnings.lock().clone();
+    warnings.extend(skipped);
+    Ok(ToolOutput::new(
+        format!(
+            "Ran {} output job(s) into {dir}: {} file(s).",
+            count,
+            files.len()
+        ),
+        json!({ "output_dir": dir, "files": files }),
+    )?
+    .warnings(warnings))
 }
