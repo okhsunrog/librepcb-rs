@@ -187,9 +187,6 @@ impl Form {
 
     /// Starts a new page (tab); following fields are added to it.
     pub fn page(&mut self, title: impl Into<String>) {
-        if !self.pages.is_empty() || self.model.len() > 0 {
-            self.page += 1;
-        }
         self.pages.push(title.into());
         self.page = (self.pages.len() - 1) as i32;
     }

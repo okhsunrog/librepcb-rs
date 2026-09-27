@@ -965,19 +965,66 @@ upstream `librepcb-cli` 2.1.1 except for:
   is closed, and before undo, redo and save.
 - **Context menus** of the scenes are a Slint popup built from the FSM's
   entries (upstream: `QMenu`); resource (datasheet) entries are missing.
-  **Dialogs** requested by the FSMs (properties, line width, ...) show a
-  notification until they are ported (M3b); the "add component" dialog is
-  a minimal chooser (search in the workspace library database, components
-  and devices) without previews, categories or symbol variant choice.
+- **Dialogs (M3b):** upstream's Qt Widgets dialogs are Slint overlays of
+  the main window (one at a time; the application keeps running). Most
+  are generic *form dialogs* (`ui/dialogs/formdialog.slint`,
+  `src/dialogs/`) built from upstream's widgets with the labels of the
+  upstream `.ui` files; the layout differs (one column of labeled fields,
+  pages as tabs, radio buttons drawn as check boxes). Each dialog applies
+  its changes as one undo group ("OK"/"Apply"); "Cancel" discards them.
+  Details per dialog are in the module docs of `src/dialogs/*.rs`; the
+  main differences:
+  - *Symbol properties:* the name swap question is shown in the dialog
+    ("click OK again to swap"); assembly options can be removed and their
+    assembly variants edited, not added; library names are plain text.
+  - *Device properties:* the device and footprint are chosen from combo
+    boxes (upstream: context menu only).
+  - *Pad properties:* holes and custom pad outlines are not editable.
+  - *Path vertices* (polygons, zones, ...) are edited in place; vertices
+    cannot be added or removed in the dialogs.
+  - *Board setup:* DRC presets of organizations cannot be loaded yet
+    (only "Reset to Default Settings" and "Remove Link to Imported
+    Settings"); the inner layer count is a combo box.
+  - *Project setup:* locales are shown and added by their code (e.g.
+    `de_CH`) instead of the language name; net classes are renamed below
+    the list; assembly variants are applied with the other settings
+    (upstream: immediately) and cannot be reordered.
+  - *Add component:* the symbol preview shows the first gate only; no live
+    part information and no context menu; choosing a part selects its
+    device. "Add more" reopens the dialog whenever the placement ends with
+    the select tool (upstream: after Escape).
+  - *Graphics export:* edits a graphics output job (like the output jobs
+    dialog) and writes into the output directory (`output/<version>/`,
+    path with `{{PROJECT}}` etc.) instead of asking with a file dialog;
+    format by file extension. No page preview, no printing, no copy to
+    clipboard, all schematic pages; colors can be enabled/disabled but not
+    changed, and are named by their color role where no layer exists.
+  - *Output jobs:* jobs are added from a combo box (no organization
+    presets, no "Import Old Settings"); running reports in notifications
+    instead of a log panel; unknown files in the output directory are not
+    listed or removed; the interactive HTML BOM job's check box and
+    component order lists are not editable.
+  - *BOM review:* no live part information (availability, prices); the
+    custom attributes are stored (undoable) when closing with "OK"
+    (upstream: while typing, without undo).
+  - *Pick&place generator:* generates through an output job in a worker
+    thread with paths relative to `output/<version>/` (upstream:
+    `./output/{{VERSION}}/...` relative to the project), closes the dialog;
+    no "Browse Output Directory".
+  - *Move/align:* the new positions are applied when accepting (upstream:
+    live while editing); only the package editor (M4) will use it.
+  - *Not ported yet:* circle properties (library editors only), the
+    workspace settings, lock handler and project wizard dialogs (M3c).
 - **Clipboard:** copy/paste uses the system clipboard with upstream's MIME
   types through `clipboard-rs` (X11, Wayland, macOS, Windows). Exchange
   with upstream LibrePCB (same version) works on X11/Wayland; on Windows
   and macOS Qt stores custom MIME types under its own format names, which
   are not reproduced. Without a system clipboard (no display, or
   `LIBREPCB_NO_SYSTEM_CLIPBOARD` set), an in-app clipboard is used.
-- **Not available yet in the tabs:** buses and images (schematic), the add
-  pad tools, DXF import, the unplaced components panel and plane rebuilds
-  (board), "find", graphics export.
+- **Not available yet in the tabs:** the bus and image tools (schematic;
+  the bus label rename and symbol text dialogs work), the add pad tools,
+  DXF import, the unplaced components panel and plane rebuilds (board),
+  "find".
 - **Keyboard shortcuts:** `Backend.is-shortcut` compares with the default
   shortcut of the `.slint` command set only (no user overrides, no
   alternative shortcuts).
@@ -996,10 +1043,9 @@ upstream `librepcb-cli` 2.1.1 except for:
   are not available yet.
 - **DRC** runs in a worker thread which locks the project only to rebuild
   the planes and air wires and to extract the check data.
-- **Outputs from the menus** run without dialogs (they come with M3b):
-  PDF export (schematics, or the assembly drawings of the current board),
-  Gerber/Excellon, pick&place (top and bottom CSV), IPC-D-356A netlist,
-  BOM (default assembly variant), `*.lppz` export and "Output Jobs" (runs
-  all output jobs of the project) write with default settings into
-  `<project>/output/<version>/` and report the files in a notification.
-  Printing, image export and Specctra export are not available yet.
+- **Outputs from the menus:** PDF and image export, pick&place, the BOM
+  review and "Output Jobs" open their dialogs (see above);
+  Gerber/Excellon, IPC-D-356A netlist and `*.lppz` export run without
+  dialog with default settings into `<project>/output/<version>/` and
+  report the files in a notification. Printing and Specctra export are
+  not available yet.

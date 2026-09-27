@@ -87,8 +87,19 @@ Done, in `crates/librepcb-core` unless noted:
   M3a (editing in the tabs) is in place: the schematic and board tabs
   drive the `librepcb-editor` FSMs (tools, tool bars, overlays, context
   menus, clipboard with upstream MIME types, cross-probing, undo/redo;
-  `crates/librepcb-app/tests/editing.rs`). Dialogs come with M3b (a
-  notification is shown; "add component" is a minimal chooser).
+  `crates/librepcb-app/tests/editing.rs`). M3b (project dialogs) is
+  done: generic Slint form dialogs (`src/dialogs/`,
+  `ui/dialogs/formdialog.slint`) for the properties of all schematic and
+  board items the FSMs request (symbol, symbol text, net/bus label
+  rename, polygon, text, device, via, pad, plane, board polygon, stroke
+  text, hole, zone), line width, move/align, board setup, project setup,
+  graphics export, output jobs (all job types), BOM review and the
+  pick&place generator, and the add component dialog
+  (`ui/dialogs/addcomponentdialog.slint`: categories, search, symbol and
+  footprint previews, symbol variant, device); each applies one undo
+  group. Tests: `tests/{dialogs,setup_dialogs,output_dialogs}.rs`
+  (headless) and `tests/dialog_screenshots.rs` (the dialogs in the
+  headless application, screenshots in `$CARGO_TARGET_TMPDIR`).
 
 ## Next steps
 
