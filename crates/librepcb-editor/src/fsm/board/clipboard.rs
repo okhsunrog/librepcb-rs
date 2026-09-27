@@ -33,6 +33,7 @@ use super::view::BoardItemRef;
 use crate::commands::circuit::{add_net, default_net_class};
 use crate::editor::{Command, Transaction};
 use crate::error::{Error, Result};
+use crate::library_editor::commands::FootprintClipboardData;
 use crate::undo_stack::LibraryElement;
 
 /// The MIME type prefix of board clipboard data (followed by
@@ -244,6 +245,52 @@ pub struct BoardClipboardData {
 }
 
 impl BoardClipboardData {
+    /// Converts footprint clipboard data (copied in the package editor) to
+    /// board clipboard data with its polygons, stroke texts and holes, to
+    /// paste graphical elements from the package editor (upstream
+    /// `BoardEditorState_Select::processPaste()`).
+    pub fn from_footprint_data(data: &FootprintClipboardData) -> Result<Self> {
+        let mut out = Self::new(data.footprint_uuid, data.cursor_pos)?;
+        for polygon in data.polygons.iter() {
+            out.polygons.push(BoardPolygonData::new(
+                polygon.uuid(),
+                polygon.layer(),
+                polygon.line_width(),
+                polygon.path().clone(),
+                polygon.is_filled(),
+                polygon.is_grab_area(),
+                false,
+            ));
+        }
+        for text in data.stroke_texts.iter() {
+            out.stroke_texts.push(BoardStrokeTextData::new(
+                text.uuid(),
+                text.layer(),
+                text.text().clone(),
+                text.position(),
+                text.rotation(),
+                text.height(),
+                text.stroke_width(),
+                text.letter_spacing(),
+                text.line_spacing(),
+                text.align(),
+                text.mirrored(),
+                text.auto_rotate(),
+                false,
+            ));
+        }
+        for hole in data.holes.iter() {
+            out.holes.push(BoardHoleData::new(
+                hole.uuid(),
+                hole.diameter(),
+                hole.path().clone(),
+                hole.stop_mask_config(),
+                false,
+            ));
+        }
+        Ok(out)
+    }
+
     /// Creates empty clipboard data.
     pub fn new(board_uuid: Uuid, cursor_pos: Point) -> Result<Self> {
         Ok(Self {

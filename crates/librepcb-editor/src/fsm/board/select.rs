@@ -27,6 +27,7 @@ use super::view::{BoardItemRef, FindFilter, FindFlags};
 use super::{BoardFsmInput, DxfImportSettings, State};
 use crate::commands::{BoardSelection as RemoveSelection, RemoveBoardItems};
 use crate::fsm::Features;
+use crate::library_editor::commands::{FootprintClipboardData, footprint_clipboard_mime_type};
 
 /// A running drag operation (upstream `mSelectedItemsDragCommand`).
 #[derive(Debug)]
@@ -273,11 +274,21 @@ impl SelectState {
     }
 
     fn paste(&mut self, cx: &mut Cx<'_, '_>) -> bool {
-        let mime = board_clipboard_mime_type(&cx.settings.app_version);
-        let Some(zip) = cx.ctx.clipboard.get(&mime) else {
+        let version = &cx.settings.app_version;
+        let result = if let Some(zip) = cx.ctx.clipboard.get(&board_clipboard_mime_type(version)) {
+            BoardClipboardData::from_zip(&zip)
+        } else if let Some(zip) = cx
+            .ctx
+            .clipboard
+            .get(&footprint_clipboard_mime_type(version))
+        {
+            // Graphical elements from the package editor.
+            FootprintClipboardData::from_bytes(&zip)
+                .and_then(|data| BoardClipboardData::from_footprint_data(&data))
+        } else {
             return false;
         };
-        let data = match BoardClipboardData::from_zip(&zip) {
+        let data = match result {
             Ok(data) => data,
             Err(e) => {
                 cx.error(e);
@@ -1141,8 +1152,13 @@ impl SelectState {
             features.select = true;
             features.import_graphics = true;
         }
-        let mime = board_clipboard_mime_type(&cx.settings.app_version);
-        features.paste = cx.ctx.clipboard.get(&mime).is_some();
+        let version = &cx.settings.app_version;
+        features.paste = [
+            board_clipboard_mime_type(version),
+            footprint_clipboard_mime_type(version),
+        ]
+        .iter()
+        .any(|mime| cx.ctx.clipboard.get(mime).is_some());
         let grid = cx.grid();
         let Some(mut query) = Self::query(cx, true) else {
             return;

@@ -1273,3 +1273,54 @@ fn import_dxf_fixed_and_interactive() {
             .any(|r| matches!(r, BoardRequest::ShowError(_)))
     );
 }
+
+#[test]
+fn paste_graphics_from_package_editor() {
+    use librepcb_core::geometry::{Hole, NonEmptyPath, Path, Polygon};
+    use librepcb_core::library::pkg::PackagePadList;
+    use librepcb_core::types::{MaskConfig, PositiveLength, UnsignedLength, Uuid};
+    use librepcb_editor::library_editor::commands::{
+        FootprintClipboardData, footprint_clipboard_mime_type,
+    };
+    let mut h = build(false);
+    let polygons = h.board().polygons().len();
+    let holes = h.board().holes().len();
+    let mut data =
+        FootprintClipboardData::new(Uuid::new_random(), PackagePadList::new(), Point::ORIGIN);
+    data.polygons.push(Polygon::new(
+        Uuid::new_random(),
+        Layer::TOP_LEGEND,
+        UnsignedLength::new(Length::new(200_000)).unwrap(),
+        false,
+        false,
+        Path::rect(mm(0.0, 0.0), mm(2.54, 2.54)),
+    ));
+    data.holes.push(Hole::new(
+        Uuid::new_random(),
+        PositiveLength::new(Length::new(1_000_000)).unwrap(),
+        NonEmptyPath::from_point(mm(1.27, 1.27)),
+        MaskConfig::Automatic,
+    ));
+    let version = BoardEditorSettings::default().app_version;
+    h.clipboard.set(
+        &footprint_clipboard_mime_type(&version),
+        data.to_bytes().unwrap(),
+    );
+    let target = mm(20.32, 20.32);
+    h.move_to(target);
+    assert!(h.input(BoardFsmInput::Paste));
+    assert!(h.editor.undo_stack().is_group_active());
+    h.press(target);
+    assert!(!h.editor.undo_stack().is_group_active());
+    assert_eq!(h.board().polygons().len(), polygons + 1);
+    assert_eq!(h.board().holes().len(), holes + 1);
+    assert!(
+        h.board()
+            .holes()
+            .values()
+            .any(|hole| hole.path().first().pos == target + mm(1.27, 1.27))
+    );
+    assert!(h.editor.undo().unwrap());
+    assert_eq!(h.board().polygons().len(), polygons);
+    assert_eq!(h.board().holes().len(), holes);
+}
