@@ -22,6 +22,9 @@ use slint::Image;
 /// Zoom factor of one zoom step (upstream `zoomIn()`/`zoomOut()`).
 const ZOOM_STEP: f64 = 1.3;
 
+/// Scroll step as a fraction of the view size (upstream `sScrollFactor`).
+const SCROLL_FACTOR: f64 = 0.07;
+
 /// Upstream `SlintGraphicsView::defaultEditorMargins()` (left, top, right,
 /// bottom).
 const MARGINS: (f64, f64, f64, f64) = (40.0, 35.0, 40.0, 25.0);
@@ -166,6 +169,18 @@ impl CanvasView {
         let size = self.view.size();
         self.view
             .zoom_at(Point::new(size.width / 2.0, size.height / 2.0), factor);
+        self.auto_fit = false;
+    }
+
+    /// Scrolls by a fraction of the view size per step (upstream
+    /// `scrollLeft()`, ... with 7 % of the view size): positive `dx` shows
+    /// more on the right, positive `dy` more at the bottom.
+    pub fn scroll_steps(&mut self, dx: f64, dy: f64) {
+        let size = self.view.size();
+        self.view.pan(Vec2::new(
+            -dx * size.width * SCROLL_FACTOR,
+            -dy * size.height * SCROLL_FACTOR,
+        ));
         self.auto_fit = false;
     }
 

@@ -24,6 +24,16 @@
 //!   `slint::Image` for `Backend.render-scene`; [`canvas_view::CanvasView`]
 //!   ports upstream's pan/zoom behavior. Scenes are rebuilt when the
 //!   project's revision changes (incremental updates come with M2c).
+//! - **Editing (M3a):** each schematic and board tab owns an editor state
+//!   machine of `librepcb_editor::fsm` and adapts its scene as the FSM's
+//!   view ([`tabs::schematic_view`], [`tabs::board_view`]). Pointer, key and
+//!   tab action events go to the FSM; afterwards the tab syncs its scene
+//!   from the change journal, highlights the selection, updates the
+//!   overlays ([`tabs::editing`]) and the tool bar data. Requests of the
+//!   FSMs (notifications, context menus, the "add component" chooser) are
+//!   handled by the application (`app::tab_editing`, `ui/project/sceneeditor.slint`),
+//!   and so are cross-probing and aborting tools of other tabs. Copy/paste
+//!   uses the system clipboard with upstream's MIME types ([`clipboard`]).
 //!
 //! # Running
 //!
@@ -77,8 +87,10 @@
 
 pub mod app;
 pub mod canvas_view;
+pub mod clipboard;
 pub mod helpers;
 pub mod icons;
+pub mod length_edit;
 pub mod libraries;
 pub mod models;
 pub mod notifications;

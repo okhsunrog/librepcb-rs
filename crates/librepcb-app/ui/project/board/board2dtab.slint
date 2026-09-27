@@ -7,6 +7,7 @@ import { DrawPlaneToolBar } from "drawplanetoolbar.slint";
 import { DrawZoneToolBar } from "drawzonetoolbar.slint";
 import { AddHoleToolBar } from "addholetoolbar.slint";
 import { Tab } from "../../tab.slint";
+import { SceneContextMenu, SceneEditor } from "../sceneeditor.slint";
 import {
     Button,
     LinkText,
@@ -709,6 +710,12 @@ export component Board2dTab inherits Tab {
             }
         }
 
+        scene-menu := SceneContextMenu {
+            x: SceneEditor.menu-x;
+            y: SceneEditor.menu-y;
+            section-index: section-index;
+        }
+
         pointer-event(event) => {
             if event.kind == PointerEventKind.down {
                 Data.set-current-tab(section-index, index);
@@ -721,6 +728,14 @@ export component Board2dTab inherits Tab {
 
         scroll-event(event) => {
             Backend.scene-scrolled(section-index, self.mouse-x, self.mouse-y, event, 0) ? accept : reject
+        }
+    }
+
+    // Scene context menu (librepcb-rs, see sceneeditor.slint).
+    property <int> scene-menu-serial: SceneEditor.menu-serial;
+    changed scene-menu-serial => {
+        if SceneEditor.menu-section == section-index {
+            scene-menu.show();
         }
     }
 

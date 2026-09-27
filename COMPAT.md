@@ -903,13 +903,40 @@ upstream `librepcb-cli` 2.1.1 except for:
   asking.
 - **Locked projects** open read-only with a notification (upstream asks
   whether to override the lock); `*.lppz` archives cannot be opened yet.
-- **Grid interval and unit** changed in a tab apply to that tab only and
-  are not stored in the schematic/board user settings yet.
+- **Grid interval and unit** changed in a tab modify the schematic or the
+  board settings like upstream (so the editor tools snap to the shown
+  grid), but as an undoable step ("Change Grid Properties"); upstream
+  changes them without undo command.
 - **Layers panel** lists the board layers used by the board in
   `Layer::all()` order, and the layer presets (top, bottom, ...) are
   simplified; the visibility is not stored in the board user settings yet.
-- **Status bar** shows a description of the hovered object (upstream shows
-  nothing in the select tool).
+- **Scene editing (schematic and board tabs):** the editor FSMs of
+  `librepcb-editor` get the Slint pointer/key events; double clicks are
+  detected like upstream (500 ms) but allow 2 px of movement between the
+  presses (upstream: same scene position). Overlays (selection rectangle,
+  ruler, scene cursor, gray-out) are canvas items; the ruler has no tick
+  labels. Hovered items are not highlighted. Cross-probing highlights the
+  selected symbols/devices and the nets of selected wires, traces and
+  vias (and the nets of the trace being drawn) in the other tabs of the
+  project with the selection color (upstream: a separate highlight
+  state, also driven by hovering). A tool which keeps an undo group open
+  is aborted when another tab of the project is used, becomes current or
+  is closed, and before undo, redo and save.
+- **Context menus** of the scenes are a Slint popup built from the FSM's
+  entries (upstream: `QMenu`); resource (datasheet) entries are missing.
+  **Dialogs** requested by the FSMs (properties, line width, ...) show a
+  notification until they are ported (M3b); the "add component" dialog is
+  a minimal chooser (search in the workspace library database, components
+  and devices) without previews, categories or symbol variant choice.
+- **Clipboard:** copy/paste uses the system clipboard with upstream's MIME
+  types through `clipboard-rs` (X11, Wayland, macOS, Windows). Exchange
+  with upstream LibrePCB (same version) works on X11/Wayland; on Windows
+  and macOS Qt stores custom MIME types under its own format names, which
+  are not reproduced. Without a system clipboard (no display, or
+  `LIBREPCB_NO_SYSTEM_CLIPBOARD` set), an in-app clipboard is used.
+- **Not available yet in the tabs:** buses and images (schematic), the add
+  pad tools, DXF import, the unplaced components panel and plane rebuilds
+  (board), "find", graphics export.
 - **Keyboard shortcuts:** `Backend.is-shortcut` compares with the default
   shortcut of the `.slint` command set only (no user overrides, no
   alternative shortcuts).
