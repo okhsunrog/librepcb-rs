@@ -2958,6 +2958,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "librepcb-autoroute"
+version = "0.1.0"
+dependencies = [
+ "librepcb-core",
+ "librepcb-i18n",
+ "rstar",
+ "static_assertions",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "librepcb-canvas"
 version = "0.1.0"
 dependencies = [
