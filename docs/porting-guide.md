@@ -10,10 +10,17 @@ them.
 - One module per upstream directory: `libs/librepcb/core/geometry/` →
   `crates/librepcb-core/src/geometry/`. Top-level upstream files get a
   top-level module (`sqlitedatabase.cpp` → `sqlite_database.rs`).
-- One file per upstream class, snake_case with word separators:
-  `stroketextpathbuilder.cpp` → `stroke_text_path_builder.rs`,
-  `serializableobjectlist.h` → `serializable_object_list.rs`. Exceptions are
-  proper names (`fontobene.rs`) and `fileio`.
+- One file per upstream class, snake_case with word separators, named
+  after the Rust type or concept without prefixes or abbreviations the
+  module path already implies: `stroketextpathbuilder.cpp` →
+  `stroke_text_path_builder.rs`, `serializableobjectlist.h` →
+  `serializable_object_list.rs`, `project/schematic/items/si_symbol.cpp` →
+  `project/schematic/symbol.rs` (type `SchematicSymbol`),
+  `project/board/items/bi_device.cpp` → `project/board/device.rs`
+  (`BoardDevice`), `projectloader.cpp` → `project/loader/`. The upstream
+  file is named in the `//! Port of ...` module doc, which keeps the
+  traceability. Exceptions are proper names (`fontobene.rs`) and `fileio`;
+  modules from earlier waves keep their names.
 - `mod.rs` declares private submodules and re-exports the public types
   (`pub use circle::{Circle, CircleList, CircleListTag};`), so users write
   `librepcb_core::geometry::Circle`. Each module has one `error.rs`.

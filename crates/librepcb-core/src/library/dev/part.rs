@@ -6,7 +6,7 @@ use crate::serialization::{self, DeserializeObject, List, SExpression, Serialize
 use crate::types::SimpleString;
 
 /// An orderable part (manufacturer part number) of a device.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Part {
     mpn: SimpleString,
     manufacturer: SimpleString,

@@ -179,6 +179,9 @@ impl fmt::Display for LengthUnit {
     }
 }
 
+// Serde: serialized as the identifier, e.g. `"millimeters"`.
+crate::utils::serde_string::serde_string!(LengthUnit);
+
 impl FromStr for LengthUnit {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Error> {

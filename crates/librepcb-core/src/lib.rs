@@ -22,6 +22,8 @@
 //! - [`rule_check`]: messages of rule checks (library element check, ...).
 //! - [`library`]: libraries and library elements (categories, symbols,
 //!   packages, components, devices, organizations) and their checks.
+//! - [`project`]: projects (metadata, project library, circuit, schematics,
+//!   boards), their mutations, change journal, loading and saving.
 //! - [`utils`]: helpers from `core/utils` needed by the above.
 
 pub mod algorithm;
@@ -32,6 +34,7 @@ pub mod fileio;
 pub mod font;
 pub mod geometry;
 pub mod library;
+pub mod project;
 pub mod rule_check;
 pub mod serialization;
 pub mod sqlite_database;

@@ -8,8 +8,12 @@
 macro_rules! string_newtype {
     ($(#[$meta:meta])* $name:ident, $valid:expr, $err:path) => {
         $(#[$meta])*
+        ///
+        /// Serde: serialized as string, validated when deserializing.
         #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub struct $name(String);
+
+        $crate::utils::serde_string::serde_string!($name);
 
         impl $name {
             /// Creates the value, or returns an error if `value` is invalid.

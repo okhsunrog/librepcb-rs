@@ -26,7 +26,22 @@ const FULL_CIRCLE: i32 = 360_000_000;
 /// [`mapped_to_180deg()`](Self::mapped_to_180deg) to normalize.
 /// [`Display`](fmt::Display) and [`FromStr`] use the file format
 /// representation in degrees (e.g. `"90.0"`).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Serde: serialized as the integer number of microdegrees.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Angle(i32);
 
 impl Angle {

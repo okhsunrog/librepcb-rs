@@ -10,6 +10,7 @@ mod font;
 mod geometry;
 mod helpers;
 mod library;
+mod project;
 mod serialization;
 mod sqlite_database_test;
 mod system_info_test;

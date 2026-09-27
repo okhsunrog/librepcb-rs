@@ -28,7 +28,22 @@ const PIXELS_PER_NM: f64 = PIXELS_PER_INCH as f64 / NM_PER_INCH as f64;
 /// boards etc. [`Display`](fmt::Display) and [`FromStr`] use the file format
 /// representation in millimeters (e.g. `"1.5"`, see
 /// [`to_mm_string()`](Self::to_mm_string)).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Serde: serialized as the integer number of nanometers.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Length(i64);
 
 impl Length {
@@ -290,7 +305,22 @@ impl FromSExpression for Length {
 macro_rules! constrained_length {
     ($(#[$meta:meta])* $name:ident, $check:expr, $err:expr) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        ///
+        /// Serde: serialized like [`Length`] (integer nanometers), the
+        /// constraint is checked when deserializing.
+        #[derive(
+            Debug,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            PartialOrd,
+            Ord,
+            Hash,
+            serde::Serialize,
+            serde::Deserialize,
+        )]
+        #[serde(try_from = "Length", into = "Length")]
         pub struct $name(Length);
 
         impl $name {

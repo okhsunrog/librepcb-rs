@@ -308,6 +308,19 @@ impl<T: fmt::Debug, P: ListTagName> fmt::Debug for SerializableObjectList<T, P> 
     }
 }
 
+impl<T: serde::Serialize, P> serde::Serialize for SerializableObjectList<T, P> {
+    /// Serde: serialized as a plain sequence of the elements.
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.objects.serialize(serializer)
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de>, P> serde::Deserialize<'de> for SerializableObjectList<T, P> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Vec::<T>::deserialize(deserializer).map(Self::from)
+    }
+}
+
 impl<T, P> From<Vec<T>> for SerializableObjectList<T, P> {
     fn from(objects: Vec<T>) -> Self {
         Self {

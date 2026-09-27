@@ -14,12 +14,48 @@ use crate::serialization::{
 /// [`AttributeType::is_value_valid()`]).
 ///
 /// Serialized as `(attribute "KEY" (type voltage) (unit volt) (value "4.2"))`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Serde: `{"key": "KEY", "type": "voltage", "unit": "volt", "value": "4.2"}`
+/// (`unit` is `null` for types without units), validated when
+/// deserializing.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(try_from = "AttributeRepr", into = "AttributeRepr")]
 pub struct Attribute {
     key: AttributeKey,
     attribute_type: AttributeType,
     value: String,
     unit: Option<&'static AttributeUnit>,
+}
+
+/// Serde representation of [`Attribute`].
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AttributeRepr {
+    key: AttributeKey,
+    #[serde(rename = "type")]
+    attribute_type: AttributeType,
+    unit: Option<String>,
+    value: String,
+}
+
+impl From<Attribute> for AttributeRepr {
+    fn from(a: Attribute) -> Self {
+        Self {
+            key: a.key,
+            attribute_type: a.attribute_type,
+            unit: a.unit.map(|u| u.name().to_owned()),
+            value: a.value,
+        }
+    }
+}
+
+impl TryFrom<AttributeRepr> for Attribute {
+    type Error = Error;
+    fn try_from(r: AttributeRepr) -> Result<Self, Error> {
+        let unit = r
+            .attribute_type
+            .unit_from_string(r.unit.as_deref().unwrap_or("none"))?;
+        Self::new(r.key, r.attribute_type, r.value, unit)
+    }
 }
 
 impl Attribute {

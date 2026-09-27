@@ -13,6 +13,8 @@
 //! - [`math_parser`]: evaluation of mathematical expressions in user input.
 //! - [`overline_markup_parser`]: overline markup (`!RESET`) in texts.
 //! - [`tag_matcher`]: selection of the best option by preferred tags.
+//! - `serde_string`: serde support for types serialized as their string
+//!   form (no upstream counterpart).
 //!
 //! Not ported: `scopeguard`/`scopeguardlist` (replaced by `Drop`),
 //! `signalslot` and `qtmetatyperegistration` (Qt specific), `rusthandle`
@@ -23,6 +25,7 @@ pub mod math;
 pub mod math_parser;
 pub mod overline_markup_parser;
 pub mod painter_path;
+pub(crate) mod serde_string;
 pub mod tag_matcher;
 pub mod tangent_path_joiner;
 pub mod toolbox;

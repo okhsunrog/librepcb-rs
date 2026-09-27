@@ -766,6 +766,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -2990,6 +2991,8 @@ dependencies = [
  "regex",
  "rusqlite",
  "rustix 1.1.5",
+ "serde",
+ "serde_json",
  "spade",
  "static_assertions",
  "sysinfo",

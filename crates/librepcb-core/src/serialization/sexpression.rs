@@ -30,7 +30,11 @@ pub enum Mode {
 }
 
 /// A node of an S-expression tree.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Serde: externally tagged, e.g. `{"List": {"name": "approved",
+/// "children": [{"Token": "foo"}]}}` (used for check message approvals in
+/// the project model).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum SExpression {
     /// A list with a name (tag) and an arbitrary number of children,
     /// e.g. `(position 1.0 2.0)`.
@@ -46,7 +50,7 @@ pub enum SExpression {
 static_assertions::assert_impl_all!(SExpression: Send, Sync);
 
 /// A list node: a name followed by child nodes.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct List {
     name: String,
     children: Vec<SExpression>,

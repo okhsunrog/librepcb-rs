@@ -349,6 +349,9 @@ impl fmt::Display for Layer {
     }
 }
 
+// Serde: serialized as the identifier, e.g. `"top_cu"`.
+crate::utils::serde_string::serde_string!(Layer);
+
 impl FromStr for Layer {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Error> {

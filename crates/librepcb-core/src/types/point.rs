@@ -25,7 +25,21 @@ pub enum Orientation {
 ///
 /// The ordering compares X first, then Y. It has no geometric meaning but
 /// allows using points as keys in sorted containers.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Serde: `{"x": <nm>, "y": <nm>}` with integer nanometers.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct Point {
     /// X coordinate.
     pub x: Length,

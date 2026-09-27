@@ -352,6 +352,9 @@ impl FromStr for AttributeType {
     }
 }
 
+// Serde: serialized as the identifier, e.g. `"voltage"`.
+crate::utils::serde_string::serde_string!(AttributeType);
+
 impl ToSExpression for AttributeType {
     fn to_sexpression(&self) -> SExpression {
         SExpression::token(self.name())

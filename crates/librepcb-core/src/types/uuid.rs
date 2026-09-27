@@ -11,8 +11,12 @@ use crate::serialization::{self, FromSExpression, SExpression, ToSExpression};
 ///
 /// Only such UUIDs are accepted; the ordering is identical to the ordering of
 /// the string representations.
+///
+/// Serde: serialized as the hyphenated string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Uuid(uuid::Uuid);
+
+crate::utils::serde_string::serde_string!(Uuid);
 
 impl Uuid {
     /// Generates a new random UUID.

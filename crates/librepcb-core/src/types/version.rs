@@ -89,6 +89,9 @@ impl fmt::Display for Version {
     }
 }
 
+// Serde: serialized as the string form, e.g. `"1.2"`.
+crate::utils::serde_string::serde_string!(Version);
+
 impl FromStr for Version {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self, Error> {
