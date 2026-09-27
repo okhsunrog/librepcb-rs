@@ -8,6 +8,7 @@
 
 mod circuit_test;
 mod project_test;
+mod schematic_test;
 mod serde_test;
 
 use std::collections::{BTreeMap, BTreeSet};

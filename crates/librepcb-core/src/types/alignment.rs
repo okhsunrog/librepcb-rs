@@ -108,10 +108,14 @@ macro_rules! impl_align_traits {
 
 impl_align_traits!(HAlign, Error::InvalidHAlign, [Left, Center, Right]);
 impl_align_traits!(VAlign, Error::InvalidVAlign, [Top, Center, Bottom]);
+crate::utils::serde_string::serde_string!(HAlign);
+crate::utils::serde_string::serde_string!(VAlign);
 
 /// A horizontal and vertical alignment, serialized as e.g.
 /// `(align left bottom)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Serde: `{"h": "left", "v": "bottom"}`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Alignment {
     /// Horizontal alignment.
     pub h: HAlign,

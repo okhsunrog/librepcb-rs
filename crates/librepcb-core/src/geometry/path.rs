@@ -22,7 +22,21 @@ use crate::utils::toolbox;
 ///
 /// The ordering compares the vertices lexicographically (e.g. for canonical
 /// order in files).
-#[derive(Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+///
+/// Serde: an array of vertices.
+#[derive(
+    Debug,
+    Clone,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(transparent)]
 pub struct Path {
     vertices: Vec<Vertex>,
 }

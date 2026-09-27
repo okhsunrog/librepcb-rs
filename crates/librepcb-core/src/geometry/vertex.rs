@@ -9,7 +9,19 @@ use crate::types::{Angle, Point};
 ///
 /// The ordering compares the position first, then the angle (e.g. for
 /// canonical order in files).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub struct Vertex {
     /// Position.
     pub pos: Point,

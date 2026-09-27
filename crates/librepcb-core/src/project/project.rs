@@ -89,6 +89,17 @@ pub struct Project {
 
 static_assertions::assert_impl_all!(Project: Send, Sync);
 
+/// Read-only context for item computations which need the project library
+/// and the circuit (items have no back-pointers, e.g.
+/// [`SchematicSymbol::pins()`](super::schematic::SchematicSymbol::pins)).
+#[derive(Debug, Clone, Copy)]
+pub struct ProjectView<'a> {
+    /// The project library.
+    pub library: &'a ProjectLibrary,
+    /// The circuit.
+    pub circuit: &'a Circuit,
+}
+
 impl Project {
     /// Creates a default initialized project in `directory` (upstream
     /// constructor): name "Unnamed", version "v1", no content.
@@ -335,6 +346,18 @@ impl Project {
     /// assertions; linear in the project size).
     pub fn is_ref_index_consistent(&self) -> bool {
         RefIndex::build(self) == self.refs
+            && self
+                .schematics
+                .iter()
+                .all(|s| s.is_anchor_index_consistent(self.view()))
+    }
+
+    /// Returns the read-only context for item computations.
+    pub fn view(&self) -> ProjectView<'_> {
+        ProjectView {
+            library: &self.library,
+            circuit: &self.circuit,
+        }
     }
 
     // --- Change notification ---

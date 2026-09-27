@@ -5,7 +5,7 @@ use crate::serialization::{self, DeserializeObject, HasUuid, List, SExpression, 
 use crate::types::{Point, Uuid};
 
 /// A junction of net lines (schematics) or traces (boards).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct Junction {
     uuid: Uuid,
     position: Point,
