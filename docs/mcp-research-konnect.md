@@ -78,3 +78,22 @@ below are relative to that repository.
 - Invalid data reaching the editor: avoided, validation on every mutation.
 - Library search by walking library tables: still to solve with the SQLite
   library index (M1.5).
+
+## Decisions (agreed with the user)
+
+1. **Process model**: one MCP crate, two hosts. First a standalone
+   `librepcb-mcp` that owns the project and takes the upstream-compatible
+   `DirectoryLock`; later the same server embedded in the Slint app on the
+   shared `Arc<RwLock<Project>>`, so the user can watch the agent work.
+2. **Undo**: one shared history with labeled groups; each agent tool call is
+   one group ("AI: …") that the user can revert as a unit.
+3. **Granularity**: intent-level, batch-native tools on top of `Mutation`,
+   plus a raw `apply_mutation` escape hatch with a generated schema and full
+   validation.
+4. **Skills**: skill and agent files in this repository, installed by
+   `librepcb-mcp init`; MCP prompts/resources later for other clients.
+5. **Toolsets**: no dynamic loading at first; keep the surface under about
+   60 tools.
+6. **Design rules**: technical constraints only in LibrePCB's own
+   `BoardDesignRules`/settings (visible to upstream); free-text design intent
+   in a small separate project file, which upstream keeps untouched.
