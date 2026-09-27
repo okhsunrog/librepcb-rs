@@ -44,6 +44,10 @@ migrations, library checks, exports. Tests take it from `LIBREPCB_CLI` or the
 - `crates/librepcb-canvas`: 2D rendering canvas (vello_cpu, rstar, kurbo) with
   an optional Slint adapter.
 - `crates/clipper`: pure-Rust port of Clipper 1.
+- `crates/librepcb-scene`: schematic/board scene builders on the canvas and
+  headless PNG rendering.
+- `crates/librepcb-autoroute`: built-in grid autorouter (original code, no
+  upstream counterpart).
 - `tools/ts2po`: converter from Qt `.ts` to gettext `.po`.
 - `lang/<lang>/LC_MESSAGES/*.po`: translation catalogs.
 - `spikes/`: throwaway prototypes, excluded from the workspace.
