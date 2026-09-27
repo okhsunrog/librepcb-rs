@@ -423,3 +423,27 @@ differ between platforms/implementations:
 - `BoardNetSegmentSplitter`: new junction UUIDs come from a caller provided
   generator, and the elements of a resulting segment may be listed in
   another order. Files are unaffected (elements are saved sorted by UUID).
+
+## scene (crate librepcb-scene)
+
+Rendering only; no file is affected.
+
+- Schematic texts, pin names and numbers and net/bus labels are drawn with
+  the project's stroke font (`newstroke.bene`) instead of the Noto Sans /
+  Noto Sans Mono TrueType fonts upstream draws through Qt. The stroke text
+  is placed in the box the TrueType text would occupy (Noto Sans descent
+  and cap height), with upstream's alignment, auto-rotation, multi-line
+  and overline rules; glyph shapes and widths differ.
+- Images (schematic and symbol images) are not drawn yet, only their
+  borders.
+- Pad, via and hole drills are filled with the background color instead of
+  being cut out of the copper. Standalone board pads are drawn with the
+  pad's preview geometries (default mask offsets) until core exposes the
+  board pad geometries for them.
+- Planes are drawn with the fragments stored in the board's derived data
+  (if computed) plus their outline as a hairline.
+- Attribute substitution uses a minimal local port of
+  `ProjectAttributeLookup` without assembly variants (`VARIANT`,
+  `VARIANT_INDEX`), until the core lookup is ported.
+- Board colors are the dark scheme's primary colors (the editor look); the
+  graphics export's color adjustment for white backgrounds is not applied.
