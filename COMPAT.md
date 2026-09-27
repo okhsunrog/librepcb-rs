@@ -889,3 +889,28 @@ upstream `librepcb-cli` 2.1.1 except for:
   resolution 1/100000 mm instead of the export's 1/1000000 mm, because
   FreeRouting 2.4.1 reports bogus clearance violations and leaves
   connections unrouted with the finer resolution.
+
+## app (crate librepcb-app)
+
+- **Number formatting in the UI** (`Backend.format-length` etc.) uses `.`
+  as decimal separator and no group separators instead of `QLocale`; input
+  parsing uses the math parser with `.` (upstream accepts the locale's
+  decimal separator too).
+- **Workspace selection:** no workspace wizard. The workspace comes from
+  `--workspace`, `LIBREPCB_WORKSPACE`, upstream's client settings
+  (`workspaces/most_recently_used` in `~/.config/LibrePCB/LibrePCB.conf`,
+  read only, Linux) or `~/LibrePCB-Workspace`, which is created without
+  asking.
+- **Locked projects** open read-only with a notification (upstream asks
+  whether to override the lock); `*.lppz` archives cannot be opened yet.
+- **Grid interval and unit** changed in a tab apply to that tab only and
+  are not stored in the schematic/board user settings yet.
+- **Layers panel** lists the board layers used by the board in
+  `Layer::all()` order, and the layer presets (top, bottom, ...) are
+  simplified; the visibility is not stored in the board user settings yet.
+- **Status bar** shows a description of the hovered object (upstream shows
+  nothing in the select tool).
+- **Keyboard shortcuts:** `Backend.is-shortcut` compares with the default
+  shortcut of the `.slint` command set only (no user overrides, no
+  alternative shortcuts).
+- **Zooming** is not animated.

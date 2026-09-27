@@ -57,6 +57,15 @@ Done, in `crates/librepcb-core` unless noted:
   `mcp-design.md`.
 - **`crates/librepcb-i18n`, `tools/ts2po`, `lang/`:** translations from the
   upstream catalogs.
+- **`crates/librepcb-app`** (binary `librepcb`, M2a + most of M2b):
+  upstream's Slint UI (`ui/`, compiled by the `librepcb-app-ui` crate with
+  Slint 1.18.1, see `ui/PROVENANCE.md`) with a Rust backend: main window,
+  sections and tabs, home tab (folder tree, recent/favorite projects),
+  themes, about panel, notifications, translations, documents panel,
+  schematic and board 2D tabs rendered through `librepcb-scene` and
+  `librepcb-canvas` (pan/zoom like upstream, grid, layers panel, read-only
+  select/hover), headless screenshots (`--screenshot`) and Slint's MCP
+  server for agents (feature `ui-debug-mcp`, see `docs/ui-design.md`).
 
 ## Next steps
 
@@ -66,8 +75,10 @@ install, part search, schematic with `connect`/`schematic_tidy`, board
 outline, connectivity-based placement, Freerouting, GND plane, ERC/DRC,
 Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
 
-1. M2 viewer (Slint) on `librepcb-scene`, with live updates from the
-   change journal (watch an agent work).
+1. M2 viewer: finish M2b (library info on the home panel, grid/unit and
+   layer visibility persisted in the user settings, keyboard handling), then
+   M2c (incremental scene updates from the change journal, embedded MCP
+   server toggle, undo/redo/save) and M2d (ERC/DRC panels, exports).
 2. MCP: stdio MCP mode for Freerouting, subcircuit templates, design
    intent file (see `mcp-research-konnect.md`), more end-to-end scenarios
    (ICs with multiple gates, multi-page schematics, 4-layer boards).
