@@ -16,9 +16,7 @@ use super::board::{Board, BoardDevice};
 use super::circuit::ComponentInstance;
 use super::id::AssemblyVariantId;
 use crate::export::Bom;
-use crate::library::dev::Part;
 use crate::library::pkg::AssemblyType;
-use crate::types::SimpleString;
 
 /// Generates the bill of materials of a project (upstream `BomGenerator`).
 #[derive(Debug, Clone)]
@@ -153,10 +151,10 @@ impl<'a> BomGenerator<'a> {
             Some(board) => match board.device(cmp.id()) {
                 Some(dev) => {
                     device = Some(dev);
-                    let mut parts = device_parts(cmp, dev, Some(assembly_variant));
+                    let mut parts = dev.parts(cmp, Some(assembly_variant));
                     if parts.is_empty() {
                         mount = false;
-                        parts = device_parts(cmp, dev, None); // Fallback for convenience.
+                        parts = dev.parts(cmp, None); // Fallback for convenience.
                     }
                     assembly_expected = p
                         .library
@@ -243,33 +241,6 @@ impl<'a> BomGenerator<'a> {
             mount,
         })
     }
-}
-
-/// Returns the parts of the assembly options of `cmp` matching the device
-/// in `assembly_variant` (all variants if `None`); an option without parts
-/// yields one empty part with the option's attributes (upstream
-/// `BI_Device::getParts()`).
-fn device_parts(
-    cmp: &ComponentInstance,
-    device: &BoardDevice,
-    assembly_variant: Option<AssemblyVariantId>,
-) -> Vec<Part> {
-    let mut parts = Vec::new();
-    for option in cmp.assembly_options().iter() {
-        if option.device() == device.lib_device()
-            && assembly_variant.is_none_or(|av| option.assembly_variants().contains(&av))
-        {
-            parts.extend(option.parts().iter().cloned());
-            if option.parts().is_empty() {
-                parts.push(Part::new(
-                    SimpleString::default(),
-                    SimpleString::default(),
-                    option.attributes().clone(),
-                ));
-            }
-        }
-    }
-    parts
 }
 
 /// Replaces `substr` surrounded by whitespace or string boundaries by a

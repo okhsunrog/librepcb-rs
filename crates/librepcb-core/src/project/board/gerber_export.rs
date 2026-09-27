@@ -283,7 +283,8 @@ impl<'a> BoardGerberExport<'a> {
             };
 
             // Export component center and attributes.
-            let lookup = |key: &str| ctx.device_attribute(dev, Some(&part), key);
+            let attributes = ctx.device_lookup(dev, Some(&part));
+            let lookup = |key: &str| attributes.value(key);
             let rotation = dev.device.rotation();
             let designator = dev.designator();
             let value = attribute::substitute(&lookup("VALUE").unwrap_or_default(), lookup, None)
@@ -367,7 +368,8 @@ impl<'a> BoardGerberExport<'a> {
             let mut pad_number = 1;
             for pad in ctx.device_pads(dev)? {
                 if pad.properties.function_is_fiducial() && pad.is_on_layer(cu_layer) {
-                    let lookup = |key: &str| ctx.device_attribute(dev, None, key);
+                    let attributes = ctx.device_lookup(dev, None);
+                    let lookup = |key: &str| attributes.value(key);
                     let designator = format!("{}:{pad_number}", dev.designator());
                     let value = simplified(&attribute::substitute(
                         &lookup("VALUE").unwrap_or_default(),
@@ -486,7 +488,7 @@ impl<'a> BoardGerberExport<'a> {
         for segment in self.ctx.board.net_segments().values() {
             for via in self.ctx.segment_vias(segment) {
                 if (via.via.is_blind() || via.via.is_buried())
-                    && let Some(span) = self.ctx.via_drill_layer_span(via.via)
+                    && let Some(span) = via.props.drill_layer_span
                 {
                     vias.entry(span).or_default().push(via);
                 }
@@ -506,7 +508,7 @@ impl<'a> BoardGerberExport<'a> {
             for via in vias {
                 g.drill(
                     via.via.position(),
-                    via.drill,
+                    via.props.drill_diameter,
                     true,
                     ApertureFunction::ViaDrill,
                 );
@@ -574,7 +576,7 @@ impl<'a> BoardGerberExport<'a> {
                 if via.via.is_through() {
                     g.drill(
                         via.via.position(),
-                        via.drill,
+                        via.props.drill_diameter,
                         true,
                         ApertureFunction::ViaDrill,
                     );
@@ -1031,7 +1033,7 @@ impl<'a> BoardGerberExport<'a> {
             ("END_LAYER", _, Some(end)) => Some(layer_name(end)),
             ("START_NUMBER", Some(start), _) => Some((start.copper_number() + 1).to_string()),
             ("END_NUMBER", _, Some(end)) => Some((end.copper_number() + 1).to_string()),
-            _ => self.ctx.board_attribute(key),
+            _ => self.ctx.board_lookup().value(key),
         }
     }
 
@@ -1095,9 +1097,9 @@ fn draw_via(g: &mut GerberGenerator, via: &ContextVia<'_>, layer: Layer, net_nam
     let draw_copper = via.via.is_on_layer(layer);
     let stop_mask_diameter = if layer.is_stop_mask() {
         if layer.is_top() {
-            via.stop_mask_top
+            via.props.stop_mask_diameter_top
         } else {
-            via.stop_mask_bot
+            via.props.stop_mask_diameter_bot
         }
     } else {
         None
@@ -1113,7 +1115,7 @@ fn draw_via(g: &mut GerberGenerator, via: &ContextVia<'_>, layer: Layer, net_nam
         } else {
             ObjectAttributes::default()
         };
-        let diameter = stop_mask_diameter.unwrap_or(via.size);
+        let diameter = stop_mask_diameter.unwrap_or(via.props.size);
         g.flash_circle(via.via.position(), diameter, &attributes);
     }
 }

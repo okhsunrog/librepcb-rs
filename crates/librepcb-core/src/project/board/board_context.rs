@@ -3,34 +3,29 @@
 //! size/drill and stop mask diameters, `BI_StrokeText` paths), as needed by
 //! the plane fragments builder and the exports.
 //!
-//! Also contains the attribute lookups of boards and devices (the parts of
-//! upstream `ProjectAttributeLookup` which the exports use: board, device,
-//! component, part and project attributes), to substitute stroke texts and
-//! output file paths.
+//! Also creates the attribute lookups of the board and its devices
+//! ([`ProjectAttributeLookup`]), to substitute stroke texts and output file
+//! paths.
 //!
 //! Not an upstream class: upstream computes these values in the item
 //! objects (see `bi_pad.cpp`, `bi_via.cpp`, `bi_stroketext.cpp`,
-//! `bi_device.cpp`) and `projectattributelookup.cpp`; the values and their
-//! order are the same.
+//! `bi_device.cpp`); the values and their order are the same.
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Local, Utc};
-
-use super::{Board, BoardDevice, BoardStrokeTextData};
-use crate::attribute::{self, AttributeList};
+use super::{Board, BoardDevice, BoardStrokeTextData, BoardViaProperties};
 use crate::font::StrokeTextPathBuilder;
 use crate::geometry::{ComponentSide, Pad, PadGeometry, Path, TraceAnchor, Via};
-use crate::library::LibraryBaseElement;
 use crate::library::dev::{Device, Part};
 use crate::library::pkg::{Footprint, Package};
 use crate::project::Project;
+use crate::project::attribute_lookup::ProjectAttributeLookup;
 use crate::project::board::export_error::BoardExportResult;
 use crate::project::board::pad_data::PadOnBoard;
 use crate::project::circuit::ComponentInstance;
 use crate::project::error::{EntityKind, Error};
 use crate::project::id::{AssemblyVariantId, ComponentInstanceId, NetSignalId};
-use crate::types::{Angle, Layer, Length, Point, PositiveLength, Uuid};
+use crate::types::{Angle, Layer, Length, Point, Uuid};
 use crate::utils::transform::Transform;
 
 /// A device of a board with its resolved library elements and component.
@@ -57,33 +52,14 @@ impl<'a> ContextDevice<'a> {
     /// Returns the parts of the device in an assembly variant (all variants
     /// if `None`), upstream `BI_Device::getParts()`.
     pub fn parts(&self, assembly_variant: Option<AssemblyVariantId>) -> Vec<Part> {
-        let lib_device = self.device.lib_device();
-        let mut parts = Vec::new();
-        for option in self.component.assembly_options() {
-            if (option.device() == lib_device)
-                && assembly_variant.is_none_or(|av| option.assembly_variants().contains(&av))
-            {
-                parts.extend(option.parts().iter().cloned());
-                if option.parts().is_empty() {
-                    parts.push(Part::new(
-                        Default::default(),
-                        Default::default(),
-                        option.attributes().clone(),
-                    ));
-                }
-            }
-        }
-        parts
+        self.device.parts(self.component, assembly_variant)
     }
 
     /// Whether the device is assembled in an assembly variant (upstream
     /// `BI_Device::isInAssemblyVariant()`).
     pub fn is_in_assembly_variant(&self, assembly_variant: AssemblyVariantId) -> bool {
-        let lib_device = self.device.lib_device();
-        self.component.assembly_options().iter().any(|option| {
-            (option.device() == lib_device)
-                && option.assembly_variants().contains(&assembly_variant)
-        })
+        self.device
+            .is_in_assembly_variant(self.component, assembly_variant)
     }
 
     /// Returns the stop mask offsets of the footprint holes (upstream
@@ -153,14 +129,7 @@ impl ContextPad<'_> {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ContextVia<'a> {
     pub via: &'a Via,
-    /// Upstream `getActualDrillDiameter()`.
-    pub drill: PositiveLength,
-    /// Upstream `getActualSize()`.
-    pub size: PositiveLength,
-    /// Upstream `getStopMaskDiameterTop()`.
-    pub stop_mask_top: Option<PositiveLength>,
-    /// Upstream `getStopMaskDiameterBottom()`.
-    pub stop_mask_bot: Option<PositiveLength>,
+    pub props: BoardViaProperties,
 }
 
 /// A read-only view of a board of a project, see the module documentation.
@@ -291,70 +260,15 @@ impl<'a> BoardContext<'a> {
     /// Returns the vias of a net segment with their derived properties,
     /// sorted by UUID.
     pub fn segment_vias(&self, segment: &'a super::BoardNetSegment) -> Vec<ContextVia<'a>> {
-        let rules = self.board.design_rules();
         let circuit = self.project.circuit();
-        let net_class_drill = segment
-            .net()
-            .and_then(|n| circuit.net_signal(n))
-            .and_then(|n| circuit.net_class(n.net_class()))
-            .and_then(|c| c.default_via_drill());
         segment
             .vias()
             .values()
-            .map(|via| {
-                // Upstream `BI_Via::updateActualDrillAndSize()`.
-                let drill = via
-                    .drill_diameter()
-                    .or(net_class_drill)
-                    .unwrap_or(rules.default_via_drill_diameter());
-                let size = match via.size() {
-                    // Avoid invalid via if drill is auto.
-                    Some(size) => size.max(drill),
-                    None => Via::calc_size_from_rules(drill, &rules.via_annular_ring()),
-                };
-                // Upstream `BI_Via::updateStopMaskDiameters()`.
-                let config = via.exposure_config();
-                let dia = if let Some(offset) = config.offset() {
-                    *size + offset * 2
-                } else if config.is_enabled() {
-                    *size + *rules.stop_mask_clearance().calc_value(*size) * 2
-                } else if rules.does_via_require_stop_mask_opening(*drill) {
-                    *drill + *rules.stop_mask_clearance().calc_value(*drill) * 2
-                } else {
-                    Length::ZERO
-                };
-                let dia = PositiveLength::new(dia).ok();
-                ContextVia {
-                    via,
-                    drill,
-                    size,
-                    stop_mask_top: dia.filter(|_| via.start_layer().is_top()),
-                    stop_mask_bot: dia.filter(|_| via.end_layer().is_bottom()),
-                }
+            .map(|via| ContextVia {
+                via,
+                props: self.board.via_properties(via, segment.net(), circuit),
             })
             .collect()
-    }
-
-    /// Returns the drill layer span of a blind or buried via, `None` if the
-    /// via is invalid with the current layer count (upstream
-    /// `BI_Via::getDrillLayerSpan()`).
-    pub fn via_drill_layer_span(&self, via: &Via) -> Option<(Layer, Layer)> {
-        let inner = self.board.settings().inner_layer_count as usize;
-        // If start layer is not enabled, the via is invalid.
-        let start_number = via.start_layer().copper_number();
-        if start_number > inner {
-            return None;
-        }
-        // If the via ends at the bottom layer, the via is valid.
-        if via.end_layer().is_bottom() {
-            return Some((via.start_layer(), via.end_layer()));
-        }
-        // Via ends on an inner layer --> check layer span.
-        let end_number = via.end_layer().copper_number().min(inner);
-        match Layer::inner_copper(end_number) {
-            Some(end) if start_number < end_number => Some((via.start_layer(), end)),
-            _ => None,
-        }
     }
 
     /// Returns the position of a trace anchor of a net segment.
@@ -389,13 +303,10 @@ impl<'a> BoardContext<'a> {
         let substituted = match device {
             Some(dev) => {
                 let part = dev.parts(None).into_iter().next();
-                attribute::substitute(
-                    text.text(),
-                    |key| self.device_attribute(dev, part.as_ref(), key),
-                    None,
-                )
+                self.device_lookup(dev, part.as_ref())
+                    .substitute(text.text())
             }
-            None => attribute::substitute(text.text(), |key| self.board_attribute(key), None),
+            None => self.board_lookup().substitute(text.text()),
         };
         Ok(StrokeTextPathBuilder::build(
             font,
@@ -415,125 +326,22 @@ impl<'a> BoardContext<'a> {
         Transform::new(text.position(), text.rotation(), text.mirrored())
     }
 
-    // ------------------------------------------------------------------
-    // Attribute lookup (upstream ProjectAttributeLookup)
-    // ------------------------------------------------------------------
-
-    /// Board lookup without assembly variant (upstream
+    /// Attribute lookup of the board without assembly variant (upstream
     /// `ProjectAttributeLookup(board, nullptr)`).
-    pub fn board_attribute(&self, key: &str) -> Option<String> {
-        self.query_board(key).or_else(|| self.query_project(key))
+    pub fn board_lookup(&self) -> ProjectAttributeLookup<'a> {
+        ProjectAttributeLookup::for_board(self.project, self.board, None)
     }
 
-    /// Device lookup (upstream `ProjectAttributeLookup(device, part)`).
-    pub fn device_attribute(
+    /// Attribute lookup of a device (upstream
+    /// `ProjectAttributeLookup(device, part)`).
+    pub fn device_lookup<'p>(
         &self,
         device: &ContextDevice<'a>,
-        part: Option<&Part>,
-        key: &str,
-    ) -> Option<String> {
-        part.and_then(|p| query_part(p, key))
-            .or_else(|| self.query_device(device, key))
-            .or_else(|| self.query_component(device, key))
-            .or_else(|| self.query_board(key))
-            .or_else(|| self.query_project(key))
+        part: Option<&'p Part>,
+    ) -> ProjectAttributeLookup<'p>
+    where
+        'a: 'p,
+    {
+        ProjectAttributeLookup::for_device(self.project, self.board, device.device, part)
     }
-
-    fn locale_order(&self) -> &[String] {
-        &self.project.settings().locale_order
-    }
-
-    fn query_project(&self, key: &str) -> Option<String> {
-        let project = self.project;
-        let metadata = project.metadata();
-        if let Some(value) = find_attribute(&metadata.attributes, key) {
-            return Some(value);
-        }
-        let local = |dt: DateTime<Utc>| dt.with_timezone(&Local);
-        let file_path = project.file_path();
-        Some(match key {
-            "PROJECT" => metadata.name.to_string(),
-            "PROJECT_DIRPATH" => project.path().map(|p| p.to_native()).unwrap_or_default(),
-            "PROJECT_BASENAME" => file_path
-                .as_ref()
-                .map(|p| p.basename().to_owned())
-                .unwrap_or_default(),
-            "PROJECT_FILENAME" => project.file_name().to_owned(),
-            "PROJECT_FILEPATH" => file_path.map(|p| p.to_native()).unwrap_or_default(),
-            "CREATED_DATE" => local(metadata.created).format("%Y-%m-%d").to_string(),
-            "CREATED_TIME" => local(metadata.created).format("%H:%M:%S").to_string(),
-            "DATE" => local(project.date_time()).format("%Y-%m-%d").to_string(),
-            "TIME" => local(project.date_time()).format("%H:%M:%S").to_string(),
-            "AUTHOR" => metadata.author.clone(),
-            "VERSION" => metadata.version.to_string(),
-            "PAGES" => project.schematics().len().to_string(),
-            // Do not translate this, must be the same for every user!
-            "PAGE_X_OF_Y" => "Page {{PAGE}} of {{PAGES}}".to_owned(),
-            _ => return None,
-        })
-    }
-
-    fn query_board(&self, key: &str) -> Option<String> {
-        Some(match key {
-            "BOARD" => self.board.properties().name.to_string(),
-            "BOARD_DIRNAME" => self.board.directory_name().to_owned(),
-            "BOARD_INDEX" => self
-                .project
-                .board_index(self.board.id())
-                .unwrap_or_default()
-                .to_string(),
-            _ => return None,
-        })
-    }
-
-    fn query_component(&self, device: &ContextDevice<'a>, key: &str) -> Option<String> {
-        let cmp = device.component;
-        if let Some(value) = find_attribute(cmp.attributes(), key) {
-            return Some(value);
-        }
-        Some(match key {
-            "NAME" => cmp.name().to_string(),
-            "VALUE" => cmp.value().clone(),
-            "COMPONENT" => self
-                .project
-                .library()
-                .component(&cmp.lib_component())
-                .map(|c| c.metadata().names().value(self.locale_order()).to_string())
-                .unwrap_or_default(),
-            _ => return None,
-        })
-    }
-
-    fn query_device(&self, device: &ContextDevice<'a>, key: &str) -> Option<String> {
-        if let Some(value) = find_attribute(device.device.attributes(), key) {
-            return Some(value);
-        }
-        let locale = self.locale_order();
-        Some(match key {
-            "DEVICE" => device
-                .lib_device
-                .metadata()
-                .names()
-                .value(locale)
-                .to_string(),
-            "PACKAGE" => device.package.metadata().names().value(locale).to_string(),
-            "FOOTPRINT" => device.footprint.names().value(locale).to_string(),
-            _ => return None,
-        })
-    }
-}
-
-fn find_attribute(attributes: &AttributeList, key: &str) -> Option<String> {
-    attributes.by_name(key, true).map(|a| a.value_tr(true))
-}
-
-fn query_part(part: &Part, key: &str) -> Option<String> {
-    if let Some(value) = find_attribute(part.attributes(), key) {
-        return Some(value);
-    }
-    Some(match key {
-        "MPN" => part.mpn().to_string(),
-        "MANUFACTURER" => part.manufacturer().to_string(),
-        _ => return None,
-    })
 }

@@ -2,6 +2,7 @@
 
 use crate::font;
 use crate::project;
+use crate::project::board::BoardExportError;
 use crate::types;
 use crate::utils::clipper_helpers;
 
@@ -31,6 +32,16 @@ pub enum Error {
     /// a validated project).
     #[error("Invalid trace anchor: {0}")]
     InvalidTraceAnchor(crate::types::Uuid),
+    /// The plane fragments could not be rebuilt (e.g. the stroke font of
+    /// the board is missing). Boxed because it is large.
+    #[error(transparent)]
+    PlaneRebuild(Box<BoardExportError>),
+}
+
+impl From<BoardExportError> for Error {
+    fn from(e: BoardExportError) -> Self {
+        Self::PlaneRebuild(Box::new(e))
+    }
 }
 
 impl From<project::Error> for Error {

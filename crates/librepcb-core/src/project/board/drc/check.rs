@@ -21,13 +21,6 @@
 //!   i.e. `QPathClipper`) is not ported: an object intersects a zone if
 //!   any of its areas does, and via circles are drawn as arcs instead of
 //!   `addEllipse()` (same Bézier curves). See COMPAT.md.
-//! - TODO(merge): upstream rebuilds the plane fragments before a full check;
-//!   the plane fragments builder is ported separately, so
-//!   [`Project::run_drc()`] uses the fragments currently stored in the
-//!   board (empty if never built). Affected are the checks involving
-//!   planes: copper clearances, board clearances and hole clearances of
-//!   planes, annular rings, cutouts with copper, and the missing
-//!   connections (air wires consider the plane fragments).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Mutex;
@@ -348,8 +341,8 @@ impl Project {
     /// `BoardDesignRuleCheck::start()` + `waitForFinished()`), with the
     /// board's DRC settings unless `settings` is given.
     ///
-    /// For a full check (not `quick`), the air wires are rebuilt first
-    /// (upstream also rebuilds the planes, see the module documentation).
+    /// For a full check (not `quick`), all planes and the air wires are
+    /// rebuilt first.
     /// Errors of single checks are reported in [`DrcResult::errors`];
     /// an error is returned only if the input data cannot be extracted.
     pub fn run_drc(
@@ -364,8 +357,11 @@ impl Project {
         // Force rebuilding planes (upstream).
         if !quick {
             progress(DrcProgress::Status(&tr!(CTX, "Rebuild planes...")));
-            // TODO(merge): rebuild the plane fragments here with the ported
-            // `BoardPlaneFragmentsBuilder` and apply them to the board.
+            // Like upstream, errors of single planes do not abort the check:
+            // the calculated fragments are applied anyway.
+            if let Some(job) = self.plane_job(board, None)? {
+                self.apply_plane_job_result(job.run())?;
+            }
         }
         progress(DrcProgress::Percent(7));
 
