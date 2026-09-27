@@ -132,13 +132,11 @@ fn symbol_properties() {
     let question = apply(dialog.as_mut(), &project).unwrap_err();
     assert!(question.contains("swap"), "{question}");
     assert_eq!(apply(dialog.as_mut(), &project), Ok(Applied::Project));
+    let r1_component = symbol_component(&project, sch, r1);
     {
         let p = project.shared().lock();
         let circuit = p.project().circuit();
-        assert_eq!(
-            circuit.component_instance_by_name("R2").unwrap().0,
-            symbol_component(&project, sch, r1)
-        );
+        assert_eq!(circuit.component_instance_by_name("R2").unwrap().0, r1_component);
         assert!(circuit.component_instance_by_name("R1").is_some());
     }
     undo(&project);
@@ -149,10 +147,7 @@ fn symbol_properties() {
             .component_instance_by_name("R1")
             .unwrap()
             .0,
-        {
-            drop(p);
-            symbol_component(&project, sch, r1)
-        }
+        r1_component
     );
 }
 
