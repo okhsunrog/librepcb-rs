@@ -766,6 +766,15 @@ impl Board2dTab {
             return TabUpdate::default();
         }
         let before = self.snapshot();
+        {
+            // Air wires are derived data (e.g. not restored by undo).
+            let mut p = self.project.shared().lock();
+            if !p.editor.undo_stack().is_group_active()
+                && let Err(e) = p.editor.rebuild_air_wires(self.board)
+            {
+                log::warn!("Failed to rebuild the air wires: {e}");
+            }
+        }
         let mut update = self.after_fsm(&before);
         update.repaint = true;
         update.data_changed = true;

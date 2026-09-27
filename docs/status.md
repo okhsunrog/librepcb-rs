@@ -66,6 +66,10 @@ Done, in `crates/librepcb-core` unless noted:
   `librepcb-canvas` (pan/zoom like upstream, grid, layers panel, read-only
   select/hover), headless screenshots (`--screenshot`) and Slint's MCP
   server for agents (feature `ui-debug-mcp`, see `docs/ui-design.md`).
+  M2c: embedded LibrePCB MCP server (`--mcp`, status bar toggle) editing
+  the open project live with a shared undo stack, the UI following the
+  agent; M2d: ERC/DRC rule check panel (automatic ERC, background DRC,
+  approvals, zoom to location) and exports/output jobs from the menus.
   M3a (editing in the tabs) is in place: the schematic and board tabs
   drive the `librepcb-editor` FSMs (tools, tool bars, overlays, context
   menus, clipboard with upstream MIME types, cross-probing, undo/redo;
@@ -81,9 +85,9 @@ outline, connectivity-based placement, Freerouting, GND plane, ERC/DRC,
 Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
 
 1. M2 viewer: finish M2b (library info on the home panel, grid/unit and
-   layer visibility persisted in the user settings, keyboard handling), then
-   M2c (incremental scene updates from the change journal, embedded MCP
-   server toggle, undo/redo/save) and M2d (ERC/DRC panels, exports).
+   layer visibility persisted in the user settings, keyboard handling) and
+   the rest of M2d (rule check location markers and autofixes, print and
+   image export, opening `*.lppz`); M2c is done.
 2. MCP: stdio MCP mode for Freerouting, subcircuit templates, design
    intent file (see `mcp-research-konnect.md`), more end-to-end scenarios
    (ICs with multiple gates, multi-page schematics, 4-layer boards).

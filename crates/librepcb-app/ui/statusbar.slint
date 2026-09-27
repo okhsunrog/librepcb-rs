@@ -1,4 +1,5 @@
 import {
+    CheckBox,
     IconButton,
     ProgressBar,
     TextInput,
@@ -403,6 +404,86 @@ export component StatusBar inherits Rectangle {
 
         Rectangle {
             width: 10px;
+        }
+
+        // Embedded LibrePCB MCP server (librepcb-rs, no upstream
+        // counterpart): shows whether it runs and whether an agent is
+        // editing; the popup starts/stops it.
+        mcp-btn := IconButton {
+            icon: @image-url("resources/libs/font-awesome/svgs/solid/wand-magic-sparkles.svg");
+            icon-scale: 0.6;
+            tooltip: {
+                if Data.mcp-agent-active {
+                    @tr("AI agent: {}", Data.mcp-agent-status)
+                } else if Data.mcp-server-running {
+                    @tr("MCP server running at {}", Data.mcp-server-url)
+                } else {
+                    @tr("MCP server stopped")
+                }
+            };
+            tooltip-position: top;
+            checked: Data.mcp-server-running;
+            background-color: Data.mcp-agent-active ? Data.theme.accent : transparent;
+            color-checked: Data.mcp-agent-active ? Data.theme.accent-text : Data.theme.base-text;
+            accessible-label: "MCP server";
+
+            mcp-popup := PopupWindow {
+                x: parent.width - self.preferred-width;
+                y: -self.preferred-height;
+                close-policy: close-on-click-outside;
+
+                Rectangle {
+                    background: Data.theme.window;
+                    border-color: Data.theme.base-border;
+                    border-width: 1px;
+
+                    VerticalLayout {
+                        padding: 8px;
+                        spacing: 6px;
+
+                        Text {
+                            text: @tr("AI Agents (MCP)");
+                            font-weight: 600;
+                            color: Data.theme.base-text;
+                        }
+
+                        mcp-enable-cbx := CheckBox {
+                            text: @tr("Enable the MCP server");
+                            checked: Data.mcp-server-running;
+
+                            toggled(checked) => {
+                                Backend.toggle-mcp-server();
+                            }
+                        }
+
+                        if Data.mcp-server-running: Text {
+                            text: Data.mcp-server-url;
+                            font-family: "Noto Sans Mono";
+                            font-size: 11px;
+                            color: Data.theme.base-text-muted;
+                        }
+
+                        mcp-follow-cbx := CheckBox {
+                            text: @tr("Show what the agent edits");
+                            checked: Data.mcp-follow-agent;
+
+                            toggled(checked) => {
+                                Data.mcp-follow-agent = checked;
+                            }
+                        }
+
+                        if Data.mcp-agent-active: Text {
+                            text: Data.mcp-agent-status;
+                            font-size: 11px;
+                            color: Data.theme.base-text;
+                        }
+                    }
+                }
+            }
+
+            clicked => {
+                mcp-popup.show();
+            }
         }
 
         notifications-btn := IconButton {

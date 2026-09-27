@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 description = "The compiled Slint UI of the LibrePCB application (ported from upstream)"
 
+# Generated code only (~53 MB of Rust): a test build would compile it a
+# second time for nothing.
+[lib]
+test = false
+doctest = false
+
 # The workspace lints, except that unsafe code is denied instead of
 # forbidden: Slint's generated code needs a local `#[allow(unsafe_code)]`.
 # The crate itself contains no unsafe code.

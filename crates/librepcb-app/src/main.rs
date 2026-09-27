@@ -58,6 +58,16 @@ struct Args {
     /// Window size for --screenshot, e.g. 1400x900.
     #[arg(long, default_value = "1400x900")]
     size: String,
+    /// Start the embedded LibrePCB MCP server for AI agents (streamable
+    /// HTTP at http://ADDR/mcp; default 127.0.0.1:8766).
+    #[arg(
+        long,
+        value_name = "ADDR",
+        num_args = 0..=1,
+        require_equals = true,
+        default_missing_value = "127.0.0.1:8766"
+    )]
+    mcp: Option<std::net::SocketAddr>,
 }
 
 fn parse_size(s: &str) -> Option<(u32, u32)> {
@@ -123,6 +133,10 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     }
     if !opened && (!args.project.is_empty() || !args.files.is_empty()) {
         log::warn!("No project could be opened.");
+    }
+    if let Some(addr) = args.mcp {
+        let url = app.start_mcp_server(addr)?;
+        log::info!("LibrePCB MCP server: {url}");
     }
 
     match (headless, &args.screenshot) {

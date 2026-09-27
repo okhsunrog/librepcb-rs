@@ -24,6 +24,7 @@ librepcb-canvas = { version = "0.1.0", path = "../librepcb-canvas", features = [
 librepcb-core = { version = "0.1.0", path = "../librepcb-core" }
 librepcb-editor = { version = "0.1.0", path = "../librepcb-editor" }
 librepcb-i18n = { version = "0.1.0", path = "../librepcb-i18n" }
+librepcb-mcp = { version = "0.1.0", path = "../librepcb-mcp", features = ["http"] }
 librepcb-scene = { version = "0.1.0", path = "../librepcb-scene" }
 log = "0.4.34"
 open = "5.4.4"
@@ -32,6 +33,7 @@ png = "0.18.1"
 rfd = "0.17.2"
 slint = "1.18.1"
 thiserror = "2.0.21"
+tokio = { version = "1.53.1", features = ["rt-multi-thread"] }
 
 [features]
 # Slint's embedded MCP server for driving the UI from agents (see the crate
@@ -40,4 +42,7 @@ thiserror = "2.0.21"
 ui-debug-mcp = ["slint/mcp"]
 
 [dev-dependencies]
+rmcp = { version = "3.4.1", features = ["client", "transport-streamable-http-client-reqwest"] }
+serde_json = "1.0.151"
 tempfile = "3.27.0"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }

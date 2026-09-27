@@ -11,6 +11,7 @@
 //! directory lock) so that background jobs and the embedded MCP server can
 //! share it (see `docs/ui-design.md`, decisions 3 and 4).
 
+use std::cell::RefCell;
 use std::sync::Arc;
 
 use librepcb_app_ui as ui;
@@ -19,6 +20,7 @@ use librepcb_core::project::{BoardId, ProjectLoader, SchematicId};
 use librepcb_editor::{LibraryElementSource, OpenProject, SharedProject};
 
 use crate::models::vec_model;
+use crate::rule_check::ProjectChecks;
 
 /// Errors when opening a project.
 #[derive(Debug, thiserror::Error)]
@@ -45,6 +47,8 @@ pub struct AppProject {
     shared: SharedProject,
     path: FilePath,
     writable: bool,
+    /// ERC and DRC results (UI thread only).
+    checks: RefCell<ProjectChecks>,
 }
 
 impl std::fmt::Debug for AppProject {
@@ -87,7 +91,28 @@ impl AppProject {
             shared: project.into_shared(),
             path: lpp.clone(),
             writable,
+            checks: RefCell::default(),
         })
+    }
+
+    /// Wraps a project which is already open (e.g. created by the embedded
+    /// MCP server); `None` if it has no project file on disk.
+    pub fn from_shared(shared: SharedProject) -> Option<Self> {
+        let (path, writable) = {
+            let p = shared.lock();
+            (p.project().file_path()?, p.file_system.is_writable())
+        };
+        Some(Self {
+            shared,
+            path,
+            writable,
+            checks: RefCell::default(),
+        })
+    }
+
+    /// The rule check results (ERC, DRC per board).
+    pub fn checks(&self) -> &RefCell<ProjectChecks> {
+        &self.checks
     }
 
     /// The shared project (editor, undo stack, directory lock).
@@ -132,6 +157,9 @@ impl AppProject {
     pub fn ui_data(&self) -> ui::ProjectData {
         let p = self.shared.lock();
         let project = p.project();
+        let checks = self.checks.borrow();
+        let undo_state = p.editor.undo_stack().state_id();
+        let read_only = !self.writable;
         let schematics = project
             .schematics()
             .iter()
@@ -144,12 +172,7 @@ impl AppProject {
             .iter()
             .map(|b| ui::BoardData {
                 name: b.properties().name.to_string().into(),
-                drc: ui::RuleCheckData {
-                    r#type: ui::RuleCheckType::Drc,
-                    state: ui::RuleCheckState::NotRunYet,
-                    read_only: !self.writable,
-                    ..Default::default()
-                },
+                drc: checks.drc_data(b.id(), undo_state, read_only),
                 order_upload_progress: -1,
                 ..Default::default()
             })
@@ -164,12 +187,7 @@ impl AppProject {
             ieee315_symbols: false,
             unsaved_changes: p.has_unsaved_changes(),
             buses: vec_model(Vec::new()),
-            erc: ui::RuleCheckData {
-                r#type: ui::RuleCheckType::Erc,
-                state: ui::RuleCheckState::NotRunYet,
-                read_only: !self.writable,
-                ..Default::default()
-            },
+            erc: checks.erc_data(read_only),
         }
     }
 }

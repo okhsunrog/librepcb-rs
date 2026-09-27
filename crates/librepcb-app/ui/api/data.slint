@@ -1247,6 +1247,16 @@ export global Data {
     // Static status bar message
     in property <string> status-bar-message;
 
+    // Embedded LibrePCB MCP server (librepcb-rs, no upstream counterpart):
+    // whether it runs, its endpoint URL, whether an agent edited recently
+    // (status bar indicator) and whether the UI follows the agent's edits
+    // (switches to the schematic/board tab it touched).
+    in property <bool> mcp-server-running: false;
+    in property <string> mcp-server-url;
+    in property <bool> mcp-agent-active: false;
+    in property <string> mcp-agent-status;
+    in-out property <bool> mcp-follow-agent: true;
+
     // Temporary status tip when hovering interactive UI elements
     in property <string> status-tip;
 

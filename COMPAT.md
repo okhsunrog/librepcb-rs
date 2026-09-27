@@ -941,3 +941,24 @@ upstream `librepcb-cli` 2.1.1 except for:
   shortcut of the `.slint` command set only (no user overrides, no
   alternative shortcuts).
 - **Zooming** is not animated.
+- **Embedded MCP server** (no upstream counterpart): a status bar button
+  (next to the notifications button) and `--mcp[=ADDR]` start LibrePCB's
+  MCP server inside the application (`127.0.0.1:8766`). The agent edits the
+  project of the active tab through the same undo stack; workspace
+  switches by the agent are refused.
+- **Rule checks:** approving or unapproving an ERC/DRC message is an
+  undoable command (`SetErcApproval`/`SetDrcApproval` mutations; upstream
+  modifies the project outside the undo stack). Approvals of messages
+  which disappeared are not cleaned up (upstream removes them after a
+  check run, `Board::updateDrcMessageApprovals()`). Selecting a message
+  zooms to its location, but no location marker is drawn; automatic fixes
+  are not available yet.
+- **DRC** runs in a worker thread which locks the project only to rebuild
+  the planes and air wires and to extract the check data.
+- **Outputs from the menus** run without dialogs (they come with M3b):
+  PDF export (schematics, or the assembly drawings of the current board),
+  Gerber/Excellon, pick&place (top and bottom CSV), IPC-D-356A netlist,
+  BOM (default assembly variant), `*.lppz` export and "Output Jobs" (runs
+  all output jobs of the project) write with default settings into
+  `<project>/output/<version>/` and report the files in a notification.
+  Printing, image export and Specctra export are not available yet.

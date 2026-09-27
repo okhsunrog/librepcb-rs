@@ -3481,15 +3481,19 @@ dependencies = [
  "librepcb-core",
  "librepcb-editor",
  "librepcb-i18n",
+ "librepcb-mcp",
  "librepcb-scene",
  "log",
  "open",
  "parking_lot",
  "png",
  "rfd",
+ "rmcp",
+ "serde_json",
  "slint",
  "tempfile",
  "thiserror 2.0.21",
+ "tokio",
 ]
 
 [[package]]

@@ -270,6 +270,32 @@ impl State {
         }
     }
 
+    /// Aborts the tool which keeps an undo group of the project of tab
+    /// `tab` open, including the tab's own tool (before undo, redo and
+    /// save).
+    pub(super) fn abort_all_blocking_tools(&mut self, section: usize, tab: usize) {
+        self.abort_blocking_tools_except(section, tab as i32);
+        if let Some(t) = self.sections.get_mut(section).and_then(|s| s.tab_mut(tab)) {
+            let update = t.abort_blocking_tool();
+            self.apply_update(section, tab, update);
+        }
+    }
+
+    /// Aborts the tools of all tabs of a project which keep an undo group
+    /// open (before saving it).
+    pub(super) fn abort_project_tools(&mut self, project: &Rc<AppProject>) {
+        self.editing.group_owners.remove(&project_key(project));
+        for si in 0..self.sections.len() {
+            for ti in 0..self.sections[si].tabs().len() {
+                let t = &mut self.sections[si].tabs_mut()[ti];
+                if t.project().is_some_and(|p| Rc::ptr_eq(p, project)) {
+                    let update = t.abort_blocking_tool();
+                    self.apply_update(si, ti, update);
+                }
+            }
+        }
+    }
+
     /// An entry of the scene context menu was chosen.
     fn context_menu_activated(&mut self, index: i32) {
         let (Some(id), Ok(index)) = (self.editing.menu_tab.take(), usize::try_from(index)) else {
@@ -291,10 +317,16 @@ impl State {
             keyword: filter.trim().to_owned(),
             kinds: vec![ElementKind::Component, ElementKind::Device],
             include_parts: true,
-            locale_order: self.workspace.settings().library_locale_order.get().clone(),
+            locale_order: self
+                .workspace
+                .lock()
+                .settings()
+                .library_locale_order
+                .get()
+                .clone(),
             limit: Some(CHOOSER_LIMIT),
         };
-        let results = match self.workspace.library_db().search(&query) {
+        let results = match self.workspace.lock().library_db().search(&query) {
             Ok(r) => r,
             Err(e) => {
                 log::warn!("Library search failed: {e}");
