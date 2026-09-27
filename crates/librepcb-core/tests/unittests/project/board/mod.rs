@@ -5,10 +5,12 @@
 
 mod air_wires_test;
 mod design_rules_test;
+mod export_test;
 mod fabrication_output_settings_test;
 mod io_test;
 mod mutation_test;
 mod net_segment_splitter_test;
+mod plane_fragments_builder_test;
 mod serde_test;
 
 use chrono::Utc;

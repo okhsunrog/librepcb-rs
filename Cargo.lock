@@ -3006,6 +3006,7 @@ dependencies = [
  "path-clean",
  "pathdiff",
  "petgraph",
+ "rayon",
  "regex",
  "rusqlite",
  "rustix 1.1.5",
