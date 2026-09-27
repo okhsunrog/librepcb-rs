@@ -12,3 +12,8 @@ unsafe_code = "forbid"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# The generated Slint UI code is huge (tens of MB of Rust); without debug
+# info its artifacts are about ten times smaller and link faster.
+[profile.dev.package.librepcb-app-ui]
+debug = false
