@@ -74,12 +74,21 @@ See [docs/roadmap.md](docs/roadmap.md) for the milestones.
 
 You need a recent stable Rust toolchain (edition 2024).
 
-Many tests use upstream LibrePCB's test data, so check out upstream next to
-this repository:
+Many tests use upstream LibrePCB's test data, and some compare against the
+upstream command line tool. `scripts/cloud-setup.sh` sets both up on a fresh
+machine (Debian/Ubuntu packages, Rust if missing, the pinned upstream checkout
+next to this repository, and the official `librepcb-cli` release run through
+Xvfb):
+
+```sh
+scripts/cloud-setup.sh
+```
+
+Or check out upstream manually:
 
 ```sh
 git clone https://github.com/LibrePCB/LibrePCB.git ../LibrePCB
-git -C ../LibrePCB submodule update --init tests/data share/librepcb/fontobene i18n
+git -C ../LibrePCB submodule update --init tests/data share/librepcb/fontobene i18n libs/fontobene-qt
 ```
 
 The location is set by `LIBREPCB_UPSTREAM_DIR` in `.cargo/config.toml`
