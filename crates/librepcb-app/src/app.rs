@@ -528,6 +528,8 @@ impl State {
                 {
                     let update = tab.set_schematic_data(&data);
                     s.apply_update(i, row, update);
+                    let style = helpers::grid_style_from_ui(data.grid_style);
+                    s.set_grid_style_setting(true, style);
                 }
             });
         });
@@ -539,6 +541,8 @@ impl State {
                 {
                     let update = tab.set_board_data(&data);
                     s.apply_update(i, row, update);
+                    let style = helpers::grid_style_from_ui(data.grid_style);
+                    s.set_grid_style_setting(false, style);
                 }
             });
         });
@@ -1031,6 +1035,28 @@ impl State {
         if let Some(w) = self.window() {
             w.global::<ui::Data>().set_theme(theme.to_ui());
         }
+    }
+
+    /// Changes the schematic or board grid style of the workspace settings
+    /// (like upstream, a grid style change applies to all tabs and is
+    /// stored in the workspace settings).
+    fn set_grid_style_setting(&mut self, schematic: bool, style: GridStyle) {
+        let settings = self.workspace.settings_mut();
+        let item = if schematic {
+            &mut settings.schematic_grid_style
+        } else {
+            &mut settings.board_grid_style
+        };
+        if *item.get() == style {
+            return;
+        }
+        item.set(style);
+        if let Err(e) = self.workspace.save_settings() {
+            log::warn!("Failed to save the workspace settings: {e}");
+        }
+        let sch = *self.workspace.settings().schematic_grid_style.get();
+        let brd = *self.workspace.settings().board_grid_style.get();
+        self.apply_grid_styles(sch, brd);
     }
 
     /// Applies the grid styles of the workspace settings to all tabs.

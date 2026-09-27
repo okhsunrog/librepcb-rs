@@ -27,6 +27,9 @@ use crate::models::UiModel;
 /// Callback to open a file (project) from a model.
 pub type OpenFileFn = Rc<dyn Fn(FilePath)>;
 
+/// Callback for favorite changes.
+type FavoriteFn = Rc<dyn Fn(&FilePath, bool)>;
+
 /// Maximum number of recent (non-favorite) projects shown.
 const MAX_RECENT: usize = 5;
 
@@ -39,7 +42,7 @@ pub struct QuickAccess {
     favorites: Vec<FilePath>,
     model: Rc<UiModel<ui::TreeViewItemData>>,
     /// Called with a project and its favorite state when that changed.
-    on_favorite_changed: Option<Rc<dyn Fn(&FilePath, bool)>>,
+    on_favorite_changed: Option<FavoriteFn>,
 }
 
 impl QuickAccess {
@@ -303,10 +306,10 @@ impl FileSystemTree {
         let mut entries: Vec<(bool, String, FilePath)> = match std::fs::read_dir(dir.as_path()) {
             Ok(rd) => rd
                 .filter_map(|e| e.ok())
-                .filter_map(|e| {
+                .map(|e| {
                     let name = e.file_name().to_string_lossy().into_owned();
                     let fp = dir.path_to(&name);
-                    Some((!fp.is_existing_dir(), name, fp))
+                    (!fp.is_existing_dir(), name, fp)
                 })
                 .collect(),
             Err(e) => {

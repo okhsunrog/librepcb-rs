@@ -16,7 +16,9 @@ The upstream checkout is taken from $LIBREPCB_UPSTREAM_DIR (default
 they are not checked out (clone them at the commits upstream pins).
 
 The script overwrites the `.slint` files, so local changes to them must be
-re-applied afterwards (see crates/librepcb-app/ui/PROVENANCE.md).
+re-applied afterwards (see crates/librepcb-app/ui/PROVENANCE.md). Files of
+this repository (`Cargo.toml`, `build.rs`, `src/`, `PROVENANCE.md`) are not
+touched.
 """
 
 import argparse
@@ -29,6 +31,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 DST = REPO / "crates" / "librepcb-app" / "ui"
 RESOURCES = "resources"
+
+# Resources used by the Rust backend (crates/librepcb-app/src/icons.rs), not
+# referenced by any `.slint` file.
+BACKEND_RESOURCES = [
+    "img/app/librepcb.png",
+    "img/places/file.png",
+    "img/places/folder.png",
+    "img/places/project_folder.png",
+]
 
 # Matches `@image-url("...")` and `import "...";` (font imports).
 PATTERN = re.compile(r'(@image-url\(\s*"|import\s+")([^"]+)(")')
@@ -57,7 +68,7 @@ def main() -> int:
                 return directory / rel[len(prefix) + 1 :]
         return upstream / rel
 
-    resources: set[str] = set()
+    resources: set[str] = set(BACKEND_RESOURCES)
     for slint in sorted(src.rglob("*.slint")):
         rel_file = slint.relative_to(src)
         text = slint.read_text(encoding="utf-8")

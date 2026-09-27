@@ -80,6 +80,9 @@ pub struct NotificationsState {
     pub progress_index: i32,
 }
 
+/// Callback with a dismiss key.
+type KeyFn = Rc<dyn Fn(&str)>;
+
 /// The notifications model (`Data.notifications`).
 pub struct Notifications {
     items: Vec<Notification>,
@@ -87,7 +90,7 @@ pub struct Notifications {
     dismissed_keys: Vec<String>,
     on_changed: Option<Rc<dyn Fn(NotificationsState, bool)>>,
     /// Keys the user chose not to show again, to store in the settings.
-    on_dont_show_again: Option<Rc<dyn Fn(&str)>>,
+    on_dont_show_again: Option<KeyFn>,
 }
 
 impl Notifications {

@@ -1,0 +1,59 @@
+# Provenance of the UI sources
+
+The `.slint` files in this directory are upstream LibrePCB's Slint UI,
+ported source of this repository from now on (see `docs/ui-design.md`,
+decision 1). They are compiled by this crate (`librepcb-app-ui`,
+`build.rs`) and driven by the Rust backend in `crates/librepcb-app/src`.
+
+## Upstream revision
+
+- LibrePCB: <https://github.com/LibrePCB/LibrePCB>, commit
+  `7f1b548abb61bd59b2b9c1166eca3e6557480c17` (2026-09-26), directory
+  `libs/librepcb/ui/**` (all `.slint` files; `CMakeLists.txt` not copied).
+- Resources referenced by the `.slint` files (`@image-url(...)` and font
+  imports), copied to `resources/<path relative to the upstream root>`:
+  - `img/**` from the LibrePCB repository (same commit);
+  - `libs/font-awesome/svgs/**` from the submodule
+    <https://github.com/FortAwesome/Font-Awesome> at
+    `af620534bfc3c2d4cbefcfeec29603bbe7809e64`;
+  - `libs/bootstrap-icons/icons/**` from the submodule
+    <https://github.com/twbs/icons> at
+    `31673a7249bf9043f065aa5d263fc454946de3d8`;
+  - `share/librepcb/fonts/*.ttf` (Noto Sans) from the submodule
+    <https://github.com/LibrePCB/librepcb-fonts> at
+    `a1ab3c1a1f82cada3ff8477bd6d368f6d56fe5b0`.
+- Additional resources used by the Rust backend (not referenced by
+  `.slint` files): `img/app/librepcb.png`, `img/places/*.png`.
+
+Only the files actually referenced are copied. Refresh them with
+`scripts/import-upstream-ui.py` (see its documentation; it overwrites the
+`.slint` files, so re-apply the local changes below).
+
+## Slint version
+
+Upstream builds against the Slint submodule `libs/slint` at commit
+`a7e91481f1dec2503c4b2123494a767b7c689978` (version 1.18.0, development
+snapshot) with the `cosmic-dark` style. This crate uses the released Slint
+**1.18.1** from crates.io (the version used by the whole workspace) with the
+same style.
+
+## Licenses
+
+- `.slint` files and `img/**`: GPL-3.0-or-later like LibrePCB (a few
+  images in upstream's `img/` come from other free sources, see upstream's
+  `.reuse/dep5` and `LICENSES/`).
+- Font Awesome Free icons: CC BY 4.0 (`resources/libs/font-awesome/LICENSE.txt`).
+- Bootstrap Icons: MIT (`resources/libs/bootstrap-icons/LICENSE`).
+- Noto Sans fonts: SIL Open Font License 1.1
+  (`resources/share/librepcb/fonts/LICENSE`).
+
+## Local changes
+
+1. Resource paths rewritten from the upstream repository layout
+   (`../../font-awesome/...`, `../../../img/...`) to
+   `resources/<path relative to the upstream root>` (done by the import
+   script).
+2. `api/data.slint`: removed the field `author-default` from the preview
+   sample data of `CreateLibraryTabData` (the struct has no such field;
+   Slint 1.18.1 warns about it).
+3. License files of the icon sets and fonts added under `resources/`.

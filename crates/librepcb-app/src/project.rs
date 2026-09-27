@@ -29,9 +29,15 @@ pub enum OpenError {
     /// File system error (locks, I/O).
     #[error(transparent)]
     FileIo(#[from] librepcb_core::fileio::Error),
-    /// Loading failed.
+    /// Loading failed (boxed: large).
     #[error(transparent)]
-    Project(#[from] librepcb_core::project::Error),
+    Project(Box<librepcb_core::project::Error>),
+}
+
+impl From<librepcb_core::project::Error> for OpenError {
+    fn from(e: librepcb_core::project::Error) -> Self {
+        Self::Project(Box::new(e))
+    }
 }
 
 /// A project open in the application.
@@ -74,7 +80,7 @@ impl AppProject {
                 let upgraded = loader.migration_log().is_some();
                 (OpenProject::new(project, fs, upgraded, source), false)
             }
-            Err(librepcb_editor::Error::Project(e)) => return Err((*e).into()),
+            Err(librepcb_editor::Error::Project(e)) => return Err(OpenError::Project(e)),
             Err(e) => return Err(OpenError::NotAProject(format!("{}: {e}", lpp.to_native()))),
         };
         Ok(Self {

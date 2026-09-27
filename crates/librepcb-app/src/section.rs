@@ -17,6 +17,14 @@ use crate::models::{UiModel, model_rc};
 use crate::project::AppProject;
 use crate::tabs::{Tab, TabId};
 
+/// The models of a section written by the UI: base tab data, schematic
+/// tab data and board tab data.
+pub type SectionModels<'a> = (
+    &'a Rc<UiModel<ui::TabData>>,
+    &'a Rc<UiModel<ui::SchematicTabData>>,
+    &'a Rc<UiModel<ui::Board2dTabData>>,
+);
+
 /// A window section.
 pub struct WindowSection {
     tabs: Vec<Tab>,
@@ -62,13 +70,7 @@ impl WindowSection {
     }
 
     /// The models written by the UI (to connect their handlers).
-    pub fn models(
-        &self,
-    ) -> (
-        &Rc<UiModel<ui::TabData>>,
-        &Rc<UiModel<ui::SchematicTabData>>,
-        &Rc<UiModel<ui::Board2dTabData>>,
-    ) {
+    pub fn models(&self) -> SectionModels<'_> {
         (&self.tabs_model, &self.schematic_model, &self.board_model)
     }
 
