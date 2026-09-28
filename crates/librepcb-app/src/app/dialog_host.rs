@@ -302,6 +302,9 @@ impl State {
                 crate::tabs::Tab::Symbol(t) => t.import_pins(names),
                 _ => return,
             },
+            TabDialogResult::DesignRulesName(purpose, name) => {
+                self.sections[si].tabs_mut()[ti].design_rules_named(purpose, &name)
+            }
             TabDialogResult::ElementChosen(purpose, uuid) => {
                 self.sections[si].tabs_mut()[ti].element_chosen(purpose, uuid)
             }

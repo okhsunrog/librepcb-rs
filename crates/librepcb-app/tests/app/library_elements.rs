@@ -87,13 +87,38 @@ pub fn open_from_library_tab(app: &App, headless: &Headless, lib: &FilePath, dir
     let lib_tab = find_tab(app, |t| matches!(t, Tab::Library(_))).unwrap();
     let update = with_tab(app, lib_tab, |t| {
         let Tab::Library(t) = t else { unreachable!() };
-        let rows = t.elements_model();
-        let row = (0..rows.len())
-            .find(|i| rows.get(*i).unwrap().user_data == dir.as_str())
-            .expect("element row");
-        let mut d = t.derived_ui_data();
-        d.filtered_elements_index = row as i32;
-        t.set_derived_ui_data(&d);
+        let find =
+            |rows: &std::rc::Rc<librepcb_app::models::UiModel<ui::LibraryTreeViewItemData>>| {
+                (0..rows.len()).find(|i| {
+                    let u = rows.get(*i).unwrap().user_data;
+                    u == dir.as_str() || u == dir.file_name()
+                })
+            };
+        if let Some(row) = find(t.categories_model()) {
+            let mut d = t.derived_ui_data();
+            d.categories_index = row as i32;
+            d.filtered_elements_index = -1;
+            t.set_derived_ui_data(&d);
+        } else {
+            // Show the categories one after another until the element is
+            // listed.
+            let categories = t.categories_model().len();
+            let found = (0..categories).any(|c| {
+                let mut d = t.derived_ui_data();
+                d.categories_index = c as i32;
+                t.set_derived_ui_data(&d);
+                match find(t.elements_model()) {
+                    Some(row) => {
+                        let mut d = t.derived_ui_data();
+                        d.filtered_elements_index = row as i32;
+                        t.set_derived_ui_data(&d);
+                        true
+                    }
+                    None => false,
+                }
+            });
+            assert!(found, "element row");
+        }
         t.trigger(ui::TabAction::EditProperties)
     });
     assert!(update.requests.iter().any(|r| matches!(
@@ -838,6 +863,163 @@ fn device_editor() {
             d.core().directory_path()
         });
         assert!(dir.path_to("device.lp").is_existing_file());
+    });
+}
+
+/// The "LEDs" component category (parent "Optoelectronics").
+pub const LEDS_CATEGORY: &str = "70421345-ae1d-4fed-aa60-e7619524b97f";
+/// The "PCBWay" organization.
+pub const PCBWAY_ORGANIZATION: &str = "504dcf76-4e7d-4270-9239-2c296484e21f";
+
+#[test]
+fn category_and_organization_editors() {
+    crate::common::with_headless(W, H, |headless| {
+        let tmp = tempfile::tempdir().unwrap();
+        let (app, lib) = app_with_library(headless, tmp.path());
+        let backend = app.window().global::<ui::Backend>();
+        let forms = app.window().global::<ui::Dialogs>();
+
+        // Component category: parent chooser, undo, save.
+        let cat_dir = lib.path_to(&format!("cmpcat/{LEDS_CATEGORY}"));
+        open_from_library_tab(&app, headless, &lib, &cat_dir);
+        let tab = find_tab(&app, |t| matches!(t, Tab::ComponentCategory(_))).expect("category tab");
+        let data = || {
+            with_tab(&app, tab, |t| {
+                let Tab::ComponentCategory(c) = t else {
+                    unreachable!()
+                };
+                c.derived_ui_data()
+            })
+        };
+        let d = data();
+        assert_eq!(d.name, "LEDs");
+        let parents: Vec<String> = (0..d.parents.row_count())
+            .map(|i| d.parents.row_data(i).unwrap().to_string())
+            .collect();
+        assert_eq!(parents, ["Root Category", "Optoelectronics"]);
+        let tree: Vec<String> = (0..d.parents_tree.row_count())
+            .map(|i| d.parents_tree.row_data(i).unwrap().text.to_string())
+            .collect();
+        assert_eq!(tree[0], "Root Category");
+        assert!(tree.contains(&"Optoelectronics".to_owned()));
+        assert!(!tree.contains(&"LEDs".to_owned()), "itself is hidden");
+        save(headless, "element_category.png");
+        with_tab(&app, tab, |t| {
+            let Tab::ComponentCategory(c) = t else {
+                unreachable!()
+            };
+            let mut d = c.derived_ui_data();
+            d.new_parent = "null".into();
+            c.set_derived_ui_data(&d);
+            assert_eq!(c.derived_ui_data().parents.row_count(), 1);
+            assert!(t.ui_data().unsaved_changes);
+            t.trigger(ui::TabAction::Undo);
+            let Tab::ComponentCategory(c) = t else {
+                unreachable!()
+            };
+            assert_eq!(c.derived_ui_data().parents.row_count(), 2, "undone");
+            t.trigger(ui::TabAction::Redo);
+            let Tab::ComponentCategory(c) = t else {
+                unreachable!()
+            };
+            let mut d = c.derived_ui_data();
+            d.description = "Light emitting diodes".into();
+            c.set_derived_ui_data(&d);
+            t.trigger(ui::TabAction::Save);
+            assert!(!t.ui_data().unsaved_changes);
+        });
+        headless.settle(10);
+        let content =
+            std::fs::read_to_string(cat_dir.path_to("component_category.lp").as_path()).unwrap();
+        assert!(content.contains("(parent none)"), "{content}");
+        assert!(content.contains("(description \"Light emitting diodes\")"));
+
+        // Organization: priority, PCB design rules.
+        let org_dir = lib.path_to(&format!("org/{PCBWAY_ORGANIZATION}"));
+        open_from_library_tab(&app, headless, &lib, &org_dir);
+        let tab = find_tab(&app, |t| matches!(t, Tab::Organization(_))).expect("organization tab");
+        let data = || {
+            with_tab(&app, tab, |t| {
+                let Tab::Organization(o) = t else {
+                    unreachable!()
+                };
+                o.derived_ui_data()
+            })
+        };
+        let d = data();
+        assert_eq!(d.name, "PCBWay");
+        assert_eq!(d.priority, 34);
+        let rules = d.pcb_design_rules.row_count();
+        assert!(rules >= 1);
+        save(headless, "element_organization.png");
+        backend.invoke_trigger_tab(
+            tab.0 as i32,
+            tab.1 as i32,
+            ui::TabAction::OrganizationAddPcbDesignRules,
+        );
+        headless.settle(10);
+        assert!(forms.get_form_shown());
+        {
+            let mut state = app.state().borrow_mut();
+            let dialog = state.form_dialog().unwrap();
+            dialog
+                .dialog
+                .form_mut()
+                .edit("name", |f| f.text = "Custom Rules".into());
+        }
+        forms.invoke_form_button(-1);
+        headless.settle(10);
+        let d = data();
+        assert_eq!(d.pcb_design_rules.row_count(), rules + 1);
+        assert_eq!(
+            d.pcb_design_rules.row_data(rules).unwrap().name,
+            "Custom Rules"
+        );
+        // Remove it again through the row action.
+        let mut row = d.pcb_design_rules.row_data(rules).unwrap();
+        row.action = ui::OrganizationPcbDesignRulesAction::Delete;
+        d.pcb_design_rules.set_row_data(rules, row);
+        headless.settle(10);
+        assert_eq!(data().pcb_design_rules.row_count(), rules);
+        with_tab(&app, tab, |t| {
+            let Tab::Organization(o) = t else {
+                unreachable!()
+            };
+            let mut d = o.derived_ui_data();
+            d.priority = 40;
+            o.set_derived_ui_data(&d);
+            t.trigger(ui::TabAction::Save);
+            assert!(!t.ui_data().unsaved_changes);
+        });
+        headless.settle(10);
+        let content =
+            std::fs::read_to_string(org_dir.path_to("organization.lp").as_path()).unwrap();
+        assert!(content.contains("(priority 40)"), "{content}");
+
+        // A new package category.
+        backend.invoke_trigger_library(
+            lib.to_native().into(),
+            ui::LibraryAction::NewPackageCategory,
+        );
+        headless.settle(10);
+        let new = find_tab(&app, |t| matches!(t, Tab::PackageCategory(_))).expect("new tab");
+        let dir = with_tab(&app, new, |t| {
+            let Tab::PackageCategory(c) = t else {
+                unreachable!()
+            };
+            let mut d = c.derived_ui_data();
+            assert_eq!(d.name, "");
+            d.name = "My Packages".into();
+            c.set_derived_ui_data(&d);
+            t.trigger(ui::TabAction::Save);
+            let Tab::PackageCategory(c) = t else {
+                unreachable!()
+            };
+            c.core().directory_path()
+        });
+        assert!(dir.path_to("package_category.lp").is_existing_file());
+        headless.settle(10);
+        save(headless, "element_package_category_new.png");
     });
 }
 

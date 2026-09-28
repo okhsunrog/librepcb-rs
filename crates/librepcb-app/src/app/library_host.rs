@@ -297,7 +297,19 @@ impl State {
                 let title = tr!("librepcb::editor::LibraryTab", "Choose Library Icon");
                 if let Some(path) = crate::file_dialog::open_file(&title, &filters, None) {
                     match std::fs::read(&path) {
-                        Ok(png) => self.library_tab_event(tab, |t| t.set_icon(png)),
+                        Ok(png) => {
+                            let is_org = self.find_tab(tab).is_some_and(|(si, ti)| {
+                                matches!(self.sections[si].tabs()[ti], Tab::Organization(_))
+                            });
+                            if is_org {
+                                self.element_tab_event(tab, |t| match t {
+                                    Tab::Organization(o) => o.set_logo(png),
+                                    _ => crate::tabs::TabUpdate::default(),
+                                });
+                            } else {
+                                self.library_tab_event(tab, |t| t.set_icon(png));
+                            }
+                        }
                         Err(e) => self.notifications.borrow_mut().push(Notification::new(
                             ui::NotificationType::Critical,
                             tr!("librepcb::editor::LibraryTab", "Could not open file"),
@@ -314,6 +326,10 @@ impl State {
             TabRequest::MoveAlign { positions } => self.open_move_align_dialog(tab, positions),
             TabRequest::ChooseElement(purpose) => self.open_element_chooser(tab, purpose),
             TabRequest::ChoosePinoutFile => self.choose_pinout_file(tab),
+            TabRequest::DesignRulesName { purpose, name } => {
+                let dialog = crate::dialogs::library::DesignRulesNameDialog::new(purpose, &name);
+                self.open_library_dialog(Some(tab), Box::new(dialog));
+            }
             TabRequest::OpenUrl(url) => {
                 if let Err(e) = open::that_detached(&url) {
                     log::warn!("Failed to open {url}: {e}");

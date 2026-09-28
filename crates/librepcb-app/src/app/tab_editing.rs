@@ -211,6 +211,7 @@ impl State {
                 | TabRequest::ChooseElement(_)
                 | TabRequest::OpenUrl(_)
                 | TabRequest::ChoosePinoutFile
+                | TabRequest::DesignRulesName { .. }
                 | TabRequest::DuplicateLibraryElement => self.apply_library_request(id, request),
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {

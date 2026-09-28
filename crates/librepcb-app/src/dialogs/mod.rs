@@ -157,6 +157,8 @@ pub enum TabDialogResult {
     CourtyardOffset(librepcb_core::types::PositiveLength),
     /// A library element chosen in a chooser dialog.
     ElementChosen(chooser::ChooserPurpose, librepcb_core::types::Uuid),
+    /// The name of organization PCB design rules.
+    DesignRulesName(crate::tabs::organization::DesignRulesNamePurpose, String),
 }
 
 /// Buttons and size of a form dialog.

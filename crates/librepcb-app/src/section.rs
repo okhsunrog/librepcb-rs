@@ -102,6 +102,9 @@ impl DerivedModels {
             Tab::Package(t) => self.package.set(index, t.derived_ui_data()),
             Tab::Component(t) => self.component.set(index, t.derived_ui_data()),
             Tab::Device(t) => self.device.set(index, t.derived_ui_data()),
+            Tab::ComponentCategory(t) => self.component_category.set(index, t.derived_ui_data()),
+            Tab::PackageCategory(t) => self.package_category.set(index, t.derived_ui_data()),
+            Tab::Organization(t) => self.organization.set(index, t.derived_ui_data()),
         }
     }
 }

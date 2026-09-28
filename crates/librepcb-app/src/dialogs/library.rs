@@ -7,6 +7,7 @@ use librepcb_core::types::LengthUnit;
 use librepcb_i18n::tr;
 
 use super::{Applied, DialogContext, DialogOptions, Form, FormDialog, TabDialogResult};
+use crate::tabs::organization::DesignRulesNamePurpose;
 
 const LT: &str = "librepcb::editor::LibraryTab";
 
@@ -64,6 +65,53 @@ impl FormDialog for RemoveElementsDialog {
     fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
         Ok(Applied::Tab(TabDialogResult::RemoveLibraryElements(
             self.paths.clone(),
+        )))
+    }
+}
+
+const RULES: &str = "librepcb::editor::OrganizationPcbDesignRulesModel";
+
+/// The name of new, renamed or copied PCB design rules of an organization
+/// (upstream `OrganizationPcbDesignRulesModel::askForName()`, a
+/// `QInputDialog`).
+pub struct DesignRulesNameDialog {
+    form: Form,
+    purpose: DesignRulesNamePurpose,
+}
+
+impl DesignRulesNameDialog {
+    /// A dialog with the proposed name.
+    pub fn new(purpose: DesignRulesNamePurpose, name: &str) -> Self {
+        let mut form = Form::new(LengthUnit::Millimeters);
+        form.text("name", tr!(RULES, "Name of the PCB design rules:"), name);
+        Self { form, purpose }
+    }
+}
+
+impl FormDialog for DesignRulesNameDialog {
+    fn title(&self) -> String {
+        tr!(RULES, "PCB Design Rules Name")
+    }
+
+    form_accessors!();
+
+    fn options(&self) -> DialogOptions {
+        DialogOptions {
+            apply: false,
+            width: 450.0,
+            label_width: 200.0,
+            ..DialogOptions::default()
+        }
+    }
+
+    fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
+        let name = self.form.get_text("name");
+        if name.trim().is_empty() {
+            return Ok(Applied::Nothing);
+        }
+        Ok(Applied::Tab(TabDialogResult::DesignRulesName(
+            self.purpose,
+            name,
         )))
     }
 }

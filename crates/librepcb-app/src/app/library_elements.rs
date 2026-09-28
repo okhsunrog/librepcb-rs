@@ -20,10 +20,11 @@ use slint::ComponentHandle;
 
 use super::{State, deferred};
 use crate::open_library::OpenLibrary;
+use crate::tabs::base_element_core::{BaseElementCore, BaseElementKind};
 use crate::tabs::element_core::{ElementCore, ElementKindInfo, OpenMode};
 use crate::tabs::{
-    ComponentRowEvent, ComponentTab, DeviceRowEvent, DeviceTab, LibraryItemRef, PackageRowEvent,
-    PackageTab, SymbolTab, Tab, TabId, TabUpdate,
+    CategoryTab, ComponentRowEvent, ComponentTab, DeviceRowEvent, DeviceTab, LibraryItemRef,
+    OrganizationTab, PackageRowEvent, PackageTab, SymbolTab, Tab, TabId, TabUpdate,
 };
 
 impl State {
@@ -141,6 +142,54 @@ impl State {
         }
     }
 
+    /// Creates the core of a category or organization tab.
+    fn base_core<E: BaseElementKind>(
+        &mut self,
+        id: TabId,
+        lib: &Rc<OpenLibrary>,
+        relative: Option<&str>,
+        mode: OpenMode,
+    ) -> Option<BaseElementCore<E>> {
+        let (db, locales, user) = {
+            let ws = self.workspace.lock();
+            (
+                ws.shared_library_db(),
+                ws.settings().library_locale_order.get().clone(),
+                ws.settings().user_name.get().clone(),
+            )
+        };
+        let w = self.this.clone();
+        let on_check = move |row, data| {
+            deferred(&w, move |s| {
+                s.element_tab_event(id, |t| t.element_check_row(row, &data));
+            });
+        };
+        match BaseElementCore::<E>::open(
+            Rc::clone(lib),
+            relative,
+            mode,
+            db,
+            locales,
+            user,
+            on_check,
+        ) {
+            Ok(core) => Some(core),
+            Err(e) => {
+                self.notifications
+                    .borrow_mut()
+                    .push(crate::notifications::Notification {
+                        auto_popup: true,
+                        ..crate::notifications::Notification::new(
+                            ui::NotificationType::Critical,
+                            tr!("MainWindow", "Error"),
+                            e,
+                        )
+                    });
+                None
+            }
+        }
+    }
+
     /// Opens an element tab of a kind.
     fn open_element_tab(
         &mut self,
@@ -187,6 +236,30 @@ impl State {
                     });
                 });
                 Tab::Component(Box::new(ComponentTab::new(core, sink).with_id(id)))
+            }
+            ui::LibraryTreeViewItemType::ComponentCategory => {
+                let Some(core) = self.base_core(id, lib, relative, mode) else {
+                    return;
+                };
+                Tab::ComponentCategory(Box::new(CategoryTab::new(core).with_id(id)))
+            }
+            ui::LibraryTreeViewItemType::PackageCategory => {
+                let Some(core) = self.base_core(id, lib, relative, mode) else {
+                    return;
+                };
+                Tab::PackageCategory(Box::new(CategoryTab::new(core).with_id(id)))
+            }
+            ui::LibraryTreeViewItemType::Organization => {
+                let Some(core) = self.base_core(id, lib, relative, mode) else {
+                    return;
+                };
+                let w = self.this.clone();
+                let on_row = move |row, data: ui::OrganizationPcbDesignRulesData| {
+                    deferred(&w, move |s| {
+                        s.element_tab_event(id, |t| t.organization_rules_row(row, &data));
+                    });
+                };
+                Tab::Organization(Box::new(OrganizationTab::new(core, on_row).with_id(id)))
             }
             ui::LibraryTreeViewItemType::Device => {
                 let Some(core) = self.element_core::<Device>(id, lib, relative, mode) else {
