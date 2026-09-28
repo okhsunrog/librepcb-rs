@@ -3508,6 +3508,7 @@ dependencies = [
  "librepcb-core",
  "librepcb-editor",
  "librepcb-i18n",
+ "librepcb-import",
  "librepcb-mcp",
  "librepcb-network",
  "librepcb-scene",

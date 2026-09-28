@@ -28,6 +28,7 @@ librepcb-canvas = { version = "0.1.0", path = "../librepcb-canvas", features = [
 librepcb-core = { version = "0.1.0", path = "../librepcb-core" }
 librepcb-editor = { version = "0.1.0", path = "../librepcb-editor" }
 librepcb-i18n = { version = "0.1.0", path = "../librepcb-i18n" }
+librepcb-import = { version = "0.1.0", path = "../librepcb-import" }
 librepcb-mcp = { version = "0.1.0", path = "../librepcb-mcp", features = ["http"] }
 librepcb-network = { version = "0.1.0", path = "../librepcb-network" }
 librepcb-scene = { version = "0.1.0", path = "../librepcb-scene" }

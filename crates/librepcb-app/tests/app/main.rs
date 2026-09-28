@@ -8,6 +8,7 @@ mod dialogs;
 mod editing;
 mod library_elements;
 mod library_management;
+mod lifecycle;
 mod live_mcp;
 mod m3d_tools;
 mod output_dialogs;

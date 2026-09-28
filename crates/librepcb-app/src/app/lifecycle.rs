@@ -1,0 +1,293 @@
+//! The project lifecycle (milestone M3c): opening projects with the
+//! directory lock and autosave restore prompts, the file format upgrade
+//! notification, the new project wizard, autosave, and the requests of
+//! the application level dialogs.
+//!
+//! Port of `GuiApplication::createProject()` / `openProject()`
+//! (libs/librepcb/editor/guiapplication.cpp) and of the autosave timer and
+//! the migration notification of `ProjectEditor`
+//! (libs/librepcb/editor/project/projecteditor.cpp).
+
+use std::rc::Rc;
+use std::time::Duration;
+
+use librepcb_app_ui as ui;
+use librepcb_core::fileio::FilePath;
+use librepcb_i18n::{tr, trn};
+
+use super::State;
+use crate::dialogs::new_project::{NewProjectMode, NewProjectWizard};
+use crate::dialogs::open_prompts::{DirectoryLockDialog, RestoreAutosaveDialog};
+use crate::dialogs::{AppRequest, FormDialog};
+use crate::notifications::{Notification, NotificationButton};
+use crate::project::{AppProject, OpenOutcome, OpenRequest};
+
+const PE: &str = "ProjectEditor";
+
+impl State {
+    /// Shows a dialog which belongs neither to a project nor to a tab
+    /// (wizards, prompts, workspace settings).
+    pub fn show_app_dialog(&mut self, dialog: Box<dyn FormDialog>) {
+        self.open_library_dialog(None, dialog);
+    }
+
+    /// Handles a request of an application level dialog.
+    pub fn handle_app_request(&mut self, request: AppRequest) {
+        match request {
+            AppRequest::OpenProject {
+                path,
+                import_messages,
+            } => {
+                self.open_project(&path);
+                if !import_messages.is_empty() {
+                    self.notifications.borrow_mut().push(Notification {
+                        auto_popup: true,
+                        ..Notification::new(
+                            ui::NotificationType::Info,
+                            tr!(
+                                "librepcb::editor::NewProjectWizardPage_EagleImport",
+                                "EAGLE Project Import"
+                            ),
+                            import_messages.join("\n"),
+                        )
+                    });
+                }
+            }
+            AppRequest::ContinueOpening(request) => {
+                self.open_project_with(request);
+            }
+            AppRequest::WorkspaceSettingsChanged => self.workspace_settings_changed(),
+            AppRequest::ShowDialog(kind) => self.show_dialog_kind(kind),
+            AppRequest::RescanLibraries => self.start_library_scan(),
+        }
+    }
+
+    /// Opens the new project wizard (upstream
+    /// `GuiApplication::createProject()`), in EAGLE import mode or for a
+    /// new project in `location` (default: the workspace's projects
+    /// directory).
+    pub fn show_new_project_wizard(&mut self, eagle_import: bool, location: Option<FilePath>) {
+        let (projects, author, locales, norms) = {
+            let ws = self.workspace.lock();
+            (
+                ws.projects_path().clone(),
+                ws.settings().user_name.get().clone(),
+                ws.settings().library_locale_order.get().clone(),
+                ws.settings().library_norm_order.get().clone(),
+            )
+        };
+        let mode = if eagle_import {
+            NewProjectMode::EagleImport
+        } else {
+            NewProjectMode::NewProject
+        };
+        let wizard =
+            NewProjectWizard::new(mode, location.unwrap_or(projects), &author, locales, norms);
+        self.show_app_dialog(Box::new(wizard));
+    }
+
+    /// Opens a project and its first schematic and board (upstream
+    /// `GuiApplication::openProject()`); returns its index, `None` if it
+    /// could not be opened or a prompt (directory lock, autosave restore)
+    /// is shown first.
+    pub(crate) fn open_project(&mut self, fp: &FilePath) -> Option<usize> {
+        self.open_project_with(OpenRequest::new(fp.clone()))
+    }
+
+    /// Opens a project with the answers of the prompts so far.
+    pub(crate) fn open_project_with(&mut self, request: OpenRequest) -> Option<usize> {
+        let fp = request.path.clone();
+        if let Some(i) = self.projects.iter().position(|p| *p.path() == fp) {
+            self.switch_to_project(i);
+            return Some(i);
+        }
+        if fp.suffix() == "lppz" {
+            self.not_implemented("*.lppz");
+            return None;
+        }
+        let source = self.workspace.lock().shared_library_db();
+        let project = match AppProject::open_with(&request, source) {
+            Ok(OpenOutcome::Opened(p)) => Rc::new(*p),
+            Ok(OpenOutcome::Locked {
+                directory,
+                user,
+                can_override,
+            }) => {
+                let dialog = DirectoryLockDialog::new(request, &directory, &user, can_override);
+                self.show_app_dialog(Box::new(dialog));
+                return None;
+            }
+            Ok(OpenOutcome::AutosaveDetected) => {
+                self.show_app_dialog(Box::new(RestoreAutosaveDialog::new(request)));
+                return None;
+            }
+            Err(e) => {
+                self.notifications.borrow_mut().push(Notification {
+                    auto_popup: true,
+                    ..Notification::new(
+                        ui::NotificationType::Critical,
+                        tr!("GuiApplication", "Error"),
+                        e.to_string(),
+                    )
+                });
+                return None;
+            }
+        };
+        if !project.is_writable() {
+            self.notifications.borrow_mut().push(Notification::new(
+                ui::NotificationType::Warning,
+                tr!("GuiApplication", "Read-Only Mode"),
+                fp.to_native(),
+            ));
+        }
+        self.show_migration_notification(&project);
+        let index = self.projects.len();
+        self.projects_model.push(project.ui_data());
+        self.projects.push(project);
+        self.switch_to_project(index);
+        let (has_schematic, has_board) = {
+            let p = self.projects[index].shared().lock();
+            (
+                !p.project().schematics().is_empty(),
+                !p.project().boards().is_empty(),
+            )
+        };
+        if has_schematic {
+            self.open_schematic_tab(index as i32, 0, true);
+        }
+        if has_board {
+            self.open_board_tab(index as i32, 0, !has_schematic);
+        }
+        self.quick_access.borrow_mut().push_recent(&fp);
+        Some(index)
+    }
+
+    /// Upstream `ProjectEditor` constructor: the notification about a file
+    /// format upgrade, with a button to show the migration log (written
+    /// into the project directory, like upstream).
+    fn show_migration_notification(&mut self, project: &Rc<AppProject>) {
+        let (log, name) = {
+            let p = project.shared().lock();
+            let Some(log) = p.migration_log.clone() else {
+                return;
+            };
+            let m = p.project().metadata();
+            (log, format!("{} {}", m.name.as_str(), m.version))
+        };
+        let msg1 = tr!(
+            PE,
+            "The project '{0}' has been migrated to a new file format. After saving, it will not be possible anymore to open it with an older LibrePCB version!",
+            name
+        );
+        let count = log.messages.len();
+        let mut msg = msg1.clone();
+        if count > 0 {
+            msg.push_str("\n\n");
+            msg.push_str(&trn!(
+                PE,
+                "The migration produced {n} message(s), please review before proceeding.",
+                "The migration produced {n} message(s), please review before proceeding.",
+                count
+            ));
+        }
+        let button = (count > 0).then(|| {
+            let dir = project.path().parent_dir();
+            let notifications = Rc::downgrade(&self.notifications);
+            let weak_project = Rc::downgrade(project);
+            NotificationButton {
+                text: trn!(PE, "Show {n} Message(s)", "Show {n} Message(s)", count),
+                action: Rc::new(move || {
+                    let Some(dir) = &dir else { return };
+                    let fp = dir.path_to(&log.relative_file_path(true));
+                    let html = log.to_html(true, super::APP_VERSION);
+                    let result =
+                        librepcb_core::fileio::file_utils::write_file(&fp, html.as_bytes())
+                            .map_err(|e| e.to_string())
+                            .and_then(|()| {
+                                open::that_detached(fp.as_path()).map_err(|e| e.to_string())
+                            });
+                    if let Err(e) = result {
+                        log::error!("Failed to open the migration log: {e}");
+                    }
+                    // Append the file path to the description, in case the
+                    // log failed to open in the web browser.
+                    if let (Some(n), Some(p)) = (notifications.upgrade(), weak_project.upgrade())
+                        && let Some(id) = p.migration_notification.get()
+                    {
+                        let text = format!(
+                            "{msg1}\n\n{}",
+                            tr!(PE, "Migration log saved to '{0}'.", fp.to_native())
+                        );
+                        n.borrow_mut()
+                            .update(id, |d| d.description = text.as_str().into());
+                    }
+                }),
+            }
+        });
+        let id = self.notifications.borrow_mut().push_with_id(Notification {
+            auto_popup: true,
+            button,
+            ..Notification::new(
+                ui::NotificationType::Warning,
+                tr!(PE, "ATTENTION: Project File Format Upgraded"),
+                msg,
+            )
+        });
+        project.migration_notification.set(id);
+    }
+
+    /// Dismisses the migration notification of a saved project (upstream:
+    /// connected to `projectSavedToDisk()`).
+    pub(crate) fn project_saved(&mut self, project: &AppProject) {
+        if let Some(id) = project.migration_notification.take() {
+            self.notifications.borrow_mut().dismiss(id);
+        }
+    }
+
+    /// (Re)starts the autosave timer with the interval of the workspace
+    /// settings (upstream `setupAutoSaveTimer` of `ProjectEditor`; one
+    /// timer for all projects here); an interval of 0 disables autosave.
+    pub(crate) fn setup_autosave_timer(&self) {
+        let secs = *self
+            .workspace
+            .lock()
+            .settings()
+            .project_autosave_interval_seconds
+            .get();
+        if secs == 0 {
+            self.autosave_timer.stop();
+            return;
+        }
+        let weak = self.this.clone();
+        self.autosave_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_secs(u64::from(secs)),
+            move || super::deferred(&weak, State::autosave_projects),
+        );
+    }
+
+    /// Autosaves all open projects (upstream
+    /// `ProjectEditor::autosaveProject()`).
+    pub fn autosave_projects(&mut self) {
+        for project in &self.projects {
+            match project.autosave() {
+                Ok(true) => log::debug!("Successfully autosaved project."),
+                Ok(false) => {}
+                Err(e) => log::warn!("Project autosave failed: {e}"),
+            }
+        }
+    }
+
+    /// Applies modified workspace settings to the application.
+    pub(crate) fn workspace_settings_changed(&mut self) {
+        self.setup_autosave_timer();
+    }
+
+    fn show_dialog_kind(&mut self, kind: crate::dialogs::DialogKind) {
+        match kind {
+            crate::dialogs::DialogKind::ColorScheme(_) => {
+                self.not_implemented("color schemes");
+            }
+        }
+    }
+}

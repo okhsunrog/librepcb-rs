@@ -11,7 +11,7 @@
 //! directory lock) so that background jobs and the embedded MCP server can
 //! share it (see `docs/ui-design.md`, decisions 3 and 4).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 
 use librepcb_app_ui as ui;
@@ -49,6 +49,11 @@ pub struct AppProject {
     writable: bool,
     /// ERC and DRC results (UI thread only).
     checks: RefCell<ProjectChecks>,
+    /// The undo stack state at the last (auto)save (upstream
+    /// `mLastAutosaveStateId`).
+    autosave_state: Cell<u64>,
+    /// The "file format upgraded" notification (dismissed on save).
+    pub(crate) migration_notification: Cell<Option<crate::notifications::NotificationId>>,
 }
 
 impl std::fmt::Debug for AppProject {
@@ -60,39 +65,167 @@ impl std::fmt::Debug for AppProject {
     }
 }
 
+/// How an existing directory lock is handled when opening a project
+/// (the answer of the directory lock prompt).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LockDecision {
+    /// Report the lock ([`OpenOutcome::Locked`]) to ask the user.
+    #[default]
+    Ask,
+    /// Override the lock (upstream "Open anyway").
+    Override,
+    /// Open the project read-only if it is locked.
+    ReadOnly,
+}
+
+/// A request to open a project, with the answers of the prompts shown so
+/// far (see [`AppProject::open_with()`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenRequest {
+    /// The project file (`*.lpp`).
+    pub path: FilePath,
+    /// How to handle an existing directory lock.
+    pub lock: LockDecision,
+    /// Whether to restore an autosave backup (`None`: ask).
+    pub restore: Option<bool>,
+}
+
+impl OpenRequest {
+    /// A request without answers yet.
+    pub fn new(path: FilePath) -> Self {
+        Self {
+            path,
+            lock: LockDecision::Ask,
+            restore: None,
+        }
+    }
+}
+
+/// The result of [`AppProject::open_with()`].
+#[derive(Debug)]
+pub enum OpenOutcome {
+    /// The project was opened.
+    Opened(Box<AppProject>),
+    /// The directory is locked by another application: ask the user
+    /// (upstream `DirectoryLockHandlerDialog`).
+    Locked {
+        /// The locked directory.
+        directory: FilePath,
+        /// `user@host` of the lock owner.
+        user: String,
+        /// Whether overriding the lock is offered (the lock belongs to
+        /// another user or an unknown application; upstream
+        /// `allowOverrideLock`).
+        can_override: bool,
+    },
+    /// An autosave backup exists (the application crashed): ask whether
+    /// to restore it.
+    AutosaveDetected,
+}
+
 impl AppProject {
-    /// Opens a project file (`*.lpp`). Falls back to read-only mode if the
-    /// directory cannot be locked (e.g. the project is open in another
-    /// application).
+    /// Opens a project file (`*.lpp`) without asking: stale locks are
+    /// overridden, the project is opened read-only if the directory cannot
+    /// be locked (e.g. the project is open in another application), and
+    /// autosave backups are not restored.
     pub fn open(lpp: &FilePath, source: Arc<dyn LibraryElementSource>) -> Result<Self, OpenError> {
+        let request = OpenRequest {
+            path: lpp.clone(),
+            lock: LockDecision::ReadOnly,
+            restore: Some(false),
+        };
+        match Self::open_with(&request, source)? {
+            OpenOutcome::Opened(p) => Ok(*p),
+            _ => Err(OpenError::NotAProject(lpp.to_native())),
+        }
+    }
+
+    /// Opens a project file (`*.lpp`) like upstream
+    /// `GuiApplication::openProject()`: a lock of another application and
+    /// an autosave backup are reported to the caller (to ask the user)
+    /// unless `request` already contains the answer. Other errors while
+    /// locking the directory (e.g. no write permission) open the project
+    /// read-only.
+    pub fn open_with(
+        request: &OpenRequest,
+        source: Arc<dyn LibraryElementSource>,
+    ) -> Result<OpenOutcome, OpenError> {
+        use librepcb_core::fileio::{Error as FileError, LockStatus, RestoreMode};
+        let lpp = &request.path;
         if lpp.suffix() != "lpp" || !lpp.is_existing_file() {
             return Err(OpenError::NotAProject(lpp.to_native()));
         }
         let dir = lpp
             .parent_dir()
             .ok_or_else(|| OpenError::NotAProject(lpp.to_native()))?;
-        let (project, writable) = match OpenProject::open(&dir, lpp.file_name(), source.clone()) {
-            Ok(p) => (p, true),
+        let mut lock_status = None;
+        let read_only = || -> Result<OpenOutcome, OpenError> {
+            let fs = Arc::new(TransactionalFileSystem::open_ro(&dir)?);
+            let mut loader = ProjectLoader::new();
+            let project = loader.open(
+                TransactionalDirectory::new(Arc::clone(&fs), ""),
+                lpp.file_name(),
+            )?;
+            let mut open = OpenProject::new(project, fs, false, source.clone());
+            open.migration_log = loader.migration_log().cloned();
+            open.upgraded = open.migration_log.is_some();
+            Ok(OpenOutcome::Opened(Box::new(Self::new(open, lpp, false))))
+        };
+        let override_lock = request.lock == LockDecision::Override;
+        let mut handler = |_: &FilePath, status: LockStatus, user: &str| {
+            lock_status = Some((status, user.to_owned()));
+            Ok(override_lock)
+        };
+        let restore = match request.restore {
+            None => RestoreMode::Abort,
+            Some(true) => RestoreMode::Yes,
+            Some(false) => RestoreMode::No,
+        };
+        let result = OpenProject::open_with(
+            &dir,
+            lpp.file_name(),
+            source.clone(),
+            restore,
+            Some(&mut handler),
+        );
+        match result {
+            Ok(p) => Ok(OpenOutcome::Opened(Box::new(Self::new(p, lpp, true)))),
+            Err(librepcb_editor::Error::FileIo(FileError::AutosaveDetected(_))) => {
+                Ok(OpenOutcome::AutosaveDetected)
+            }
+            Err(librepcb_editor::Error::FileIo(FileError::AlreadyLocked { directory, user })) => {
+                if request.lock == LockDecision::ReadOnly {
+                    return read_only();
+                }
+                let can_override = matches!(
+                    lock_status.as_ref().map(|(s, _)| *s),
+                    Some(LockStatus::LockedByOtherUser | LockStatus::LockedByUnknownApp)
+                );
+                Ok(OpenOutcome::Locked {
+                    directory,
+                    user,
+                    can_override,
+                })
+            }
             Err(librepcb_editor::Error::FileIo(e)) => {
                 log::warn!("Opening {} read-only: {e}", dir.to_native());
-                let fs = Arc::new(TransactionalFileSystem::open_ro(&dir)?);
-                let mut loader = ProjectLoader::new();
-                let project = loader.open(
-                    TransactionalDirectory::new(Arc::clone(&fs), ""),
-                    lpp.file_name(),
-                )?;
-                let upgraded = loader.migration_log().is_some();
-                (OpenProject::new(project, fs, upgraded, source), false)
+                read_only()
             }
-            Err(librepcb_editor::Error::Project(e)) => return Err(OpenError::Project(e)),
-            Err(e) => return Err(OpenError::NotAProject(format!("{}: {e}", lpp.to_native()))),
-        };
-        Ok(Self {
+            Err(librepcb_editor::Error::Project(e)) => Err(OpenError::Project(e)),
+            Err(e) => Err(OpenError::NotAProject(format!("{}: {e}", lpp.to_native()))),
+        }
+    }
+
+    fn new(project: OpenProject, lpp: &FilePath, writable: bool) -> Self {
+        let state = project.editor.undo_stack().state_id();
+        Self {
             shared: project.into_shared(),
             path: lpp.clone(),
             writable,
             checks: RefCell::default(),
-        })
+            autosave_state: Cell::new(state),
+            migration_notification: Cell::new(None),
+        }
     }
 
     /// Wraps a project which is already open (e.g. created by the embedded
@@ -107,7 +240,52 @@ impl AppProject {
             path,
             writable,
             checks: RefCell::default(),
+            autosave_state: Cell::new(0),
+            migration_notification: Cell::new(None),
         })
+    }
+
+    /// Saves the project (upstream `ProjectEditor::saveProject()`).
+    pub fn save(&self) -> librepcb_editor::Result<()> {
+        let mut p = self.shared.lock();
+        p.save()?;
+        self.autosave_state.set(p.editor.undo_stack().state_id());
+        Ok(())
+    }
+
+    /// Writes an autosave backup (`.autosave/` of the project directory)
+    /// if the project was modified since the last save or autosave
+    /// (upstream `ProjectEditor::autosaveProject()`). Returns whether a
+    /// backup was written; skipped while the project is busy (locked by
+    /// another thread or an undo group is active) or read-only.
+    pub fn autosave(&self) -> Result<bool, librepcb_editor::Error> {
+        let Some(mut p) = self.shared.try_lock() else {
+            return Ok(false);
+        };
+        let state = p.editor.undo_stack().state_id();
+        // Note: the clean state of the undo stack does not matter, since
+        // undoing to the clean state after an autosave makes the backup
+        // outdated.
+        if state == self.autosave_state.get() {
+            return Ok(false);
+        }
+        if p.editor.undo_stack().is_group_active() {
+            return Ok(false);
+        }
+        if !self.writable || !p.file_system.is_writable() {
+            log::info!("Project directory is not writable, skipping autosave.");
+            return Ok(false);
+        }
+        log::debug!("Autosave project...");
+        p.editor.autosave()?;
+        self.autosave_state.set(state);
+        Ok(true)
+    }
+
+    /// Whether an autosave backup was restored when opening the project
+    /// (and the project was not saved since).
+    pub fn is_restored_from_autosave(&self) -> bool {
+        self.shared.lock().file_system.is_restored_from_autosave()
     }
 
     /// The rule check results (ERC, DRC per board).

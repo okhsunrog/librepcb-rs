@@ -49,6 +49,7 @@ mod dialog_host;
 mod libraries_panel;
 mod library_elements;
 mod library_host;
+mod lifecycle;
 mod tab_editing;
 
 pub use add_component_host::OpenAddComponent;
@@ -97,6 +98,8 @@ pub struct State {
     pub(crate) sections: Vec<WindowSection>,
     pub(crate) sections_model: Rc<UiModel<ui::WindowSectionData>>,
     pub(crate) status_timer: slint::Timer,
+    /// Autosave of the open projects (see [`lifecycle`]).
+    pub(crate) autosave_timer: slint::Timer,
     /// The embedded MCP server (see [`crate::mcp`]).
     pub(crate) mcp: McpController,
     /// Editing in the scene tabs (see [`tab_editing`]).
@@ -175,6 +178,7 @@ impl App {
                 sections: Vec::new(),
                 sections_model: UiModel::shared(Vec::new()),
                 status_timer: slint::Timer::default(),
+                autosave_timer: slint::Timer::default(),
                 mcp: McpController::default(),
                 editing: tab_editing::EditingState::default(),
                 form_dialog: None,
@@ -281,6 +285,8 @@ impl App {
             s.current_tab_changed();
         }
 
+        self.state.borrow().setup_autosave_timer();
+
         // Rebuild scenes when projects are modified from elsewhere.
         let poll_weak = weak.clone();
         self.poll_timer.start(
@@ -305,7 +311,13 @@ impl App {
             });
         });
         QuickAccess::connect(&s.quick_access, open.clone());
-        FileSystemTree::connect(&s.file_tree, open);
+        let new_weak = weak.clone();
+        let new_project: Rc<dyn Fn(FilePath)> = Rc::new(move |fp| {
+            deferred(&new_weak, move |s| {
+                s.show_new_project_wizard(false, Some(fp));
+            });
+        });
+        FileSystemTree::connect(&s.file_tree, open, new_project);
         let tree = Rc::downgrade(&s.file_tree);
         s.quick_access
             .borrow_mut()
@@ -833,60 +845,6 @@ impl State {
         }
     }
 
-    /// Opens a project and its first schematic and board (upstream
-    /// `GuiApplication::openProject()`); returns its index.
-    pub(crate) fn open_project(&mut self, fp: &FilePath) -> Option<usize> {
-        if let Some(i) = self.projects.iter().position(|p| p.path() == fp) {
-            self.switch_to_project(i);
-            return Some(i);
-        }
-        if fp.suffix() == "lppz" {
-            self.not_implemented("*.lppz");
-            return None;
-        }
-        let source = self.workspace.lock().shared_library_db();
-        let project = match AppProject::open(fp, source) {
-            Ok(p) => Rc::new(p),
-            Err(e) => {
-                self.notifications.borrow_mut().push(Notification {
-                    auto_popup: true,
-                    ..Notification::new(
-                        ui::NotificationType::Critical,
-                        tr!("GuiApplication", "Error"),
-                        e.to_string(),
-                    )
-                });
-                return None;
-            }
-        };
-        if !project.is_writable() {
-            self.notifications.borrow_mut().push(Notification::new(
-                ui::NotificationType::Warning,
-                tr!("GuiApplication", "Read-Only Mode"),
-                fp.to_native(),
-            ));
-        }
-        let index = self.projects.len();
-        self.projects_model.push(project.ui_data());
-        self.projects.push(project);
-        self.switch_to_project(index);
-        let (has_schematic, has_board) = {
-            let p = self.projects[index].shared().lock();
-            (
-                !p.project().schematics().is_empty(),
-                !p.project().boards().is_empty(),
-            )
-        };
-        if has_schematic {
-            self.open_schematic_tab(index as i32, 0, true);
-        }
-        if has_board {
-            self.open_board_tab(index as i32, 0, !has_schematic);
-        }
-        self.quick_access.borrow_mut().push_recent(fp);
-        Some(index)
-    }
-
     pub(crate) fn switch_to_project(&self, index: usize) {
         if let Some(w) = self.window() {
             let d = w.global::<ui::Data>();
@@ -985,6 +943,8 @@ impl State {
                 }
             }
             ui::Action::ProjectOpen => self.open_project_dialog(),
+            ui::Action::ProjectNew => self.show_new_project_wizard(false, None),
+            ui::Action::ProjectImportEagle => self.show_new_project_wizard(true, None),
             ui::Action::WorkspaceLibrariesRescan => self.start_library_scan(),
             ui::Action::LibraryPanelEnsurePopulated
             | ui::Action::LibraryPanelCheckForUpdates
@@ -1080,9 +1040,12 @@ impl State {
             ui::ProjectAction::Close => self.close_project(&project),
             ui::ProjectAction::Save => {
                 self.abort_project_tools(&project);
-                let result = project.shared().lock().save();
+                let result = project.save();
                 match result {
-                    Ok(()) => self.show_status(&tr!("ProjectEditor", "Project saved"), 2000),
+                    Ok(()) => {
+                        self.project_saved(&project);
+                        self.show_status(&tr!("ProjectEditor", "Project saved"), 2000);
+                    }
                     Err(e) => self.notifications.borrow_mut().push(Notification::new(
                         ui::NotificationType::Critical,
                         tr!("ProjectEditor", "Error"),
@@ -1121,7 +1084,7 @@ impl State {
 
     /// Closes a project and its tabs (upstream `ProjectEditor::requestClose()`;
     /// unsaved changes are discarded, the viewer does not modify projects).
-    pub(crate) fn close_project(&mut self, project: &Rc<AppProject>) {
+    pub fn close_project(&mut self, project: &Rc<AppProject>) {
         for si in 0..self.sections.len() {
             while let Some(ti) = self.sections[si]
                 .tabs()

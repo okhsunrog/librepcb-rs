@@ -26,6 +26,31 @@ pub struct Notification {
     pub dismiss_key: String,
     /// Whether the popup opens automatically.
     pub auto_popup: bool,
+    /// The button of the notification (text and action), if any.
+    pub button: Option<NotificationButton>,
+}
+
+/// The button of a notification (upstream `Notification::buttonClicked()`).
+#[derive(Clone)]
+pub struct NotificationButton {
+    /// The (translated) text.
+    pub text: String,
+    /// Called (deferred) when the button is clicked.
+    pub action: Rc<dyn Fn()>,
+}
+
+impl std::fmt::Debug for NotificationButton {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NotificationButton")
+            .field("text", &self.text)
+            .finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for NotificationButton {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text && Rc::ptr_eq(&self.action, &other.action)
+    }
 }
 
 impl Notification {
@@ -41,6 +66,7 @@ impl Notification {
             description: description.into(),
             dismiss_key: String::new(),
             auto_popup: false,
+            button: None,
         }
     }
 
@@ -49,7 +75,11 @@ impl Notification {
             r#type: self.kind,
             title: self.title.as_str().into(),
             description: self.description.as_str().into(),
-            button_text: Default::default(),
+            button_text: self
+                .button
+                .as_ref()
+                .map(|b| b.text.as_str().into())
+                .unwrap_or_default(),
             progress: 0,
             supports_dont_show_again: !self.dismiss_key.is_empty(),
             unread: true,
@@ -200,6 +230,11 @@ impl Notifications {
         }
     }
 
+    /// Whether a notification still exists.
+    pub fn contains(&self, id: NotificationId) -> bool {
+        self.ids.contains(&id)
+    }
+
     /// Removes a notification (upstream `Notification::dismiss()`).
     pub fn dismiss(&mut self, id: NotificationId) {
         if let Some(row) = self.ids.iter().position(|i| *i == id) {
@@ -211,6 +246,12 @@ impl Notifications {
     }
 
     fn row_written(&mut self, row: usize, data: ui::NotificationData) {
+        if data.button_clicked {
+            self.model.update(row, |d| d.button_clicked = false);
+            if let Some(button) = self.items.get(row).and_then(|n| n.button.clone()) {
+                crate::models::defer(move || (button.action)());
+            }
+        }
         if data.dont_show_again
             && let Some(n) = self.items.get(row)
             && !n.dismiss_key.is_empty()

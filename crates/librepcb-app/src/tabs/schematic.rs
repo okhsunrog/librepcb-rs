@@ -1303,7 +1303,7 @@ impl SchematicTab {
             }
             A::Save => {
                 self.abort_blocking_tool();
-                let result = self.project.shared().lock().save();
+                let result = self.project.save();
                 match result {
                     Ok(()) => extra.status = Some(tr!("ProjectEditor", "Project saved")),
                     Err(e) => extra.requests.push(error_notification(e.to_string())),

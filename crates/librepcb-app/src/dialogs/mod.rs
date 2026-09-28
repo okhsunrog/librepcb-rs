@@ -41,6 +41,8 @@ pub mod geometry;
 pub mod library;
 pub mod library_items;
 pub mod move_align;
+pub mod new_project;
+pub mod open_prompts;
 pub mod output;
 pub mod review;
 pub mod schematic;
@@ -136,6 +138,40 @@ pub enum Applied {
         /// The jobs.
         jobs: Vec<librepcb_core::job::OutputJob>,
     },
+    /// A request to the application (dialogs of the project lifecycle and
+    /// the workspace).
+    App(AppRequest),
+}
+
+/// Requests of application level dialogs (wizards, prompts, settings) to
+/// the application.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppRequest {
+    /// Open a project (e.g. created by the new project wizard) and show
+    /// the messages of an import (if any).
+    OpenProject {
+        /// The project file.
+        path: librepcb_core::fileio::FilePath,
+        /// Messages of the EAGLE project import.
+        import_messages: Vec<String>,
+    },
+    /// Continue opening a project with the answers of a prompt (directory
+    /// lock, autosave restore).
+    ContinueOpening(crate::project::OpenRequest),
+    /// The workspace settings were modified (apply them to the UI).
+    WorkspaceSettingsChanged,
+    /// Show another dialog.
+    ShowDialog(DialogKind),
+    /// Rescan the workspace libraries.
+    RescanLibraries,
+}
+
+/// Dialogs which a dialog can open (see [`AppRequest::ShowDialog`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DialogKind {
+    /// The color scheme editor of the workspace settings (schematic:
+    /// `true`, board: `false`).
+    ColorScheme(bool),
 }
 
 /// Results of dialogs which answer a request of a tab's FSM.
@@ -219,6 +255,8 @@ pub enum ButtonResult {
         /// The jobs.
         jobs: Vec<librepcb_core::job::OutputJob>,
     },
+    /// Close the dialog with a request to the application.
+    App(AppRequest),
 }
 
 /// A dialog described by a form.

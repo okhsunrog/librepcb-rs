@@ -223,6 +223,7 @@ impl State {
                             self.run_jobs(project, title, jobs);
                         }
                     }
+                    Applied::App(request) => self.handle_app_request(request),
                 }
                 if !close {
                     self.refresh_form_dialog(false);
@@ -265,6 +266,10 @@ impl State {
                 if let Some(project) = &project {
                     self.run_jobs(project, title, jobs);
                 }
+            }
+            Ok(ButtonResult::App(request)) => {
+                self.close_form_dialog();
+                self.handle_app_request(request);
             }
             Err(message) => {
                 if let Some(w) = self.window() {
