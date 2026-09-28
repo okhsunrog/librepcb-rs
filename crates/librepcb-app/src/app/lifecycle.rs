@@ -67,6 +67,7 @@ impl State {
             AppRequest::RescanLibraries => self.start_library_scan(),
             AppRequest::UpdateProjectLibrary(fp) => self.update_project_library(&fp),
             AppRequest::WorkspaceChosen(fp) => self.workspace_chosen(&fp),
+            AppRequest::RunLibraryImport => self.run_library_import(),
         }
     }
 

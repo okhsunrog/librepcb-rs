@@ -50,6 +50,7 @@ mod dialog_host;
 mod libraries_panel;
 mod library_elements;
 mod library_host;
+mod library_import_host;
 mod lifecycle;
 mod tab_editing;
 

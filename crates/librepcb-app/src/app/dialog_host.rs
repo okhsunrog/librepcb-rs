@@ -206,7 +206,11 @@ impl State {
             project: project.as_ref(),
             workspace: Some(&workspace),
         };
-        match open.dialog.apply(&ctx) {
+        let result = open.dialog.apply(&ctx);
+        if let Some(request) = open.dialog.take_request() {
+            self.handle_app_request(request);
+        }
+        match result {
             Ok(applied) => {
                 if close {
                     self.close_form_dialog();
@@ -292,6 +296,9 @@ impl State {
 
     /// Closes the open dialog without applying it.
     pub fn close_form_dialog(&mut self) {
+        if let Some(open) = &mut self.form_dialog {
+            open.dialog.closing();
+        }
         self.form_dialog = None;
         if let Some(w) = self.window() {
             let d = w.global::<ui::Dialogs>();

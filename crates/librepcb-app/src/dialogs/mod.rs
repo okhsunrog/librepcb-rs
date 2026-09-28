@@ -40,6 +40,7 @@ pub mod form;
 pub mod geometry;
 pub mod initialize_workspace;
 pub mod library;
+pub mod library_import;
 pub mod library_items;
 pub mod move_align;
 pub mod new_project;
@@ -172,6 +173,9 @@ pub enum AppRequest {
     /// A workspace was chosen (and initialized) in the initialize
     /// workspace wizard.
     WorkspaceChosen(librepcb_core::fileio::FilePath),
+    /// Run the import of the open library import wizard in a worker
+    /// thread.
+    RunLibraryImport,
 }
 
 /// Dialogs which a dialog can open (see [`AppRequest::ShowDialog`]).
@@ -302,6 +306,9 @@ pub trait FormDialog {
     fn take_request(&mut self) -> Option<AppRequest> {
         None
     }
+
+    /// The dialog is closed (e.g. canceled); stop running operations.
+    fn closing(&mut self) {}
 
     /// The dialog as `Any` (to access its type from the application, e.g.
     /// the workspace settings dialog from the color scheme editor).
