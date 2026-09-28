@@ -105,10 +105,7 @@ fn string_literal(src: &str, pos: usize) -> Option<(String, usize)> {
                 '\n' => {
                     // Line continuation: skip the leading whitespace of the
                     // next line.
-                    let skip = chars
-                        .clone()
-                        .take_while(|(_, c)| c.is_whitespace())
-                        .count();
+                    let skip = chars.clone().take_while(|(_, c)| c.is_whitespace()).count();
                     for _ in 0..skip {
                         chars.next();
                     }

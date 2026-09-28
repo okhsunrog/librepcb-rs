@@ -627,9 +627,10 @@ pub fn jobs_run(session: &mut Session, args: JobsRunArgs) -> ToolResult<ToolOutp
     let info = ExportInfo::now(env!("CARGO_PKG_VERSION"));
     let written = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
     let warnings = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
-    let (w, warn) = (
+    let (w, warn, written_in_run) = (
         std::sync::Arc::clone(&written),
         std::sync::Arc::clone(&warnings),
+        std::sync::Arc::clone(&written),
     );
     let result = open.editor.update_derived_data(move |project| {
         let mut runner = OutputJobRunner::new(project, info)?;
@@ -646,13 +647,18 @@ pub fn jobs_run(session: &mut Session, args: JobsRunArgs) -> ToolResult<ToolOutp
         // (when running all jobs).
         let mut skipped = Vec::new();
         for job in &jobs {
+            let written_before = written_in_run.lock().len();
             match runner.run(std::slice::from_ref(job)) {
-                Err(librepcb_core::project::OutputJobError::Unsupported(kind))
-                    if skip_unsupported =>
-                {
+                Err(
+                    librepcb_core::project::OutputJobError::Unsupported(_)
+                    | librepcb_core::project::OutputJobError::StepExportUnavailable,
+                ) if skip_unsupported => {
+                    // The announced files were not written.
+                    written_in_run.lock().truncate(written_before);
                     skipped.push(format!(
-                        "Skipped the output job \"{}\" ({kind} jobs are not supported yet).",
-                        job.name().as_str()
+                        "Skipped the output job \"{}\" ({} jobs are not supported yet).",
+                        job.name().as_str(),
+                        job.type_name()
                     ));
                 }
                 Err(librepcb_core::project::OutputJobError::ArchiveDependencyNotRun)
