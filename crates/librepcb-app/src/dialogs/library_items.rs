@@ -89,23 +89,30 @@ impl PinDialog {
             Length::ZERO,
             crate::length_edit::steps::PIN_LENGTH,
         );
-        form.header(tr!(PIN, "Name"));
         form.length(
             "name_x",
-            tr!(PIN, "Position:"),
+            tr!(PIN, "Text Position:"),
             pin.name_position().x,
             Length::MIN,
         );
         form.length("name_y", "", pin.name_position().y, Length::MIN);
-        form.angle("name_rotation", tr!(PIN, "Rotation:"), pin.name_rotation());
+        form.angle(
+            "name_rotation",
+            tr!(PIN, "Text Rotation:"),
+            pin.name_rotation(),
+        );
         form.length_with_steps(
             "name_height",
-            tr!(PIN, "Height:"),
+            tr!(PIN, "Text Height:"),
             *pin.name_height(),
             Length::new(1),
             crate::length_edit::steps::TEXT_HEIGHT,
         );
-        alignment_fields(&mut form, &tr!(PIN, "Alignment:"), pin.name_alignment());
+        alignment_fields(
+            &mut form,
+            &tr!(PIN, "Text Alignment:"),
+            pin.name_alignment(),
+        );
         Self { form, pin }
     }
 }
@@ -439,8 +446,8 @@ impl LibraryCircleDialog {
         );
         form.checkbox(
             "fill",
-            tr!(CIRCLE, "Options:"),
-            tr!(CIRCLE, "Fill"),
+            tr!(CIRCLE, "Area:"),
+            tr!(CIRCLE, "Filled"),
             circle.is_filled(),
         );
         form.checkbox(
@@ -449,7 +456,7 @@ impl LibraryCircleDialog {
             tr!(CIRCLE, "Grab Area"),
             circle.is_grab_area(),
         );
-        position_fields(&mut form, &tr!(CIRCLE, "Center:"), "", circle.center());
+        position_fields(&mut form, &tr!(CIRCLE, "Position:"), "", circle.center());
         form.length(
             "diameter",
             tr!(CIRCLE, "Diameter:"),
@@ -672,14 +679,14 @@ impl FootprintHoleDialog {
         let mut form = Form::new(unit);
         form.length_with_steps(
             "diameter",
-            tr!(HOLE, "Diameter:"),
+            tr!("librepcb::editor::HoleEditorWidget", "Diameter:"),
             *hole.diameter(),
             Length::new(1),
             crate::length_edit::steps::DRILL_DIAMETER,
         );
         position_fields(
             &mut form,
-            &tr!(HOLE, "Position:"),
+            &tr!("librepcb::editor::HoleEditorWidget", "Position:"),
             "",
             hole.path().vertices()[0].pos,
         );
@@ -874,10 +881,10 @@ impl ImportPinsDialog {
             "note",
             tr!(
                 IMPORT,
-                "Paste the pin names from the datasheet (one name per line). Invalid characters will be removed."
+                "Specify the items for mass import in this text field, each item on a separate line."
             ),
         );
-        form.multiline("names", tr!(IMPORT, "Names:"), "", 12);
+        form.multiline("names", "", "", 12);
         Self { form }
     }
 

@@ -265,11 +265,11 @@ impl SymbolPropertiesDialog {
         let columns = vec![
             tr!(
                 "librepcb::editor::ComponentAssemblyOptionListEditorWidget",
-                "Device"
+                "Board Device"
             ),
             tr!(
                 "librepcb::editor::ComponentAssemblyOptionListEditorWidget",
-                "Parts"
+                "Part Number"
             ),
             tr!("librepcb::editor::ProjectSetupDialog", "Assembly Variants"),
         ];
@@ -489,6 +489,9 @@ enum RenameSegment {
     Bus(BusSegmentRef),
 }
 
+const RENAME_NET: &str = "librepcb::editor::RenameNetSegmentDialog";
+const RENAME_BUS: &str = "librepcb::editor::RenameBusSegmentDialog";
+
 /// The rename dialogs of schematic net and bus segments (upstream
 /// `RenameNetSegmentDialog` and `RenameBusSegmentDialog`, opened for net
 /// and bus labels).
@@ -617,14 +620,6 @@ impl RenameSegmentDialog {
         matches!(self.segment, RenameSegment::Bus(_))
     }
 
-    fn context(&self) -> &'static str {
-        if self.is_bus() {
-            "librepcb::editor::RenameBusSegmentDialog"
-        } else {
-            "librepcb::editor::RenameNetSegmentDialog"
-        }
-    }
-
     fn new_name(&self) -> String {
         let text = self.form.get_text("name");
         if self.is_bus() {
@@ -655,16 +650,11 @@ impl RenameSegmentDialog {
         };
         let old = self.old_name.as_str();
         let n = name.as_str();
+        let ctx = if bus { RENAME_BUS } else { RENAME_NET };
         let (action, desc) = if !valid {
-            (
-                RenameAction::InvalidName,
-                tr!(self.context(), "Invalid name!"),
-            )
+            (RenameAction::InvalidName, tr!(ctx, "Invalid name!"))
         } else if n == old {
-            (
-                RenameAction::None,
-                tr!(self.context(), "No change is made."),
-            )
+            (RenameAction::None, tr!(ctx, "No change is made."))
         } else if whole && exists {
             (
                 RenameAction::Merge,
@@ -794,7 +784,14 @@ impl FormDialog for RenameSegmentDialog {
         let name = self.new_name();
         match (self.action, self.segment) {
             (RenameAction::None, _) => Ok(Applied::Nothing),
-            (RenameAction::InvalidName, _) => Err(tr!(self.context(), "Invalid name!")),
+            (RenameAction::InvalidName, _) => {
+                let ctx = if self.is_bus() {
+                    RENAME_BUS
+                } else {
+                    RENAME_NET
+                };
+                Err(tr!(ctx, "Invalid name!"))
+            }
             (action, RenameSegment::Bus(segment)) => {
                 let name = BusName::new(name).map_err(|e| e.to_string())?;
                 let whole_bus = matches!(action, RenameAction::RenameWhole | RenameAction::Merge);
@@ -1109,7 +1106,7 @@ impl FormDialog for SchematicTextDialog {
                 text: text.clone(),
             },
         };
-        let label = tr!("librepcb::editor::CmdTextEdit", "Edit text");
+        let label = tr!("librepcb::editor::CmdTextEdit", "Edit Text");
         transaction(ctx.project()?, label.clone(), |e| {
             e.apply_mutations(label, vec![Mutation::Schematic(mutation)])
         })?;

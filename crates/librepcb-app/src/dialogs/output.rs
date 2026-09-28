@@ -237,7 +237,7 @@ impl GraphicsJobEditor {
             .collect();
         form.list(
             "g_pages",
-            tr!(OJD, "Pages"),
+            tr!("librepcb::editor::GraphicsExportDialog", "Pages"),
             &[],
             &pages,
             3,
@@ -257,7 +257,14 @@ impl GraphicsJobEditor {
             return;
         };
         let c = c.clone();
-        form.text("g_title", tr!(OJD, "Title:"), &c.title);
+        form.text(
+            "g_title",
+            tr!(
+                "librepcb::editor::GraphicsOutputJobWidget",
+                "Document Title:"
+            ),
+            &c.title,
+        );
         let sizes = page_sizes();
         let names: Vec<String> = sizes
             .iter()
@@ -383,7 +390,7 @@ impl GraphicsJobEditor {
                 form,
                 "g_boards",
                 &tr!("librepcb::editor::BomOutputJobWidget", "Boards:"),
-                GOJ,
+                "librepcb::editor::BomOutputJobWidget",
                 &c.boards,
                 &boards,
             );
@@ -392,7 +399,7 @@ impl GraphicsJobEditor {
                 form,
                 "g_variants",
                 &tr!("librepcb::editor::BomOutputJobWidget", "Assembly Variants:"),
-                GOJ,
+                "librepcb::editor::BomOutputJobWidget",
                 &c.assembly_variants,
                 &variants,
             );
@@ -646,7 +653,10 @@ impl FormDialog for GraphicsExportDialog {
     fn options(&self) -> DialogOptions {
         DialogOptions {
             apply: false,
-            ok_text: Some(tr!(OJD, "Run")),
+            ok_text: Some(tr!(
+                "librepcb::editor::OutputJobListWidgetItem",
+                "Run this job"
+            )),
             width: 600.0,
             label_width: 150.0,
             ..DialogOptions::default()
@@ -1334,7 +1344,10 @@ impl FormDialog for OutputJobsDialog {
 
     fn options(&self) -> DialogOptions {
         DialogOptions {
-            extra_buttons: vec![tr!(OJD, "Run"), tr!(OJD, "Run All")],
+            extra_buttons: vec![
+                tr!("librepcb::editor::OutputJobListWidgetItem", "Run this job"),
+                tr!("librepcb::editor::OutputJobListWidgetItem", "Run all jobs"),
+            ],
             width: 620.0,
             label_width: 150.0,
             side_width: 240.0,

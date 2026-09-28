@@ -318,7 +318,10 @@ impl<E: BaseElementKind> BaseElementCore<E> {
         f: impl FnOnce(&mut BaseContent<E::Extra>),
     ) -> Result<bool, String> {
         if !self.is_writable() {
-            return Err(tr!("LibraryEditorTab", "The library element is read-only."));
+            return Err(tr!(
+                "librepcb::editor::LibraryEditorTab",
+                "The library element is read-only."
+            ));
         }
         let before = self.content();
         let mut after = before.clone();
@@ -383,35 +386,43 @@ impl<E: BaseElementKind> BaseElementCore<E> {
         let author = self.author.clone();
         let version = self.version_parsed.clone();
         let deprecated = self.deprecated;
-        let result = self.edit(
-            &tr!("CmdLibraryBaseElementEdit", "Edit Library Element"),
-            |c| {
-                let m = &mut c.metadata;
-                if let Some(name) = name {
-                    let mut names = m.names().clone();
-                    names.set_default_value(name);
-                    m.set_names(names);
-                }
-                if description != *m.descriptions().default_value() {
-                    let mut d = m.descriptions().clone();
-                    d.set_default_value(description.trim().to_owned());
-                    m.set_descriptions(d);
-                }
-                if keywords != *m.keywords().default_value() {
-                    let mut k = m.keywords().clone();
-                    k.set_default_value(validation::clean_keywords(&keywords));
-                    m.set_keywords(k);
-                }
-                if author != *m.author() {
-                    m.set_author(author.trim().to_owned());
-                }
-                if let Some(v) = version {
-                    m.set_version(v);
-                }
-                m.set_deprecated(deprecated);
-                extra(&mut c.extra);
-            },
-        );
+        let text = if E::TAB_TYPE == ui::TabType::Organization {
+            tr!(
+                "librepcb::editor::CmdOrganizationEdit",
+                "Edit Organization Properties"
+            )
+        } else {
+            tr!(
+                "librepcb::editor::CmdLibraryCategoryEdit",
+                "Edit category metadata"
+            )
+        };
+        let result = self.edit(&text, |c| {
+            let m = &mut c.metadata;
+            if let Some(name) = name {
+                let mut names = m.names().clone();
+                names.set_default_value(name);
+                m.set_names(names);
+            }
+            if description != *m.descriptions().default_value() {
+                let mut d = m.descriptions().clone();
+                d.set_default_value(description.trim().to_owned());
+                m.set_descriptions(d);
+            }
+            if keywords != *m.keywords().default_value() {
+                let mut k = m.keywords().clone();
+                k.set_default_value(validation::clean_keywords(&keywords));
+                m.set_keywords(k);
+            }
+            if author != *m.author() {
+                m.set_author(author.trim().to_owned());
+            }
+            if let Some(v) = version {
+                m.set_version(v);
+            }
+            m.set_deprecated(deprecated);
+            extra(&mut c.extra);
+        });
         self.refresh();
         self.run_checks_if_modified();
         result.err().map(error_notification)

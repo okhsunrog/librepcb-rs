@@ -120,7 +120,7 @@ impl UiTheme {
 
     /// The translated name.
     pub fn name_tr(&self) -> String {
-        tr!("UiTheme", self.name)
+        tr!("librepcb::UiTheme", self.name)
     }
 
     /// The next theme (for `Backend.toggle-theme`).

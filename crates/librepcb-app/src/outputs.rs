@@ -121,7 +121,7 @@ pub fn run_output_jobs(
                 progress(
                     (i * 100 / count) as u32,
                     &tr!(
-                        "librepcb::editor::OutputJobsDialog",
+                        "CommandLineInterface",
                         "Run output job '{0}'...",
                         job.name().as_str()
                     ),
@@ -267,10 +267,7 @@ impl State {
     /// Generates the Gerber/Excellon files of a board with its fabrication
     /// output settings.
     pub fn export_fabrication(&mut self, project: &Rc<AppProject>, board: BoardId) {
-        let title = tr!(
-            "librepcb::editor::FabricationOutputDialog",
-            "Generate Fabrication Data"
-        );
+        let title = tr!("EditorCommandSet", "Generate Fabrication Data");
         self.run_export(
             project,
             title,
@@ -288,7 +285,7 @@ impl State {
     pub fn export_pick_place(&mut self, project: &Rc<AppProject>, board: BoardId) {
         let title = tr!(
             "librepcb::editor::BoardPickPlaceGeneratorDialog",
-            "Generate Pick&Place Files"
+            "Generate Pick&Place Data"
         );
         self.run_export(
             project,
@@ -339,7 +336,7 @@ impl State {
     /// Generates the bill of materials (of all components, or of the
     /// devices of a board) of the default assembly variant as CSV.
     pub fn export_bom(&mut self, project: &Rc<AppProject>, board: Option<BoardId>) {
-        let title = tr!("librepcb::editor::BomGeneratorDialog", "Bill Of Materials");
+        let title = tr!("EditorCommandSet", "Bill Of Materials");
         self.run_export(
             project,
             title,
@@ -365,7 +362,7 @@ impl State {
 
     /// Exports the project as `*.lppz` archive.
     pub fn export_lppz(&mut self, project: &Rc<AppProject>) {
-        let title = tr!("librepcb::editor::ProjectEditor", "Export *.lppz");
+        let title = tr!("EditorCommandSet", "Export *.lppz Archive");
         self.run_export(
             project,
             title,

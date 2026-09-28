@@ -305,13 +305,13 @@ impl DeviceDialog {
                 "librepcb::editor::DeviceInstancePropertiesDialog",
                 "Options:"
             ),
-            tr!("librepcb::editor::BoardEditor", "Mirror"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Mirror"),
             dev.mirrored(),
         );
         form.checkbox(
             "lock",
             "",
-            tr!("librepcb::editor::BoardEditor", "Lock"),
+            tr!("librepcb::editor::StrokeTextPropertiesDialog", "Lock"),
             dev.locked(),
         );
 
@@ -462,7 +462,7 @@ impl ViaDialog {
             if net.is_empty() {
                 format!(
                     "[{}]",
-                    tr!("librepcb::editor::BoardViaPropertiesDialog", "None")
+                    tr!("librepcb::editor::BoardPlanePropertiesDialog", "None")
                 )
             } else {
                 net
@@ -853,7 +853,7 @@ impl FormDialog for PadDialog {
             pad.set_copper_clearance(unsigned(form, "copper_clearance")?);
         }
         let segment = self.segment;
-        let text = tr!("librepcb::editor::CmdBoardPadEdit", "Edit pad");
+        let text = tr!("librepcb::editor::CmdBoardPadEdit", "Edit Pad");
         transaction(ctx.project()?, text.clone(), |e| {
             e.apply_mutations(
                 text,
@@ -1486,15 +1486,15 @@ impl HoleDialog {
         form.page(tr!("librepcb::editor::HolePropertiesDialog", "General"));
         form.length_with_steps(
             "diameter",
-            tr!("librepcb::editor::HolePropertiesDialog", "Diameter:"),
+            tr!("librepcb::editor::HoleEditorWidget", "Diameter:"),
             *hole.diameter(),
             Length::new(1),
             steps::DRILL_DIAMETER,
         );
         form.checkbox(
             "lock",
-            tr!("librepcb::editor::HolePropertiesDialog", "Options:"),
-            tr!("librepcb::editor::HolePropertiesDialog", "Lock"),
+            tr!("librepcb::editor::HoleEditorWidget", "Options:"),
+            tr!("librepcb::editor::HoleEditorWidget", "Lock"),
             hole.locked(),
         );
         path_fields(&mut form, hole.path());
@@ -1720,7 +1720,10 @@ impl LineWidthDialog {
         let mut form = Form::new(unit);
         form.length(
             "width",
-            tr!("librepcb::editor::BoardEditorState_Select", "Width:"),
+            format!(
+                "{}:",
+                tr!("librepcb::editor::BoardEditorState_Select", "Width")
+            ),
             *current,
             Length::new(0),
         );
@@ -1838,7 +1841,7 @@ impl DxfImportDialog {
         let mut form = Form::new(unit);
         form.label(
             "file",
-            tr!("librepcb::editor::MainWindow", "File:"),
+            tr!("librepcb::editor::CopyOutputJobWidget", "Input File:"),
             file.to_native(),
         );
         layer_field(&mut form, "layer", &tr!(DXF_CTX, "Layer:"), layers, layer);

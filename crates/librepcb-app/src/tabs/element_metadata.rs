@@ -265,7 +265,7 @@ impl ElementMetadataUi {
                 .map(|t| t.name)
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| {
-                    format!("{} ({u})", tr!("LibraryElementCategoriesModel", "Unknown"))
+                    format!("{} ({u})", tr!("librepcb::editor::LibraryTab", "Unknown"))
                 });
             names.push(name);
             current = dir

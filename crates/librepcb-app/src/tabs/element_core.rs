@@ -67,7 +67,7 @@ pub trait ElementKindInfo: EditableElement + Sized {
 }
 
 macro_rules! kind_info {
-    ($ty:ty, $kind:ident, $cat:ident, $tab:ident, $check:ident, $page:expr, $ctx:literal, $name:literal, $new:expr) => {
+    ($ty:ty, $kind:ident, $cat:ident, $tab:ident, $check:ident, $page:expr, $save_title:expr, $name:literal, $new:expr) => {
         impl ElementKindInfo for $ty {
             const EDITOR_PAGE: i32 = $page;
             const WIZARD_ON_EDITOR_PAGE: bool =
@@ -100,7 +100,8 @@ macro_rules! kind_info {
             }
 
             fn save_title() -> String {
-                tr!($ctx, "Save Changes?")
+                #[allow(clippy::redundant_closure_call)]
+                ($save_title)()
             }
         }
     };
@@ -113,7 +114,7 @@ kind_info!(
     Symbol,
     SymbolCheck,
     1,
-    "librepcb::editor::SymbolTab",
+    || tr!("librepcb::editor::SymbolTab", "Save Changes?"),
     "New Symbol",
     Symbol::new
 );
@@ -124,7 +125,7 @@ kind_info!(
     Package,
     PackageCheck,
     2,
-    "librepcb::editor::PackageTab",
+    || tr!("librepcb::editor::PackageTab", "Save Changes?"),
     "New Package",
     |m| {
         let mut p = Package::new(m, AssemblyType::Auto)?;
@@ -143,7 +144,7 @@ kind_info!(
     Component,
     ComponentCheck,
     2,
-    "librepcb::editor::ComponentTab",
+    || tr!("librepcb::editor::ComponentTab", "Save Changes?"),
     "New Component",
     |m| {
         let mut c = Component::new(m)?;
@@ -163,7 +164,7 @@ kind_info!(
     Device,
     DeviceCheck,
     1,
-    "librepcb::editor::DeviceTab",
+    || tr!("librepcb::editor::DeviceTab", "Save Changes?"),
     "New Device",
     |m| Device::new(m, Uuid::new_random(), Uuid::new_random())
 );

@@ -112,7 +112,7 @@ export component AddComponentDialog inherits Rectangle {
                 spacing: 8px;
 
                 Text {
-                    text: @tr("Add Component");
+                    text: @tr("librepcb::editor::AddComponentDialog" => "Add Component");
                     color: Data.theme.base-text;
                     font-size: 15px;
                     font-weight: 600;
@@ -129,7 +129,7 @@ export component AddComponentDialog inherits Rectangle {
                         search-edt := LineEdit {
                             vertical-stretch: 0;
                             text: AddComponentDialogData.filter;
-                            placeholder-text: @tr("What are you looking for?");
+                            placeholder-text: @tr("librepcb::editor::AddComponentDialog" => "What are you looking for?");
                             accessible-label: "search";
 
                             init => {
@@ -243,7 +243,7 @@ export component AddComponentDialog inherits Rectangle {
                         PreviewBox {
                             vertical-stretch: 1;
                             source: AddComponentDialogData.symbol-preview;
-                            placeholder: @tr("No component selected");
+                            placeholder: @tr("librepcb::editor::AddComponentDialog" => "No component selected");
                         }
 
                         Text {
@@ -256,7 +256,7 @@ export component AddComponentDialog inherits Rectangle {
                         PreviewBox {
                             vertical-stretch: 1;
                             source: AddComponentDialogData.footprint-preview;
-                            placeholder: @tr("No device selected");
+                            placeholder: @tr("librepcb::editor::AddComponentDialog" => "No device selected");
                         }
                     }
                 }
@@ -274,7 +274,7 @@ export component AddComponentDialog inherits Rectangle {
                     CheckBox {
                         text: @tr("Add more");
                         checked: AddComponentDialogData.add-more;
-                        status-tip: @tr("If checked, this dialog will automatically be opened again after finishing placement of the current component.");
+                        status-tip: @tr("librepcb::editor::AddComponentDialog" => "If checked, this dialog will automatically be opened again after finishing placement of the current component.");
 
                         toggled(checked) => {
                             AddComponentDialogData.add-more = checked;
@@ -287,7 +287,7 @@ export component AddComponentDialog inherits Rectangle {
 
                     Button {
                         width: max(self.preferred-width, 90px);
-                        text: @tr("Cancel");
+                        text: @tr("MessagePopup" => "Cancel");
 
                         clicked => {
                             AddComponentDialogData.rejected();
@@ -296,7 +296,7 @@ export component AddComponentDialog inherits Rectangle {
 
                     Button {
                         width: max(self.preferred-width, 90px);
-                        text: @tr("OK");
+                        text: @tr("MessagePopup" => "OK");
                         icon: @image-url("../resources/libs/font-awesome/svgs/solid/check.svg");
                         primary: true;
                         enabled: AddComponentDialogData.can-accept;

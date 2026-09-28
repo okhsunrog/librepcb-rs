@@ -27,7 +27,7 @@ pub fn category_path(
     locales: &[String],
     category: Option<Uuid>,
 ) -> Vec<String> {
-    const CTX: &str = "librepcb::editor::CategoryTreeBuilder";
+    const CTX: &str = "librepcb::editor";
     let mut names = Vec::new();
     let mut visited = BTreeSet::new();
     let mut current = category;
