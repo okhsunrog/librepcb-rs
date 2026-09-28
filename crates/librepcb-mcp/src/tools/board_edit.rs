@@ -113,6 +113,10 @@ fn board_overview(p: &Project, board: BoardId) -> ToolResult<Value> {
 pub struct BoardAddArgs {
     /// Name of the board.
     pub name: String,
+    /// Board (name, index or UUID) to copy with its settings and all items
+    /// (default: a new board with the default settings and outline).
+    #[serde(default)]
+    pub copy_from: Option<String>,
     /// Fail with `stale_revision` if the project revision differs.
     #[serde(default)]
     pub expected_revision: Option<u64>,
@@ -122,17 +126,25 @@ pub struct BoardAddArgs {
 pub fn board_add(session: &mut Session, args: BoardAddArgs) -> ToolResult<ToolOutput> {
     let name = ElementName::new(args.name.trim())
         .map_err(|e| ToolError::invalid(format!("invalid board name: {e}")))?;
+    let copy_from = match args.copy_from.as_deref() {
+        Some(key) => Some(resolve::board(session.project()?.project(), Some(key))?.1),
+        None => None,
+    };
     let done = write(session, "board_add", args.expected_revision, |editor| {
-        Ok(editor.execute(AddBoard::new(name))?)
+        let mut command = AddBoard::new(name);
+        command.copy_from = copy_from;
+        Ok(editor.execute(command)?)
     })?;
     let open = session.project()?;
     let result = board_overview(open.project(), done.value.board)?;
+    let what = if copy_from.is_some() {
+        "a copy of the board"
+    } else {
+        "default 100x80 mm outline"
+    };
     done.output(
         open,
-        format!(
-            "Added board \"{}\" (default 100x80 mm outline).",
-            args.name.trim()
-        ),
+        format!("Added board \"{}\" ({what}).", args.name.trim()),
         result,
     )
 }

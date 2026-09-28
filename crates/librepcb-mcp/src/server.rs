@@ -678,7 +678,10 @@ impl LibrePcbMcp {
         self.run(move |s| layout::board_get(s, args)).await
     }
 
-    #[tool(description = "Add a board (default settings, 100x80 mm outline).")]
+    #[tool(
+        description = "Add a board (default settings, 100x80 mm outline), or a copy of an \
+                       existing board (copy_from: settings and all items)."
+    )]
     async fn board_add(
         &self,
         Parameters(args): Parameters<BoardAddArgs>,
