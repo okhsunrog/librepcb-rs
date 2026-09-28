@@ -17,8 +17,10 @@
 //!   ([`OutputJobRunner::set_graphics_exporter()`]), since the painters live
 //!   in the scene crate (which depends on core). Without an exporter, these
 //!   jobs fail with [`OutputJobError::Unsupported`].
-//! - Not supported yet (the job fails with [`OutputJobError::Unsupported`]):
-//!   3D (STEP) jobs, since the STEP export is not ported yet.
+//! - 3D (STEP) jobs behave like upstream built without OpenCascade: the
+//!   planes are rebuilt and the output file is announced, then the job
+//!   fails with [`OutputJobError::StepExportUnavailable`] (the STEP export
+//!   is not ported).
 //! - Archive jobs collect their input files in an in-memory transactional
 //!   file system (upstream opens a writable one in a temporary directory,
 //!   which is left behind); the archive content is the same.
@@ -49,9 +51,9 @@ use crate::fileio::{
     OutputDirectoryWriter, TransactionalDirectory, file_utils,
 };
 use crate::job::{
-    ArchiveOutputJob, BomOutputJob, CopyOutputJob, GerberExcellonOutputJob, GerberX3OutputJob,
-    GraphicsContentType, GraphicsOutputJob, InteractiveHtmlBomOutputJob, LppzOutputJob,
-    NetlistOutputJob, ObjectSet, OutputJob, OutputJobKind, PickPlaceOutputJob,
+    ArchiveOutputJob, Board3DOutputJob, BomOutputJob, CopyOutputJob, GerberExcellonOutputJob,
+    GerberX3OutputJob, GraphicsContentType, GraphicsOutputJob, InteractiveHtmlBomOutputJob,
+    LppzOutputJob, NetlistOutputJob, ObjectSet, OutputJob, OutputJobKind, PickPlaceOutputJob,
     ProjectJsonOutputJob,
 };
 use crate::types::Uuid;
@@ -76,6 +78,11 @@ pub enum OutputJobError {
         "Output jobs of type '{0}' are not supported yet by this LibrePCB version (librepcb-rs)."
     )]
     Unsupported(String),
+    /// A 3D job cannot write its STEP file since the STEP export is not
+    /// available (upstream `OccModel::throwNotAvailable()` of a build
+    /// without OpenCascade, same message).
+    #[error("Attempted to work with STEP file, but LibrePCB was compiled without OpenCascade.")]
+    StepExportUnavailable,
     /// A graphics job has a page size key unknown to Qt's `QPageSize`.
     #[error("Unsupported page size: '{0}'")]
     UnsupportedPageSize(String),
@@ -392,9 +399,7 @@ impl<'a> OutputJobRunner<'a> {
                 }
             },
             OutputJobKind::InteractiveHtmlBom(j) => self.run_interactive_html_bom(uuid, j)?,
-            OutputJobKind::Board3D(_) => {
-                return Err(OutputJobError::Unsupported(job.type_name().to_owned()));
-            }
+            OutputJobKind::Board3D(j) => self.run_board_3d(uuid, j)?,
             OutputJobKind::Unknown(_) => {
                 return Err(OutputJobError::UnknownJobType(job.type_name().to_owned()));
             } // `OutputJobKind` is non-exhaustive for other crates only.
@@ -764,6 +769,36 @@ impl<'a> OutputJobRunner<'a> {
                     return Err(OutputJobError::UnsupportedBomFormat(fp.suffix().to_owned()));
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Upstream `runImpl(const Board3DOutputJob&)` without OpenCascade.
+    fn run_board_3d(&mut self, uuid: Uuid, job: &Board3DOutputJob) -> OutputJobResult<()> {
+        let boards = self.boards(&job.boards)?;
+        let variants = self.optional_assembly_variants(&job.assembly_variants, false)?;
+        for board in boards {
+            // Rebuild planes to be sure no outdated planes are exported!
+            self.rebuild_outdated_planes(board)?;
+
+            let project = &*self.project;
+            let b = required_board(project, board)?;
+            // The first file fails, so only the first variant is reached.
+            let Some(av) = variants.first() else {
+                continue;
+            };
+            let variant = av.map(|av| required_variant(project, av)).transpose()?;
+            let lookup = ProjectAttributeLookup::for_board(project, b, variant);
+            let fp = self
+                .writer
+                .begin_writing_file(&uuid, &output_path(&lookup, &job.output_path))?;
+            let suffix = fp.suffix().to_lowercase();
+            return Err(if matches!(suffix.as_str(), "step" | "stp") {
+                OutputJobError::StepExportUnavailable
+            } else {
+                // Upstream reports a "netlist" format here.
+                OutputJobError::UnsupportedNetlistFormat(fp.suffix().to_owned())
+            });
         }
         Ok(())
     }

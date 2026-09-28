@@ -249,3 +249,42 @@ fn test_graphics_job_with_exporter() {
     let err = runner.run(&[job]).unwrap_err();
     assert_eq!(err.to_string(), "Unsupported page size: 'Foo'");
 }
+
+/// 3D jobs behave like upstream built without OpenCascade: the output file
+/// is announced, then the job fails.
+#[test]
+fn test_board_3d_without_step_export() {
+    use librepcb_core::job::Board3DOutputJob;
+    use librepcb_core::project::OutputJobError;
+    let tmp = TempDir::new();
+    let mut project = create_project(&tmp.path().path_to("project"));
+    let board = Board::new(
+        Uuid::new_random(),
+        ElementName::new("default").unwrap(),
+        "default",
+    );
+    project.add_board(board, None).unwrap();
+    let job = |path: &str| {
+        let job = Board3DOutputJob {
+            output_path: path.into(),
+            ..Board3DOutputJob::default()
+        };
+        OutputJob::new(Uuid::new_random(), ElementName::new("STEP").unwrap(), job)
+    };
+    let mut runner = OutputJobRunner::new(&mut project, info()).unwrap();
+    runner.set_output_directory(&tmp.path().path_to("out"));
+    let step = job("model.step");
+    let uuid = step.uuid();
+    let err = runner.run(&[step]).unwrap_err();
+    assert!(matches!(err, OutputJobError::StepExportUnavailable));
+    assert_eq!(
+        err.to_string(),
+        "Attempted to work with STEP file, but LibrePCB was compiled without OpenCascade."
+    );
+    let written = runner.written_files().get(&uuid).unwrap();
+    assert_eq!(written.len(), 1);
+    assert!(written[0].as_str().ends_with("out/model.step"));
+
+    let err = runner.run(&[job("model.wrl")]).unwrap_err();
+    assert_eq!(err.to_string(), "Unsupported netlist format: 'wrl'");
+}

@@ -10,7 +10,7 @@ use librepcb_core::fileio::{
     CleanFileNameOptions, FileNameCase, FilePath, RestoreMode, TransactionalDirectory,
     TransactionalFileSystem, file_utils,
 };
-use librepcb_core::job::{Board3DOutputJob, OutputJobList, OutputJobType};
+use librepcb_core::job::OutputJobList;
 use librepcb_core::library::org::BoardDesignRuleCheckSettings;
 use librepcb_core::project::board::{
     BoardFabricationOutputSettings, BoardGerberExport, ExportInfo, export_component_layer,
@@ -18,8 +18,7 @@ use librepcb_core::project::board::{
 };
 use librepcb_core::project::{
     AssemblyVariantId, BoardId, BomGenerator, GraphicsExporter, GraphicsPage, GraphicsPageContent,
-    Mutation, OutputJobError, OutputJobEvent, OutputJobRunner, ProjectAttributeLookup,
-    ProjectLoader, erc,
+    Mutation, OutputJobEvent, OutputJobRunner, ProjectAttributeLookup, ProjectLoader, erc,
 };
 use librepcb_core::serialization::{DeserializeObject, Mode, SExpression};
 use librepcb_i18n::tr;
@@ -28,8 +27,7 @@ use librepcb_scene::export::ProjectGraphicsExporter;
 use crate::APP_VERSION;
 use crate::args::{OpenProjectArgs, TR};
 use crate::drc;
-use crate::error::{CliError, CliResult};
-use crate::library::OCC_NOT_AVAILABLE;
+use crate::error::CliResult;
 use crate::output::{
     absolute_path, current_dir, fail_if_file_format_unstable, format_check_summary,
     prepare_rule_check_messages, pretty_path, print, print_err,
@@ -454,15 +452,8 @@ fn open_project_impl(a: &OpenProjectArgs) -> CliResult<bool> {
                     "Using output base directory: {}",
                     runner.output_directory().to_native()
                 );
-                match runner.run(&jobs) {
-                    // Like an upstream build without OpenCascade.
-                    Err(OutputJobError::Unsupported(kind))
-                        if kind == Board3DOutputJob::TYPE_NAME =>
-                    {
-                        Err(CliError::Other(OCC_NOT_AVAILABLE.to_owned()))
-                    }
-                    result => Ok(result?),
-                }
+                // 3D jobs fail like an upstream build without OpenCascade.
+                Ok(runner.run(&jobs)?)
             })();
             if let Err(e) = result {
                 print_err(&format!("{} {e}", tr!(TR, "ERROR:")));

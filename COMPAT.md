@@ -356,9 +356,6 @@ differ between platforms/implementations:
   identically; a hand-edited, non-normalized or invalid URL is written back
   unchanged instead of being normalized or cleared. **File output can
   differ** in that case.
-- **Old file formats**: elements in a file format older than the current
-  one are rejected (`Error::MigrationRequired`) since the file format
-  migrations are not ported yet. Upstream upgrades them when opening.
 - **Title case check** (`is_title_case()`, `title_case_fixed_name()`):
   "lowercase letter" is general category Ll (upstream `QChar::isLetter() &&
   isLower()` on UTF-16 code units, identical for BMP names). The fixed name
@@ -862,10 +859,11 @@ Rendering only; no file is affected.
   `buildPages()`; for board contents with "no board" (a project without
   boards and the default board set), no page is created (upstream would
   dereference a null board).
-- **Unsupported job types**: 3D (STEP) jobs fail with "Output jobs of type
-  '...' are not supported yet by this LibrePCB version (librepcb-rs)."
-  since the STEP export is not ported yet (the CLI reports them like an
-  upstream build without OpenCascade, see CLI). Unknown job types fail with the upstream message.
+- **3D (STEP) jobs** behave like upstream built without OpenCascade (the
+  STEP export is not ported): the planes are rebuilt, the output file is
+  announced (`AboutToWriteFile`), then the job fails with "Attempted to
+  work with STEP file, but LibrePCB was compiled without OpenCascade."
+  Unknown job types fail with the upstream message.
 - The Qt signals (`jobStarted`, `aboutToWriteFile`, `aboutToRemoveFile`,
   `warning`) are one observer callback (`OutputJobEvent`).
 - The application version and creation date written into the files are
@@ -935,10 +933,8 @@ upstream `librepcb-cli` 2.1.1 except for:
   `open-step` and `open-library --minify-step` fail with
   "Attempted to work with STEP file, but LibrePCB was compiled without
   OpenCascade." (the upstream CLI tests skip these cases). 3D output jobs
-  fail with the same message (upstream prints the output file name before
-  failing; here the job fails before, since the runner does not support
-  3D jobs), so the upstream `--run-jobs` tests with a STEP job are skipped
-  as well.
+  print their output file name and fail with the same message, so the
+  upstream `--run-jobs` tests with a STEP job are skipped as well.
 - **`--version`** prints `Implementation librepcb-rs (Rust, no Qt)`
   instead of the Qt version line, `OpenCascade N/A`, and the Git revision
   `unknown`; the application version is the crate version (also written
@@ -946,10 +942,9 @@ upstream `librepcb-cli` 2.1.1 except for:
 - **`--verbose`** log messages use the `env_logger` format and the
   messages of the Rust port (upstream: Qt's message handler format).
 - **Parser errors**: the command line is parsed with `clap`; the error
-  texts of `QCommandLineParser` are reproduced for unknown options,
-  missing and unexpected values. Several unknown options (e.g. `-abc`) are
-  reported one at a time (`Unknown option 'a'.`) instead of `Unknown
-  options: a, b, c.`. The parser strings of Qt (`Usage: {0}`, `Options:`,
+  texts of `QCommandLineParser` are reproduced for unknown options
+  (all of them, like `Unknown options: a, b, c.`), missing and unexpected
+  values. The parser strings of Qt (`Usage: {0}`, `Options:`,
   `Arguments:`, the error texts) are not in LibrePCB's translation
   catalogs, so they are always English (upstream: Qt's catalogs).
 

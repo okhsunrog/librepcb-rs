@@ -163,6 +163,91 @@ fn wrap_text(names: &str, width: usize, description: &str) -> String {
     text
 }
 
+/// Parses `args` (the first element is the executable) like
+/// `QCommandLineParser::parse()` with its default modes and returns the text
+/// of `errorText()`, or `None` if the arguments are valid.
+///
+/// Long options are `--name` or `--name=value`, short options are compacted
+/// (`-abc` are the options `a`, `b` and `c`; an option taking a value takes
+/// the rest of the argument or the next argument), `--` ends the options.
+/// Like Qt, all arguments are parsed: the last value error ("Missing value
+/// after ...", "Unexpected value after ...") wins, otherwise all unknown
+/// options are listed.
+pub fn qt_parse_error(args: &[String], options: &[HelpOption]) -> Option<String> {
+    let takes_value = |name: &str| {
+        options
+            .iter()
+            .find(|o| o.names.iter().any(|n| n == name))
+            .map(|o| o.value_name.is_some())
+    };
+    let mut unknown = Vec::new();
+    let mut error = None;
+    let mut iter = args.iter().skip(1);
+    // Upstream `parseOptionValue()` for a known option.
+    let mut parse_value = |name: &str, argument: &str, iter: &mut std::iter::Skip<_>| {
+        let Some(with_value) = takes_value(name) else {
+            return;
+        };
+        let assign = argument.find('=');
+        if with_value && assign.is_none() {
+            if Iterator::next(iter).is_none() {
+                error = Some(tr!(
+                    "QCommandLineParser",
+                    "Missing value after '{0}'.",
+                    argument
+                ));
+            }
+        } else if let (false, Some(pos)) = (with_value, assign) {
+            error = Some(tr!(
+                "QCommandLineParser",
+                "Unexpected value after '{0}'.",
+                &argument[..pos]
+            ));
+        }
+    };
+    while let Some(arg) = iter.next() {
+        if arg == "--" {
+            break;
+        }
+        if let Some(long) = arg.strip_prefix("--") {
+            let name = long.split('=').next().unwrap_or_default();
+            if takes_value(name).is_some() {
+                parse_value(name, arg, &mut iter);
+            } else {
+                unknown.push(name.to_owned());
+            }
+        } else if let Some(short) = arg.strip_prefix('-').filter(|s| !s.is_empty()) {
+            let mut last = "";
+            let mut value_found = false;
+            for (i, c) in short.char_indices() {
+                last = &short[i..i + c.len_utf8()];
+                let rest = &short[i + c.len_utf8()..];
+                match takes_value(last) {
+                    None => unknown.push(last.to_owned()),
+                    Some(true) => {
+                        value_found = !rest.is_empty();
+                        break;
+                    }
+                    Some(false) if rest.starts_with('=') => break,
+                    Some(false) => {}
+                }
+            }
+            if !value_found {
+                parse_value(last, arg, &mut iter);
+            }
+        }
+    }
+    error.or(match unknown.as_slice() {
+        [] => None,
+        [name] => Some(tr!("QCommandLineParser", "Unknown option '{0}'.", name)),
+        names => Some(tr!(
+            "QCommandLineParser",
+            "Unknown options: {0}.",
+            names.join(", ")
+        )),
+    })
+}
+
 /// Converts a `clap` parse error into the error text of Qt's
 /// `QCommandLineParser::errorText()`.
 pub fn parse_error_text(err: &clap::Error) -> String {
@@ -208,6 +293,49 @@ pub fn parse_error_text(err: &clap::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_errors_like_qt() {
+        let options = vec![
+            HelpOption {
+                names: vec!["v".into(), "verbose".into()],
+                value_name: None,
+                description: String::new(),
+            },
+            HelpOption {
+                names: vec!["b".into(), "board".into()],
+                value_name: Some("name".into()),
+                description: String::new(),
+            },
+        ];
+        let error = |args: &[&str]| {
+            let args: Vec<String> = std::iter::once("cli")
+                .chain(args.iter().copied())
+                .map(str::to_owned)
+                .collect();
+            qt_parse_error(&args, &options)
+        };
+        let unknown = |names: &str| Some(format!("Unknown options: {names}."));
+        assert_eq!(error(&["--foo", "--bar=1", "x"]), unknown("foo, bar"));
+        assert_eq!(error(&["-xyz", "--foo"]), unknown("x, y, z, foo"));
+        assert_eq!(error(&["-abc"]), Some("Unknown option 'a'.".into()));
+        assert_eq!(error(&["-vx", "--board", "--foo", "-y"]), unknown("x, y"));
+        assert_eq!(error(&["-x"]), Some("Unknown option 'x'.".into()));
+        assert_eq!(error(&["--board=--foo", "-bvx", "-", "--", "--bar"]), None);
+        assert_eq!(
+            error(&["--foo", "--board"]),
+            Some("Missing value after '--board'.".into())
+        );
+        assert_eq!(error(&["-xvb"]), Some("Missing value after '-xvb'.".into()));
+        assert_eq!(
+            error(&["--verbose=1", "--foo"]),
+            Some("Unexpected value after '--verbose'.".into())
+        );
+        assert_eq!(
+            error(&["-v=1"]),
+            Some("Unexpected value after '-v'.".into())
+        );
+    }
 
     #[test]
     fn wrap_short_description() {
