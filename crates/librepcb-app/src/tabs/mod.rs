@@ -26,6 +26,7 @@ pub mod home;
 pub mod library;
 pub mod organization;
 pub mod package;
+pub mod project_library;
 pub mod schematic;
 pub mod schematic_view;
 pub mod symbol;
@@ -53,6 +54,7 @@ pub use library::LibraryTab;
 use librepcb_core::library::cat::{ComponentCategoryKind, PackageCategoryKind};
 pub use organization::OrganizationTab;
 pub use package::{PackageRowEvent, PackageRowSink, PackageTab};
+pub use project_library::ProjectLibraryTab;
 pub use schematic::SchematicTab;
 pub use symbol::{LibraryItemRef, SymbolTab};
 
@@ -105,6 +107,8 @@ pub enum Tab {
     PackageCategory(Box<CategoryTab<PackageCategoryKind>>),
     /// An organization editor.
     Organization(Box<OrganizationTab>),
+    /// The library manager of a project.
+    ProjectLibrary(Box<ProjectLibraryTab>),
 }
 
 /// Per-kind tab data written by the UI (short-lived, moved once: the size
@@ -287,6 +291,8 @@ pub enum TabRequest {
     /// Ask for the courtyard excess (package editor); the application calls
     /// [`Tab::generate_courtyard()`].
     CourtyardOffsetDialog,
+    /// Open the project library updater for a project file.
+    ProjectLibraryUpdater(librepcb_core::fileio::FilePath),
     /// Open the "move/align" dialog for these positions; the application
     /// calls [`Tab::move_align()`].
     MoveAlign {
@@ -372,6 +378,7 @@ impl Tab {
             Self::ComponentCategory(t) => t.id(),
             Self::PackageCategory(t) => t.id(),
             Self::Organization(t) => t.id(),
+            Self::ProjectLibrary(t) => t.id(),
         }
     }
 
@@ -491,6 +498,7 @@ impl Tab {
         match self {
             Self::Schematic(t) => Some(t.project()),
             Self::Board2d(t) => Some(t.project()),
+            Self::ProjectLibrary(t) => Some(t.project()),
             _ => None,
         }
     }
@@ -511,6 +519,7 @@ impl Tab {
             Self::ComponentCategory(t) => return t.ui_data(),
             Self::PackageCategory(t) => return t.ui_data(),
             Self::Organization(t) => return t.ui_data(),
+            Self::ProjectLibrary(t) => return t.ui_data(),
         };
         // The graphics export (PDF) is handled by the application (see
         // `outputs.rs`).
@@ -569,6 +578,7 @@ impl Tab {
             Self::ComponentCategory(t) => t.trigger(action),
             Self::PackageCategory(t) => t.trigger(action),
             Self::Organization(t) => t.trigger(action),
+            Self::ProjectLibrary(t) => t.trigger(action),
         };
         if action == ui::TabAction::Close && !matches!(self, Self::Home(_)) {
             return TabUpdate {
@@ -684,7 +694,8 @@ impl Tab {
             | Self::Library(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => slint::Image::default(),
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => slint::Image::default(),
             Self::Schematic(t) => t.render_scene(width, height, scale_factor),
             Self::Symbol(t) => t.render_scene(width, height, scale_factor),
             Self::Package(t) => t.render_scene(width, height, scale_factor),
@@ -716,7 +727,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => (false, TabUpdate::default()),
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => (false, TabUpdate::default()),
             Self::Schematic(t) => t.key_event(event, true),
             Self::Board2d(t) => t.key_event(event, true),
             Self::Symbol(t) => t.key_event(event, true),
@@ -736,7 +748,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => (false, TabUpdate::default()),
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => (false, TabUpdate::default()),
             Self::Schematic(t) => t.key_event(event, false),
             Self::Board2d(t) => t.key_event(event, false),
             Self::Symbol(t) => t.key_event(event, false),
@@ -755,7 +768,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => TabUpdate::default(),
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => TabUpdate::default(),
             Self::Schematic(t) => t.context_menu_action(index),
             Self::Board2d(t) => t.context_menu_action(index),
             Self::Symbol(t) => t.context_menu_action(index),
@@ -921,7 +935,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => None,
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => None,
             Self::Schematic(t) => Some(t.length_unit()),
             Self::Board2d(t) => Some(t.length_unit()),
             Self::Symbol(t) => Some(t.length_unit()),
@@ -942,7 +957,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => TabUpdate::default(),
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => TabUpdate::default(),
             Self::Schematic(t) => t.abort_blocking_tool(),
             Self::Board2d(t) => t.abort_blocking_tool(),
             Self::Symbol(t) => t.abort_tool(),
@@ -963,7 +979,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => None,
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => None,
             Self::Schematic(t) => Some(t.cross_probe()),
             Self::Board2d(t) => Some(t.cross_probe()),
         }
@@ -982,7 +999,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => TabUpdate::default(),
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => TabUpdate::default(),
             Self::Schematic(t) => t.set_cross_probe(probe),
             Self::Board2d(t) => t.set_cross_probe(probe),
         }
@@ -999,7 +1017,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => false,
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => false,
             Self::Schematic(t) => t.scrolled(pos, delta.into(), modifiers),
             Self::Board2d(t) => t.scrolled(pos, delta.into(), modifiers),
             Self::Symbol(t) => t.scrolled(pos, delta.into(), modifiers),
@@ -1043,7 +1062,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => {}
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => {}
             Self::Schematic(t) => t.bump_frame(),
             Self::Board2d(t) => t.bump_frame(),
             Self::Symbol(t) => t.bump_frame(),
@@ -1062,7 +1082,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => TabUpdate::default(),
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => TabUpdate::default(),
             Self::Schematic(t) => t.set_grid_style(schematic),
             Self::Board2d(t) => t.set_grid_style(board),
             Self::Symbol(t) => t.set_grid_style(schematic),
@@ -1083,7 +1104,8 @@ impl Tab {
             | Self::Device(_)
             | Self::ComponentCategory(_)
             | Self::PackageCategory(_)
-            | Self::Organization(_) => TabUpdate::default(),
+            | Self::Organization(_)
+            | Self::ProjectLibrary(_) => TabUpdate::default(),
             Self::Schematic(t) => t.rebuild_if_modified(),
             Self::Board2d(t) => t.rebuild_if_modified(),
         }

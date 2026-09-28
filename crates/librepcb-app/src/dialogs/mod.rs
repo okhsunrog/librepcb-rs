@@ -44,6 +44,7 @@ pub mod move_align;
 pub mod new_project;
 pub mod open_prompts;
 pub mod output;
+pub mod project_library_updater;
 pub mod review;
 pub mod schematic;
 pub mod setup;
@@ -164,6 +165,8 @@ pub enum AppRequest {
     ShowDialog(DialogKind),
     /// Rescan the workspace libraries.
     RescanLibraries,
+    /// Update the library of a project (project library updater).
+    UpdateProjectLibrary(librepcb_core::fileio::FilePath),
 }
 
 /// Dialogs which a dialog can open (see [`AppRequest::ShowDialog`]).

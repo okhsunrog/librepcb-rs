@@ -18,9 +18,11 @@ use librepcb_i18n::{tr, trn};
 use super::State;
 use crate::dialogs::new_project::{NewProjectMode, NewProjectWizard};
 use crate::dialogs::open_prompts::{DirectoryLockDialog, RestoreAutosaveDialog};
+use crate::dialogs::project_library_updater::ProjectLibraryUpdaterDialog;
 use crate::dialogs::{AppRequest, FormDialog};
 use crate::notifications::{Notification, NotificationButton};
 use crate::project::{AppProject, OpenOutcome, OpenRequest};
+use crate::tabs::{ProjectLibraryTab, Tab};
 
 const PE: &str = "ProjectEditor";
 
@@ -59,6 +61,7 @@ impl State {
             AppRequest::WorkspaceSettingsChanged => self.workspace_settings_changed(),
             AppRequest::ShowDialog(kind) => self.show_dialog_kind(kind),
             AppRequest::RescanLibraries => self.start_library_scan(),
+            AppRequest::UpdateProjectLibrary(fp) => self.update_project_library(&fp),
         }
     }
 
@@ -281,6 +284,99 @@ impl State {
     /// Applies modified workspace settings to the application.
     pub(crate) fn workspace_settings_changed(&mut self) {
         self.setup_autosave_timer();
+    }
+
+    /// Shows the project library updater (upstream
+    /// `GuiApplication::openProjectLibraryUpdater()`).
+    pub fn show_project_library_updater(&mut self, project: FilePath, log: &[String]) {
+        let dialog = ProjectLibraryUpdaterDialog::new(project, log);
+        self.show_app_dialog(Box::new(dialog));
+    }
+
+    /// Runs the project library updater: closes the project if it is open
+    /// (not if it has unsaved changes), updates its library and reopens
+    /// it with its library tab (upstream `btnUpdateClicked()` with the
+    /// close callback and `finishedUpdate()`).
+    pub fn update_project_library(&mut self, fp: &FilePath) {
+        const CTX: &str = "librepcb::editor::ProjectLibraryUpdater";
+        let mut log = Vec::new();
+        let open = self.projects.iter().find(|p| p.path() == fp).cloned();
+        if let Some(project) = &open {
+            log.push(tr!(CTX, "Ask to close project (confirm message box!)"));
+            if project.shared().lock().has_unsaved_changes() {
+                log.push(tr!(
+                    "ProjectEditor",
+                    "The project contains unsaved changes. Please save it first."
+                ));
+                log.push(tr!(CTX, "Abort."));
+                self.show_project_library_updater(fp.clone(), &log);
+                return;
+            }
+            self.close_project(project);
+        }
+        // Release the directory lock (the last reference to the project).
+        let was_open = open.is_some();
+        drop(open);
+        let db = self.workspace.lock().shared_library_db();
+        crate::dialogs::project_library_updater::update_project_library(&db, fp, &mut log);
+        if was_open && let Some(index) = self.open_project(fp) {
+            self.open_project_library_tab(index);
+        }
+        self.show_project_library_updater(fp.clone(), &log);
+    }
+
+    /// Opens (or switches to) the library tab of a project (upstream
+    /// `MainWindow::openProjectLibraryTab()`).
+    pub fn open_project_library_tab(&mut self, index: usize) {
+        let Some(project) = self.projects.get(index).cloned() else {
+            return;
+        };
+        let existing = self.find_tab_where(
+            |t| matches!(t, Tab::ProjectLibrary(t) if Rc::ptr_eq(t.project(), &project)),
+        );
+        if let Some((sec, index)) = existing {
+            self.set_current_tab(sec, index as i32, true);
+            return;
+        }
+        let mut tab = ProjectLibraryTab::new(project);
+        tab.refresh(self.workspace.lock().library_db());
+        let id = tab.id();
+        let w = self.this.clone();
+        tab.items_model().set_handler(move |row, data| {
+            super::deferred(&w, move |s| {
+                if let Some((sec, index)) = s.find_tab(id)
+                    && let Some(Tab::ProjectLibrary(t)) = s.sections[sec].tab_mut(index)
+                {
+                    let update = t.item_written(row, &data);
+                    s.apply_update(sec, index, update);
+                }
+            });
+        });
+        self.add_tab(Tab::ProjectLibrary(Box::new(tab)));
+    }
+
+    /// Refreshes the project library tabs (after project modifications,
+    /// or `reset` after a library rescan).
+    pub(crate) fn refresh_project_library_tabs(&mut self, reset: bool) {
+        let db = self.workspace.lock().shared_library_db();
+        for si in 0..self.sections.len() {
+            for ti in 0..self.sections[si].tabs().len() {
+                if let Tab::ProjectLibrary(t) = &mut self.sections[si].tabs_mut()[ti] {
+                    if t.project().shared().try_lock().is_none() {
+                        continue;
+                    }
+                    let changed = if reset {
+                        t.reset(&db);
+                        true
+                    } else {
+                        t.refresh_if_modified(&db)
+                    };
+                    if changed {
+                        self.sections[si].refresh_tab(ti, &self.projects);
+                    }
+                }
+            }
+        }
     }
 
     fn show_dialog_kind(&mut self, kind: crate::dialogs::DialogKind) {

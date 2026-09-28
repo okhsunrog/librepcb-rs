@@ -214,6 +214,9 @@ impl State {
                 | TabRequest::DesignRulesName { .. }
                 | TabRequest::ConfirmClose { .. }
                 | TabRequest::DuplicateLibraryElement => self.apply_library_request(id, request),
+                TabRequest::ProjectLibraryUpdater(fp) => {
+                    self.show_project_library_updater(fp, &[]);
+                }
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {
                         continue;

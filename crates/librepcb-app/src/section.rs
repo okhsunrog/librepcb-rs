@@ -49,6 +49,8 @@ pub struct DerivedModels {
     pub device: Rc<UiModel<ui::DeviceTabData>>,
     /// `organization-tabs`.
     pub organization: Rc<UiModel<ui::OrganizationTabData>>,
+    /// `project-library-tabs`.
+    pub project_library: Rc<UiModel<ui::ProjectLibraryTabData>>,
 }
 
 /// Calls `$m!(field)` for every model of [`DerivedModels`].
@@ -66,6 +68,7 @@ macro_rules! for_each_model {
         $m!(component);
         $m!(device);
         $m!(organization);
+        $m!(project_library);
     };
 }
 
@@ -105,6 +108,7 @@ impl DerivedModels {
             Tab::ComponentCategory(t) => self.component_category.set(index, t.derived_ui_data()),
             Tab::PackageCategory(t) => self.package_category.set(index, t.derived_ui_data()),
             Tab::Organization(t) => self.organization.set(index, t.derived_ui_data()),
+            Tab::ProjectLibrary(t) => self.project_library.set(index, t.derived_ui_data(projects)),
         }
     }
 }
@@ -154,6 +158,7 @@ impl WindowSection {
             component_tabs: model_rc(&d.component),
             device_tabs: model_rc(&d.device),
             organization_tabs: model_rc(&d.organization),
+            project_library_tabs: model_rc(&d.project_library),
             schematic_tabs: model_rc(&d.schematic),
             board_2d_tabs: model_rc(&d.board),
             current_tab_index: self.current,

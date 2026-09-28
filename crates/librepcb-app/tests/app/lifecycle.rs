@@ -357,3 +357,119 @@ fn project_lifecycle_in_app() {
         );
     });
 }
+
+#[test]
+fn project_library_updater() {
+    crate::common::with_headless(W, H, |headless| {
+        let save = |name: &str| {
+            let pixels = headless.settle(20);
+            let path = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
+            write_png(&path, W, H, &pixels).unwrap();
+            println!("screenshot: {}", path.display());
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let workspace = startup::open_workspace(&tmp.path().join("workspace")).unwrap();
+        let lib = workspace
+            .local_libraries_path()
+            .path_to("Populated Library.lplib");
+        file_utils::copy_dir_recursively(
+            &fp(&Path::new(env!("LIBREPCB_UPSTREAM_DIR"))
+                .join("tests/data/libraries/Populated Library.lplib")),
+            &lib,
+        )
+        .unwrap();
+        workspace
+            .library_db()
+            .rescan(&std::sync::atomic::AtomicBool::new(false), &mut |_| {})
+            .unwrap();
+        // A project whose component is newer than the workspace library's.
+        let dir = workspace.projects_path().path_to("prj");
+        std::fs::create_dir_all(dir.as_path()).unwrap();
+        let lpp = {
+            let (project, _, _) = crate::common::create_project(dir.as_path());
+            project.path().clone()
+        };
+        let cmp = dir.path_to(&format!(
+            "library/cmp/{}/component.lp",
+            crate::common::RESISTOR
+        ));
+        let content = std::fs::read_to_string(cmp.as_path()).unwrap();
+        std::fs::write(
+            cmp.as_path(),
+            content.replace("(version \"0.1\")", "(version \"99\")"),
+        )
+        .unwrap();
+
+        librepcb_i18n::set_language("en").unwrap();
+        let window = ui::AppWindow::new().unwrap();
+        slint::select_bundled_translation("en").unwrap();
+        let app = App::new(window, workspace);
+        app.window().show().unwrap();
+        let data = app.window().global::<ui::Data>();
+        let dialogs = app.window().global::<ui::Dialogs>();
+        let backend = app.window().global::<ui::Backend>();
+        headless.run_until(std::time::Duration::from_secs(20), || {
+            !data.get_libraries_rescan_in_progress()
+        });
+        assert_eq!(app.open_project(lpp.as_path()), Some(0));
+        backend.invoke_trigger_project(0, ui::ProjectAction::OpenLibraryManager);
+        headless.settle(10);
+        let tab_data = || {
+            let section = data.get_sections().row_data(0).unwrap();
+            let index = section.current_tab_index as usize;
+            section.project_library_tabs.row_data(index).unwrap()
+        };
+        let t = tab_data();
+        assert_eq!(t.project_index, 0);
+        assert_eq!(t.downgraded_items, 1);
+        let items: Vec<_> = (0..t.items.row_count())
+            .filter_map(|i| t.items.row_data(i))
+            .collect();
+        assert!(items.len() >= 4, "{}", items.len());
+        let cmp_item = items
+            .iter()
+            .find(|i| i.path.ends_with(crate::common::RESISTOR))
+            .unwrap();
+        assert_eq!(cmp_item.version, "99.0.0");
+        assert_eq!(cmp_item.latest_version, "0.1.0");
+        assert!(cmp_item.downgrade);
+        assert_eq!(cmp_item.library_name, "Populated Library");
+        save("lifecycle_project_library.png");
+
+        // "Update All Elements...": the updater dialog.
+        let tab = data.get_sections().row_data(0).unwrap().current_tab_index;
+        backend.invoke_trigger_tab(0, tab, ui::TabAction::Apply);
+        headless.settle(5);
+        assert_eq!(dialogs.get_form_title(), "Project Library Updater");
+        dialogs.invoke_form_button(1); // Update
+        headless.settle(20);
+        assert_eq!(dialogs.get_form_title(), "Project Library Updater");
+        save("lifecycle_project_library_updated.png");
+        let fields = dialogs.get_form_fields();
+        let log: Vec<String> = (0..fields.row_count())
+            .filter_map(|i| fields.row_data(i))
+            .find(|f| f.id == "log")
+            .map(|f| {
+                (0..f.items.row_count())
+                    .filter_map(|i| f.items.row_data(i))
+                    .map(|i| i.text.to_string())
+                    .collect()
+            })
+            .unwrap();
+        assert!(
+            log.iter()
+                .any(|l| l == "[SUCCESS] All library elements updated."),
+            "{log:?}"
+        );
+        assert!(log.iter().any(|l| l.starts_with("Update library/cmp/")));
+        // The project was reopened with its library tab, now up to date.
+        assert_eq!(app.state().borrow().projects().len(), 1);
+        let t = tab_data();
+        assert_eq!(t.downgraded_items, 0);
+        let content = std::fs::read_to_string(cmp.as_path()).unwrap();
+        assert!(content.contains("(version \"0.1\")"));
+        dialogs.invoke_form_button(-1); // Close
+        headless.settle(2);
+        assert!(!dialogs.get_form_shown());
+    });
+}

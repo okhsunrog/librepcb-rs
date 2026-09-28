@@ -669,6 +669,21 @@ impl State {
         connect!(package_category, PackageCategory);
         connect!(organization, Organization);
         let w = self.this.clone();
+        derived
+            .project_library
+            .set_handler(move |row, data: ui::ProjectLibraryTabData| {
+                deferred(&w, move |s| {
+                    let local = s.workspace.lock().local_libraries_path().clone();
+                    if let Some(i) = find(s)
+                        && let Some(crate::tabs::Tab::ProjectLibrary(t)) =
+                            s.sections[i].tab_mut(row)
+                    {
+                        let update = t.set_derived_ui_data(&data, &local);
+                        s.apply_update(i, row, update);
+                    }
+                });
+            });
+        let w = self.this.clone();
         schematic.set_handler(move |row, data: ui::SchematicTabData| {
             deferred(&w, move |s| {
                 if let Some(i) = find(s)
@@ -1054,6 +1069,11 @@ impl State {
                 }
                 self.refresh_project(&project);
             }
+            ui::ProjectAction::OpenLibraryManager => {
+                if let Ok(index) = usize::try_from(index) {
+                    self.open_project_library_tab(index);
+                }
+            }
             ui::ProjectAction::OpenSetupDialog => {
                 let dialog = crate::dialogs::setup::ProjectSetupDialog::new(&project);
                 self.show_form_dialog(project, Box::new(dialog));
@@ -1179,6 +1199,7 @@ impl State {
             }
         }
         self.schedule_rule_checks();
+        self.refresh_project_library_tabs(false);
     }
 
     pub(crate) fn set_theme(&mut self, theme: UiTheme) {
@@ -1210,6 +1231,7 @@ impl State {
                 if ok {
                     s.refresh_libraries();
                     s.refresh_library_tabs();
+                    s.refresh_project_library_tabs(true);
                 }
             });
         });
