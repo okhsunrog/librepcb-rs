@@ -13,6 +13,7 @@
 
 pub mod board_2d;
 pub mod board_view;
+pub mod component;
 pub mod create_library;
 pub mod download_library;
 pub mod editing;
@@ -38,6 +39,7 @@ use librepcb_editor::fsm::schematic::{ComponentChoice, SchematicTool};
 use slint::language::{PointerEvent, PointerEventButton, PointerEventKind};
 
 pub use board_2d::Board2dTab;
+pub use component::{ComponentRowEvent, ComponentRowSink, ComponentTab};
 pub use create_library::CreateLibraryTab;
 pub use download_library::DownloadLibraryTab;
 pub use library::LibraryTab;
@@ -84,6 +86,8 @@ pub enum Tab {
     Symbol(Box<SymbolTab>),
     /// A package editor.
     Package(Box<PackageTab>),
+    /// A component editor.
+    Component(Box<ComponentTab>),
 }
 
 /// Per-kind tab data written by the UI (short-lived, moved once: the size
@@ -101,6 +105,8 @@ pub enum DerivedWrite {
     Symbol(ui::SymbolTabData),
     /// `PackageTabData`.
     Package(ui::PackageTabData),
+    /// `ComponentTabData`.
+    Component(ui::ComponentTabData),
 }
 
 /// What an event or action changed in a tab.
@@ -262,6 +268,11 @@ pub enum TabRequest {
         /// Positions of the selected items.
         positions: Vec<librepcb_core::types::Point>,
     },
+    /// Choose a library element (chooser dialog); the application calls
+    /// [`Tab::element_chosen()`].
+    ChooseElement(crate::dialogs::chooser::ChooserPurpose),
+    /// Open a URL (e.g. a datasheet) in the browser.
+    OpenUrl(String),
 }
 
 /// The item of a properties dialog request.
@@ -310,6 +321,7 @@ impl Tab {
             Self::Library(t) => t.id(),
             Self::Symbol(t) => t.id(),
             Self::Package(t) => t.id(),
+            Self::Component(t) => t.id(),
         }
     }
 
@@ -318,6 +330,7 @@ impl Tab {
         match self {
             Self::Symbol(t) => t.check_row_written(row, data),
             Self::Package(t) => t.check_row_written(row, data),
+            Self::Component(t) => t.check_row_written(row, data),
             _ => TabUpdate::default(),
         }
     }
@@ -331,6 +344,7 @@ impl Tab {
         match self {
             Self::Symbol(t) => t.category_row_written(row, data),
             Self::Package(t) => t.category_row_written(row, data),
+            Self::Component(t) => t.category_row_written(row, data),
             _ => TabUpdate::default(),
         }
     }
@@ -354,6 +368,7 @@ impl Tab {
             Self::Library(t) => t.set_library_index(index),
             Self::Symbol(t) => t.set_library_index(index),
             Self::Package(t) => t.set_library_index(index),
+            Self::Component(t) => t.set_library_index(index),
             _ => {}
         }
     }
@@ -365,6 +380,7 @@ impl Tab {
             Self::Library(t) => Some(t.library().path().clone()),
             Self::Symbol(t) => Some(t.core().directory_path()),
             Self::Package(t) => Some(t.core().directory_path()),
+            Self::Component(t) => Some(t.core().directory_path()),
             _ => None,
         }
     }
@@ -375,6 +391,7 @@ impl Tab {
             Self::Library(t) => Some(t.library()),
             Self::Symbol(t) => Some(&t.core().library),
             Self::Package(t) => Some(&t.core().library),
+            Self::Component(t) => Some(&t.core().library),
             _ => None,
         }
     }
@@ -389,6 +406,7 @@ impl Tab {
             (Self::Library(t), DerivedWrite::Library(d)) => t.set_derived_ui_data(&d),
             (Self::Symbol(t), DerivedWrite::Symbol(d)) => t.set_derived_ui_data(&d),
             (Self::Package(t), DerivedWrite::Package(d)) => t.set_derived_ui_data(&d),
+            (Self::Component(t), DerivedWrite::Component(d)) => t.set_derived_ui_data(&d),
             _ => TabUpdate::default(),
         }
     }
@@ -413,6 +431,7 @@ impl Tab {
             Self::Library(t) => return t.ui_data(),
             Self::Symbol(t) => return t.ui_data(),
             Self::Package(t) => return t.ui_data(),
+            Self::Component(t) => return t.ui_data(),
         };
         // The graphics export (PDF) is handled by the application (see
         // `outputs.rs`).
@@ -458,6 +477,7 @@ impl Tab {
             Self::Library(t) => t.trigger(action),
             Self::Symbol(t) => t.trigger(action),
             Self::Package(t) => t.trigger(action),
+            Self::Component(t) => t.trigger(action),
         };
         if action == ui::TabAction::Close && !matches!(self, Self::Home(_)) {
             return TabUpdate {
@@ -469,8 +489,15 @@ impl Tab {
     }
 
     /// Renders the scene for `Backend.render-scene`.
-    pub fn render_scene(&mut self, width: f32, height: f32, scale_factor: f32) -> slint::Image {
+    pub fn render_scene(
+        &mut self,
+        width: f32,
+        height: f32,
+        scale_factor: f32,
+        scene: i32,
+    ) -> slint::Image {
         match self {
+            Self::Component(t) => t.render_scene(width, height, scale_factor, scene),
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
@@ -501,7 +528,8 @@ impl Tab {
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
-            | Self::Library(_) => (false, TabUpdate::default()),
+            | Self::Library(_)
+            | Self::Component(_) => (false, TabUpdate::default()),
             Self::Schematic(t) => t.key_event(event, true),
             Self::Board2d(t) => t.key_event(event, true),
             Self::Symbol(t) => t.key_event(event, true),
@@ -516,7 +544,8 @@ impl Tab {
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
-            | Self::Library(_) => (false, TabUpdate::default()),
+            | Self::Library(_)
+            | Self::Component(_) => (false, TabUpdate::default()),
             Self::Schematic(t) => t.key_event(event, false),
             Self::Board2d(t) => t.key_event(event, false),
             Self::Symbol(t) => t.key_event(event, false),
@@ -530,7 +559,8 @@ impl Tab {
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
-            | Self::Library(_) => TabUpdate::default(),
+            | Self::Library(_)
+            | Self::Component(_) => TabUpdate::default(),
             Self::Schematic(t) => t.context_menu_action(index),
             Self::Board2d(t) => t.context_menu_action(index),
             Self::Symbol(t) => t.context_menu_action(index),
@@ -597,6 +627,26 @@ impl Tab {
         }
     }
 
+    /// The answer of [`TabRequest::ChooseElement`].
+    pub fn element_chosen(
+        &mut self,
+        purpose: crate::dialogs::chooser::ChooserPurpose,
+        uuid: Uuid,
+    ) -> TabUpdate {
+        match self {
+            Self::Component(t) => t.element_chosen(purpose, uuid),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// A row of a component tab's list models was written by the UI.
+    pub fn component_row_written(&mut self, event: ComponentRowEvent) -> TabUpdate {
+        match self {
+            Self::Component(t) => t.row_written(event),
+            _ => TabUpdate::default(),
+        }
+    }
+
     /// A row of a package tab's list models was written by the UI.
     pub fn package_row_written(&mut self, event: PackageRowEvent) -> TabUpdate {
         match self {
@@ -630,7 +680,8 @@ impl Tab {
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
-            | Self::Library(_) => None,
+            | Self::Library(_)
+            | Self::Component(_) => None,
             Self::Schematic(t) => Some(t.length_unit()),
             Self::Board2d(t) => Some(t.length_unit()),
             Self::Symbol(t) => Some(t.length_unit()),
@@ -646,7 +697,8 @@ impl Tab {
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
-            | Self::Library(_) => TabUpdate::default(),
+            | Self::Library(_)
+            | Self::Component(_) => TabUpdate::default(),
             Self::Schematic(t) => t.abort_blocking_tool(),
             Self::Board2d(t) => t.abort_blocking_tool(),
             Self::Symbol(t) => t.abort_tool(),
@@ -662,7 +714,8 @@ impl Tab {
             | Self::DownloadLibrary(_)
             | Self::Library(_)
             | Self::Symbol(_)
-            | Self::Package(_) => None,
+            | Self::Package(_)
+            | Self::Component(_) => None,
             Self::Schematic(t) => Some(t.cross_probe()),
             Self::Board2d(t) => Some(t.cross_probe()),
         }
@@ -676,7 +729,8 @@ impl Tab {
             | Self::DownloadLibrary(_)
             | Self::Library(_)
             | Self::Symbol(_)
-            | Self::Package(_) => TabUpdate::default(),
+            | Self::Package(_)
+            | Self::Component(_) => TabUpdate::default(),
             Self::Schematic(t) => t.set_cross_probe(probe),
             Self::Board2d(t) => t.set_cross_probe(probe),
         }
@@ -688,7 +742,8 @@ impl Tab {
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
-            | Self::Library(_) => false,
+            | Self::Library(_)
+            | Self::Component(_) => false,
             Self::Schematic(t) => t.scrolled(pos, delta.into(), modifiers),
             Self::Board2d(t) => t.scrolled(pos, delta.into(), modifiers),
             Self::Symbol(t) => t.scrolled(pos, delta.into(), modifiers),
@@ -727,7 +782,8 @@ impl Tab {
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
-            | Self::Library(_) => {}
+            | Self::Library(_)
+            | Self::Component(_) => {}
             Self::Schematic(t) => t.bump_frame(),
             Self::Board2d(t) => t.bump_frame(),
             Self::Symbol(t) => t.bump_frame(),
@@ -741,7 +797,8 @@ impl Tab {
             Self::Home(_)
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
-            | Self::Library(_) => TabUpdate::default(),
+            | Self::Library(_)
+            | Self::Component(_) => TabUpdate::default(),
             Self::Schematic(t) => t.set_grid_style(schematic),
             Self::Board2d(t) => t.set_grid_style(board),
             Self::Symbol(t) => t.set_grid_style(schematic),
@@ -757,7 +814,8 @@ impl Tab {
             | Self::DownloadLibrary(_)
             | Self::Library(_)
             | Self::Symbol(_)
-            | Self::Package(_) => TabUpdate::default(),
+            | Self::Package(_)
+            | Self::Component(_) => TabUpdate::default(),
             Self::Schematic(t) => t.rebuild_if_modified(),
             Self::Board2d(t) => t.rebuild_if_modified(),
         }

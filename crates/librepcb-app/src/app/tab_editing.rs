@@ -208,6 +208,8 @@ impl State {
                 | TabRequest::ChooseStepFile { .. }
                 | TabRequest::CourtyardOffsetDialog
                 | TabRequest::MoveAlign { .. }
+                | TabRequest::ChooseElement(_)
+                | TabRequest::OpenUrl(_)
                 | TabRequest::DuplicateLibraryElement => self.apply_library_request(id, request),
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {

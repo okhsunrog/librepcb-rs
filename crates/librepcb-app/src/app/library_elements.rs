@@ -11,6 +11,7 @@ use std::rc::Rc;
 
 use librepcb_app_ui as ui;
 use librepcb_core::fileio::FilePath;
+use librepcb_core::library::cmp::Component;
 use librepcb_core::library::pkg::Package;
 use librepcb_core::library::sym::Symbol;
 use librepcb_i18n::tr;
@@ -19,7 +20,10 @@ use slint::ComponentHandle;
 use super::{State, deferred};
 use crate::open_library::OpenLibrary;
 use crate::tabs::element_core::{ElementCore, ElementKindInfo, OpenMode};
-use crate::tabs::{LibraryItemRef, PackageRowEvent, PackageTab, SymbolTab, Tab, TabId, TabUpdate};
+use crate::tabs::{
+    ComponentRowEvent, ComponentTab, LibraryItemRef, PackageRowEvent, PackageTab, SymbolTab, Tab,
+    TabId, TabUpdate,
+};
 
 impl State {
     /// Opens (or duplicates) a library element in its editor tab.
@@ -171,6 +175,18 @@ impl State {
                 });
                 Tab::Package(Box::new(PackageTab::new(core, style, sink).with_id(id)))
             }
+            ui::LibraryTreeViewItemType::Component => {
+                let Some(core) = self.element_core::<Component>(id, lib, relative, mode) else {
+                    return;
+                };
+                let w = self.this.clone();
+                let sink = Rc::new(move |event: ComponentRowEvent| {
+                    deferred(&w, move |s| {
+                        s.element_tab_event(id, |t| t.component_row_written(event));
+                    });
+                });
+                Tab::Component(Box::new(ComponentTab::new(core, sink).with_id(id)))
+            }
             other => {
                 self.not_implemented(&format!("{other:?}"));
                 return;
@@ -217,6 +233,14 @@ impl State {
                 (
                     Rc::clone(&t.core().library),
                     ui::LibraryTreeViewItemType::Package,
+                    t.core().directory_path(),
+                )
+            }
+            Tab::Component(t) => {
+                t.core_mut().element_duplicated = true;
+                (
+                    Rc::clone(&t.core().library),
+                    ui::LibraryTreeViewItemType::Component,
                     t.core().directory_path(),
                 )
             }
@@ -323,6 +347,23 @@ impl State {
             FootprintObject::Hole(hole) => Box::new(FootprintHoleDialog::new(fpt, hole, unit)),
             FootprintObject::Zone(zone) => Box::new(FootprintZoneDialog::new(fpt, zone, unit)),
         })
+    }
+
+    /// Opens a library element chooser dialog for a tab.
+    pub(crate) fn open_element_chooser(
+        &mut self,
+        tab: TabId,
+        purpose: crate::dialogs::chooser::ChooserPurpose,
+    ) {
+        let (db, locales) = {
+            let ws = self.workspace.lock();
+            (
+                ws.shared_library_db(),
+                ws.settings().library_locale_order.get().clone(),
+            )
+        };
+        let dialog = crate::dialogs::chooser::ElementChooserDialog::new(purpose, db, locales);
+        self.open_library_dialog(Some(tab), Box::new(dialog));
     }
 
     /// Opens the "courtyard excess" dialog of a package tab.

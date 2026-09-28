@@ -409,7 +409,7 @@ impl App {
         // Scene rendering and events.
         let w = weak.clone();
         let win = self.window.as_weak();
-        b.on_render_scene(move |section, width, height, _scene, _frame| {
+        b.on_render_scene(move |section, width, height, scene, _frame| {
             let scale = win.upgrade().map_or(1.0, |w| w.window().scale_factor());
             let Some(s) = w.upgrade() else {
                 return slint::Image::default();
@@ -421,7 +421,7 @@ impl App {
                 .ok()
                 .and_then(|i| s.sections.get_mut(i))
                 .and_then(WindowSection::current_tab_mut)
-                .map(|t| t.render_scene(width, height, scale))
+                .map(|t| t.render_scene(width, height, scale, scene))
                 .unwrap_or_default()
         });
         let w = weak.clone();
@@ -651,6 +651,7 @@ impl State {
         connect!(library, Library);
         connect!(symbol, Symbol);
         connect!(package, Package);
+        connect!(component, Component);
         let w = self.this.clone();
         schematic.set_handler(move |row, data: ui::SchematicTabData| {
             deferred(&w, move |s| {

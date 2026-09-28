@@ -58,6 +58,9 @@ pub trait ElementKindInfo: EditableElement + Sized {
     fn save_title() -> String;
     /// The page of the editor (after the wizard pages).
     const EDITOR_PAGE: i32;
+    /// Whether the editor page is still part of the wizard (components:
+    /// adding gates creates signals).
+    const WIZARD_ON_EDITOR_PAGE: bool = false;
     /// The name of new elements (upstream `MainWindow::openNew*Tab()`, not
     /// translated).
     const NEW_NAME: &'static str;
@@ -67,6 +70,8 @@ macro_rules! kind_info {
     ($ty:ty, $kind:ident, $cat:ident, $tab:ident, $check:ident, $page:expr, $ctx:literal, $name:literal, $new:expr) => {
         impl ElementKindInfo for $ty {
             const EDITOR_PAGE: i32 = $page;
+            const WIZARD_ON_EDITOR_PAGE: bool =
+                matches!(ElementKind::$kind, ElementKind::Component);
             const NEW_NAME: &'static str = $name;
             const KIND: ElementKind = ElementKind::$kind;
             const CATEGORY_KIND: ElementKind = ElementKind::$cat;
@@ -511,7 +516,9 @@ impl<E: ElementKindInfo> ElementCore<E> {
                 // `PackageTab`/`ComponentTab::trigger(Next)`).
                 update.requests.extend(self.commit_metadata());
                 if self.wizard_mode {
-                    if self.page_index + 1 < E::EDITOR_PAGE {
+                    if self.page_index + 1 < E::EDITOR_PAGE
+                        || (E::WIZARD_ON_EDITOR_PAGE && self.page_index + 1 == E::EDITOR_PAGE)
+                    {
                         self.page_index += 1;
                     } else {
                         self.wizard_mode = false;

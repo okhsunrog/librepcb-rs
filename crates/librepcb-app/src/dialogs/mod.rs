@@ -35,6 +35,7 @@ macro_rules! form_accessors {
 pub mod add_component;
 pub mod attributes;
 pub mod board;
+pub mod chooser;
 pub mod form;
 pub mod geometry;
 pub mod library;
@@ -154,6 +155,8 @@ pub enum TabDialogResult {
     ImportPins(Vec<librepcb_core::types::CircuitIdentifier>),
     /// The excess of the "generate courtyard" dialog.
     CourtyardOffset(librepcb_core::types::PositiveLength),
+    /// A library element chosen in a chooser dialog.
+    ElementChosen(chooser::ChooserPurpose, librepcb_core::types::Uuid),
 }
 
 /// Buttons and size of a form dialog.

@@ -302,6 +302,9 @@ impl State {
                 crate::tabs::Tab::Symbol(t) => t.import_pins(names),
                 _ => return,
             },
+            TabDialogResult::ElementChosen(purpose, uuid) => {
+                self.sections[si].tabs_mut()[ti].element_chosen(purpose, uuid)
+            }
             TabDialogResult::CourtyardOffset(offset) => {
                 self.sections[si].tabs_mut()[ti].generate_courtyard(offset)
             }

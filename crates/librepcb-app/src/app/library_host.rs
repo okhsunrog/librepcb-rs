@@ -312,6 +312,12 @@ impl State {
             TabRequest::ChooseStepFile { model } => self.choose_step_file(tab, model),
             TabRequest::CourtyardOffsetDialog => self.open_courtyard_offset_dialog(tab),
             TabRequest::MoveAlign { positions } => self.open_move_align_dialog(tab, positions),
+            TabRequest::ChooseElement(purpose) => self.open_element_chooser(tab, purpose),
+            TabRequest::OpenUrl(url) => {
+                if let Err(e) = open::that_detached(&url) {
+                    log::warn!("Failed to open {url}: {e}");
+                }
+            }
             _ => {}
         }
     }

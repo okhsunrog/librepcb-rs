@@ -111,7 +111,7 @@ pub fn open_from_library_tab(app: &App, headless: &Headless, lib: &FilePath, dir
 /// Clicks at a position (world coordinates) of a scene tab.
 fn click_at(t: &mut Tab, p: Point) {
     use librepcb_canvas::{Modifiers, PointerButton, PointerKind};
-    let _ = t.render_scene(1000.0, 800.0, 1.0);
+    let _ = t.render_scene(1000.0, 800.0, 1.0, 0);
     let world = librepcb_app::tabs::editing::point_to_world(p);
     let (sec_pos, update) = match t {
         Tab::Package(t) => {
@@ -438,6 +438,240 @@ fn package_editor() {
         });
         trigger(ui::TabAction::ZoomFit);
         save(headless, "element_package_new.png");
+    });
+}
+
+/// The diode component of the upstream test library.
+pub const DIODE_COMPONENT: &str = "0ca0993c-bf55-4529-865b-849ef898b28a";
+
+/// Chooses the element named `name` in the open chooser dialog and
+/// accepts it.
+pub fn choose_in_dialog(app: &App, headless: &Headless, name: &str) {
+    let forms = app.window().global::<ui::Dialogs>();
+    assert!(forms.get_form_shown(), "chooser dialog shown");
+    {
+        let mut state = app.state().borrow_mut();
+        let dialog = state.form_dialog().unwrap();
+        let form = dialog.dialog.form_mut();
+        let items = form.field("list").unwrap().items;
+        let row = (0..items.row_count())
+            .find(|i| items.row_data(*i).unwrap().text == name)
+            .unwrap_or_else(|| panic!("{name} listed"));
+        form.edit("list", |f| f.index = row as i32);
+    }
+    forms.invoke_form_button(-1);
+    headless.settle(10);
+    assert!(!forms.get_form_shown());
+}
+
+#[test]
+fn component_editor() {
+    crate::common::with_headless(W, H, |headless| {
+        let tmp = tempfile::tempdir().unwrap();
+        let (app, lib) = app_with_library(headless, tmp.path());
+        let backend = app.window().global::<ui::Backend>();
+        let data = app.window().global::<ui::Data>();
+        let cmp_dir = lib.path_to(&format!("cmp/{DIODE_COMPONENT}"));
+        open_from_library_tab(&app, headless, &lib, &cmp_dir);
+        let tab = find_tab(&app, |t| matches!(t, Tab::Component(_))).expect("component tab");
+        let derived = || {
+            with_tab(&app, tab, |t| {
+                let Tab::Component(c) = t else { unreachable!() };
+                c.derived_ui_data()
+            })
+        };
+        // What the UI shows.
+        {
+            let sections = data.get_sections();
+            let d = sections
+                .row_data(tab.0)
+                .unwrap()
+                .component_tabs
+                .row_data(tab.1)
+                .unwrap();
+            assert_eq!(d.name, "Diode");
+            assert_eq!(d.page_index, 2);
+            assert_eq!(d.variants.row_count(), 1);
+            let gates = d.variants.row_data(0).unwrap().gates;
+            assert_eq!(gates.row_count(), 1);
+            let gate = gates.row_data(0).unwrap();
+            assert_eq!(gate.pinout.row_count(), 2);
+            assert!(!gate.symbol_name.is_empty());
+            assert!(d.signal_names.row_count() >= 3, "unconnected + signals");
+        }
+        // The symbol preview renders.
+        let image = with_tab(&app, tab, |t| t.render_scene(300.0, 200.0, 1.0, 0));
+        assert_eq!(image.size().width, 300);
+        save(headless, "element_component.png");
+        for (page, name) in [(0, "metadata"), (1, "signals")] {
+            with_tab(&app, tab, |t| {
+                let Tab::Component(c) = t else { unreachable!() };
+                let mut d = c.derived_ui_data();
+                d.page_index = page;
+                c.set_derived_ui_data(&d);
+            });
+            backend.invoke_trigger_tab(tab.0 as i32, tab.1 as i32, ui::TabAction::Apply);
+            headless.settle(10);
+            save(headless, &format!("element_component_{name}.png"));
+        }
+
+        // Signals: add a range, rename one through the list.
+        let signals_before = derived().cmp_signals.row_count();
+        with_tab(&app, tab, |t| {
+            let Tab::Component(c) = t else { unreachable!() };
+            let mut d = c.derived_ui_data();
+            d.new_signal_name = "X1..2".into();
+            c.set_derived_ui_data(&d);
+            assert_eq!(c.derived_ui_data().new_signal_name_error, "");
+            t.trigger(ui::TabAction::ComponentAddSignals);
+            // Adding signals breaks the interface.
+            t.trigger(ui::TabAction::Unlock);
+        });
+        let d = derived();
+        assert_eq!(d.cmp_signals.row_count(), signals_before + 2);
+        let row = (0..d.cmp_signals.row_count())
+            .find(|i| d.cmp_signals.row_data(*i).unwrap().name == "X1")
+            .unwrap();
+        let mut r = d.cmp_signals.row_data(row).unwrap();
+        r.name = "Y1".into();
+        r.forced_net_name = "GND".into();
+        d.cmp_signals.set_row_data(row, r);
+        headless.settle(5);
+        backend.invoke_trigger_tab(tab.0 as i32, tab.1 as i32, ui::TabAction::Apply);
+        headless.settle(5);
+        let (names, forced) = with_tab(&app, tab, |t| {
+            let Tab::Component(c) = t else { unreachable!() };
+            let cmp = c.core().editor.element();
+            let names: Vec<String> = cmp.signals().iter().map(|s| s.name().to_string()).collect();
+            let forced = cmp
+                .signals()
+                .iter()
+                .find(|s| s.name().as_str() == "Y1")
+                .map(|s| s.forced_net_name().clone());
+            (names, forced)
+        });
+        assert!(names.contains(&"Y1".to_owned()), "{names:?}");
+        assert_eq!(forced.as_deref(), Some("GND"));
+
+        // Pinout: disconnect the first pin.
+        let d = derived();
+        let pinout = d
+            .variants
+            .row_data(0)
+            .unwrap()
+            .gates
+            .row_data(0)
+            .unwrap()
+            .pinout;
+        let mut p = pinout.row_data(0).unwrap();
+        assert!(p.signal_index > 0);
+        p.signal_index = 0;
+        pinout.set_row_data(0, p);
+        headless.settle(5);
+        let unconnected = with_tab(&app, tab, |t| {
+            let Tab::Component(c) = t else { unreachable!() };
+            let cmp = c.core().editor.element();
+            let gate = cmp.symbol_variants().iter().next().unwrap();
+            let gate = gate.symbol_items().iter().next().unwrap();
+            gate.pin_signal_map()
+                .iter()
+                .next()
+                .unwrap()
+                .signal_uuid()
+                .is_none()
+        });
+        assert!(unconnected);
+        assert!(
+            derived()
+                .variants
+                .row_data(0)
+                .unwrap()
+                .has_unassigned_signals
+        );
+
+        // Add a gate: the symbol chooser dialog.
+        let d = derived();
+        let mut v = d.variants.row_data(0).unwrap();
+        v.action = ui::ComponentVariantAction::AddGate;
+        d.variants.set_row_data(0, v);
+        headless.settle(10);
+        save(headless, "element_component_chooser.png");
+        choose_in_dialog(&app, headless, "Diode");
+        let d = derived();
+        let gates = d.variants.row_data(0).unwrap().gates;
+        assert_eq!(gates.row_count(), 2);
+        assert_eq!(gates.row_data(0).unwrap().suffix, "A", "suffixes updated");
+        // The preview of the whole variant.
+        let image = with_tab(&app, tab, |t| t.render_scene(300.0, 200.0, 1.0, 2));
+        assert_eq!(image.size().width, 300);
+
+        // Prefix, then save.
+        with_tab(&app, tab, |t| {
+            let Tab::Component(c) = t else { unreachable!() };
+            let mut d = c.derived_ui_data();
+            d.prefix = "DX".into();
+            d.default_value = "{{MPN}}".into();
+            d.datasheet_url = "example.com/diode.pdf".into();
+            c.set_derived_ui_data(&d);
+            assert_eq!(c.derived_ui_data().prefix_error, "");
+            t.trigger(ui::TabAction::Save);
+            assert!(!t.ui_data().unsaved_changes);
+        });
+        headless.settle(10);
+        let content = std::fs::read_to_string(cmp_dir.path_to("component.lp").as_path()).unwrap();
+        assert!(content.contains("(prefix \"DX\")"), "{content}");
+        assert!(content.contains("(name \"Y1\")"));
+        assert!(content.contains("example.com/diode.pdf"));
+        backend.invoke_trigger_tab(tab.0 as i32, tab.1 as i32, ui::TabAction::Apply);
+        headless.settle(10);
+        save(headless, "element_component_saved.png");
+
+        // A new component: metadata, signals, then the symbol variants
+        // (still in the wizard: adding a gate creates the signals).
+        backend.invoke_trigger_library(lib.to_native().into(), ui::LibraryAction::NewComponent);
+        headless.settle(10);
+        let new = find_tab(
+            &app,
+            |t| matches!(t, Tab::Component(s) if s.core().wizard_mode),
+        )
+        .expect("new component tab");
+        with_tab(&app, new, |t| {
+            let Tab::Component(c) = t else { unreachable!() };
+            let mut d = c.derived_ui_data();
+            d.name = "My Component".into();
+            c.set_derived_ui_data(&d);
+        });
+        let trigger = |action| {
+            backend.invoke_trigger_tab(new.0 as i32, new.1 as i32, action);
+            headless.settle(5);
+        };
+        trigger(ui::TabAction::Next);
+        trigger(ui::TabAction::Next);
+        let d = with_tab(&app, new, |t| {
+            let Tab::Component(c) = t else { unreachable!() };
+            assert_eq!(c.core().page_index, 2);
+            assert!(c.core().wizard_mode);
+            c.derived_ui_data()
+        });
+        assert_eq!(d.variants.row_count(), 1, "the default variant");
+        let mut v = d.variants.row_data(0).unwrap();
+        v.action = ui::ComponentVariantAction::AddGate;
+        d.variants.set_row_data(0, v);
+        headless.settle(10);
+        choose_in_dialog(&app, headless, "Diode");
+        let signals = with_tab(&app, new, |t| {
+            let Tab::Component(c) = t else { unreachable!() };
+            c.core().editor.element().signals().len()
+        });
+        assert_eq!(signals, 2, "a signal per pin");
+        save(headless, "element_component_new.png");
+        trigger(ui::TabAction::Next);
+        let dir = with_tab(&app, new, |t| {
+            let Tab::Component(c) = t else { unreachable!() };
+            assert!(!c.core().wizard_mode);
+            c.core().directory_path()
+        });
+        assert!(dir.path_to("component.lp").is_existing_file());
     });
 }
 
