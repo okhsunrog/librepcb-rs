@@ -122,24 +122,45 @@ fn stable_sort_by_less<T>(items: &mut [T], less: impl Fn(&T, &T) -> bool) {
     }
 }
 
-/// The union of grab areas as painter path in pixels (upstream
-/// `QPainterPath` with winding fill, extended by `|=`).
+/// The union of grab areas (upstream `QPainterPath` with winding fill,
+/// extended by `|=`), tested with the `QPainterPath::contains()` emulation.
+///
+/// For speed, only the grab areas whose bounding box overlaps the tested
+/// path are united (the containment test only depends on them).
 #[derive(Default)]
 struct GrabAreaUnion {
-    paths: Vec<Path>,
+    /// Flattened grab areas with their bounding boxes.
+    areas: Vec<(clipper_helpers::ClipperPath, (i64, i64, i64, i64))>,
+}
+
+fn tolerance() -> PositiveLength {
+    PositiveLength::new(Length::new(5_000)).expect("constant is positive")
+}
+
+fn bounds(path: &clipper_helpers::ClipperPath) -> (i64, i64, i64, i64) {
+    path.iter().fold(
+        (i64::MAX, i64::MAX, i64::MIN, i64::MIN),
+        |(x0, y0, x1, y1), p| (x0.min(p.x), y0.min(p.y), x1.max(p.x), y1.max(p.y)),
+    )
 }
 
 impl GrabAreaUnion {
     fn contains(&self, path: &Path) -> bool {
-        if self.paths.is_empty() {
+        let (x0, y0, x1, y1) = bounds(&clipper_helpers::path_to_clipper(path, tolerance()));
+        let mut union: clipper_helpers::ClipperPaths = self
+            .areas
+            .iter()
+            .filter(|(_, (ax0, ay0, ax1, ay1))| {
+                (*ax0 <= x1) && (*ax1 >= x0) && (*ay0 <= y1) && (*ay1 >= y0)
+            })
+            .map(|(p, _)| p.clone())
+            .collect();
+        if union.is_empty()
+            || clipper_helpers::unite(&mut union, clipper::PolyFillType::NonZero).is_err()
+        {
             return false;
         }
-        let tolerance = PositiveLength::new(Length::new(5_000)).expect("constant is positive");
-        let mut clipper_paths = clipper_helpers::paths_to_clipper(&self.paths, tolerance);
-        if clipper_helpers::unite(&mut clipper_paths, clipper::PolyFillType::NonZero).is_err() {
-            return false;
-        }
-        let polygons: Vec<Vec<(f64, f64)>> = clipper_paths
+        let polygons: Vec<Vec<(f64, f64)>> = union
             .iter()
             .map(|p| {
                 let mut points: Vec<(f64, f64)> = p
@@ -155,6 +176,12 @@ impl GrabAreaUnion {
         let mut total = PainterPathPx::from_polygons(&polygons);
         total.set_winding_fill(true);
         total.contains_path(&PainterPathPx::from_paths([path]))
+    }
+
+    fn add(&mut self, path: &Path) {
+        let p = clipper_helpers::path_to_clipper(path, tolerance());
+        let b = bounds(&p);
+        self.areas.push((p, b));
     }
 }
 
@@ -323,7 +350,7 @@ impl EagleLibraryConverter {
             if total_grab_area.contains(&g.path) {
                 g.grab_area = false;
             } else {
-                total_grab_area.paths.push(g.path.clone());
+                total_grab_area.add(&g.path);
             }
         }
         for g in &geometries {
@@ -760,7 +787,7 @@ mod tests {
         };
         let mut union = GrabAreaUnion::default();
         assert!(!union.contains(&rect(0, 0, 10, 10)));
-        union.paths.push(rect(0, 0, 10_000_000, 10_000_000));
+        union.add(&rect(0, 0, 10_000_000, 10_000_000));
         assert!(union.contains(&rect(1_000_000, 1_000_000, 2_000_000, 2_000_000)));
         assert!(!union.contains(&rect(9_000_000, 1_000_000, 12_000_000, 2_000_000)));
     }

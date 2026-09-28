@@ -89,6 +89,15 @@ pub enum Error {
     /// A file system error.
     #[error(transparent)]
     FileIo(#[from] librepcb_core::fileio::Error),
+    /// An error of the project model.
+    #[error(transparent)]
+    Project(Box<librepcb_core::project::Error>),
+    /// A geometry error.
+    #[error(transparent)]
+    Geometry(#[from] librepcb_core::geometry::Error),
+    /// An attribute error.
+    #[error(transparent)]
+    Attribute(#[from] librepcb_core::attribute::Error),
     /// A polygon clipping error.
     #[error(transparent)]
     Clipper(#[from] librepcb_core::utils::clipper_helpers::Error),
@@ -99,3 +108,9 @@ pub enum Error {
 
 /// Result type of the [`eagle`](super) module.
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+impl From<librepcb_core::project::Error> for Error {
+    fn from(e: librepcb_core::project::Error) -> Self {
+        Self::Project(Box::new(e))
+    }
+}
