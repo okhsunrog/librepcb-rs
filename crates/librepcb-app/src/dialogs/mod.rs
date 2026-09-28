@@ -35,8 +35,11 @@ macro_rules! form_accessors {
 pub mod add_component;
 pub mod attributes;
 pub mod board;
+pub mod chooser;
 pub mod form;
 pub mod geometry;
+pub mod library;
+pub mod library_items;
 pub mod move_align;
 pub mod output;
 pub mod review;
@@ -56,8 +59,8 @@ pub use form::{FieldEvent, Form, ListAction, ListButtons, ListItem};
 
 /// What a dialog works on.
 pub struct DialogContext<'a> {
-    /// The project.
-    pub project: &'a Rc<AppProject>,
+    /// The project (`None` for dialogs of the library editors).
+    pub project: Option<&'a Rc<AppProject>>,
     /// The workspace (library database, settings), if available.
     pub workspace: Option<&'a SharedWorkspace>,
 }
@@ -66,9 +69,22 @@ impl<'a> DialogContext<'a> {
     /// A context without workspace (tests, dialogs which do not need it).
     pub fn new(project: &'a Rc<AppProject>) -> Self {
         Self {
-            project,
+            project: Some(project),
             workspace: None,
         }
+    }
+
+    /// A context without project (library editor dialogs).
+    pub fn without_project() -> Self {
+        Self {
+            project: None,
+            workspace: None,
+        }
+    }
+
+    /// The project; an error for dialogs opened without project.
+    pub fn project(&self) -> Result<&'a Rc<AppProject>, String> {
+        self.project.ok_or_else(|| "No project".to_owned())
     }
 }
 
@@ -129,6 +145,25 @@ pub enum TabDialogResult {
     LineWidth(librepcb_core::types::UnsignedLength),
     /// The new positions of the "Move/Align Elements" dialog.
     Positions(Vec<librepcb_core::types::Point>),
+    /// The choices of the DXF import dialog.
+    ImportDxf(librepcb_editor::fsm::board::DxfImportSettings),
+    /// Remove these library elements (confirmed).
+    RemoveLibraryElements(Vec<librepcb_core::fileio::FilePath>),
+    /// A modified object of a library element (properties dialogs).
+    LibraryObject(library_items::LibraryObject),
+    /// The pin names of the "import pins" dialog.
+    ImportPins(Vec<librepcb_core::types::CircuitIdentifier>),
+    /// The excess of the "generate courtyard" dialog.
+    CourtyardOffset(librepcb_core::types::PositiveLength),
+    /// A library element chosen in a chooser dialog.
+    ElementChosen(chooser::ChooserPurpose, librepcb_core::types::Uuid),
+    /// The name of organization PCB design rules.
+    DesignRulesName(crate::tabs::organization::DesignRulesNamePurpose, String),
+    /// Close the tab, saving it first if `save`.
+    CloseTab {
+        /// Save before closing.
+        save: bool,
+    },
 }
 
 /// Buttons and size of a form dialog.
@@ -175,6 +210,8 @@ pub enum ButtonResult {
     Modified,
     /// Close the dialog.
     Close,
+    /// Close the dialog with a result for the tab.
+    TabResult(TabDialogResult),
     /// Run output jobs; keep the dialog open.
     RunJobs {
         /// Title of the notifications.

@@ -51,6 +51,8 @@ pub enum FootprintSceneObject {
     StrokeText(Uuid),
     /// A non-plated hole.
     Hole(Uuid),
+    /// A keepout zone (only drawn by [`FootprintScene::build_for_editor()`]).
+    Zone(Uuid),
 }
 
 /// A library footprint as a canvas [`Scene`].
@@ -102,6 +104,55 @@ impl FootprintScene {
             roles,
             objects,
         }
+    }
+
+    /// The canvas layer of the keepout zones (drawn in the `board_zones`
+    /// color by [`Self::build_for_editor()`]).
+    pub const ZONES: LayerId = LayerId(1001);
+
+    /// Like [`Self::build()`], but also draws the keepout zones (upstream
+    /// `FootprintGraphicsItem` of the package editor), filled with the
+    /// `board_zones` color and outlined, above all other layers.
+    pub fn build_for_editor(
+        footprint: &Footprint,
+        font: Option<&StrokeFont>,
+        scheme: &ColorScheme,
+    ) -> Self {
+        let mut scene = Self::build(footprint, font, scheme);
+        let color = scheme.color("board_zones");
+        let order = scene.roles.len() as i32;
+        scene.scene.set_layer(
+            Self::ZONES,
+            CanvasLayer::new(color.unwrap_or(Color::TRANSPARENT))
+                .with_order(order)
+                .with_visible(color.is_some()),
+        );
+        for zone in footprint.zones().iter() {
+            let mut path = zone.outline().clone();
+            path.close();
+            let item = shapes::polygon(
+                LayerId::default(),
+                &path,
+                Affine::IDENTITY,
+                Length::ZERO,
+                Fill::Layer,
+            )
+            .map(|mut i| {
+                i.style.stroke = Some(librepcb_canvas::StrokeStyle::hairline());
+                i
+            });
+            if let Some(mut item) = item
+                && !item.geometry.is_empty()
+            {
+                item.layer = Self::ZONES;
+                item.z = order * 4;
+                let id = scene.scene.insert(item);
+                scene
+                    .objects
+                    .insert(id, FootprintSceneObject::Zone(zone.uuid()));
+            }
+        }
+        scene
     }
 
     /// The model object of an item.

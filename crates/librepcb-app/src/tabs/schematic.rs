@@ -10,11 +10,15 @@
 //! (selection rectangle, ruler, scene cursor, gray-out) are updated and the
 //! tool bar data (`tool-*` fields of `SchematicTabData`) is refreshed.
 //!
+//! Buses (tool, bus chooser of the tool button, bus member menu), images
+//! (file chooser requested from the application) and the "find" field
+//! (suggestions, find next/previous, zoom to the found objects) are wired
+//! to the FSM like upstream.
+//!
 //! Differences to upstream: the tool bar's attribute value and unit of the
-//! add component tool, images, buses, the "find" feature and the graphics
-//! export are not available yet; dialogs requested by the FSM (properties)
-//! show a notification; grid interval and unit changes are undoable
-//! modifications of the schematic (upstream: without undo).
+//! add component tool are not available yet; grid interval and unit
+//! changes are undoable modifications of the schematic (upstream: without
+//! undo).
 
 use std::collections::{BTreeSet, HashSet};
 use std::rc::Rc;
@@ -24,14 +28,15 @@ use librepcb_app_ui as ui;
 use librepcb_canvas::kurbo::{Point, Vec2};
 use librepcb_canvas::peniko::Color;
 use librepcb_canvas::{Grid, Modifiers, PointerAction, PointerButton, PointerKind};
-use librepcb_core::project::{ComponentInstanceId, Mutation, SchematicId};
+use librepcb_core::project::{BusId, ComponentInstanceId, Mutation, SchematicId};
 use librepcb_core::types::{
     Angle, GridStyle, Layer, Length, LengthUnit, Orientation, PositiveLength, UnsignedLength, Uuid,
 };
 use librepcb_editor::commands::{ApplyMutations, WireMode};
+use librepcb_editor::fsm::find::FindResult;
 use librepcb_editor::fsm::schematic::{
-    ComponentChoice, SchematicContext, SchematicEditorFsm, SchematicEditorSettings, SchematicItem,
-    SchematicRequest, SchematicTool, SchematicToolData,
+    BusMemberChoice, ComponentChoice, ImageData, SchematicContext, SchematicEditorFsm,
+    SchematicEditorSettings, SchematicItem, SchematicRequest, SchematicTool, SchematicToolData,
 };
 use librepcb_editor::fsm::{PointerEvent, ViewState};
 use librepcb_i18n::tr;
@@ -107,6 +112,8 @@ enum MenuAction {
     SnapToGrid,
     ResetTexts,
     PlaceRemainingGates(ComponentInstanceId),
+    /// An entry of the bus member menu (`None`: cancel).
+    BusMember(Option<BusMemberChoice>),
     Separator,
 }
 
@@ -152,8 +159,13 @@ pub struct SchematicTab {
     configured_tool: Option<SchematicTool>,
     /// Cross-probed by another tab.
     probe: CrossProbe,
+    /// Cross-probed by the last "find next/previous" (until the next click).
+    find_probe: CrossProbe,
     /// Actions of the entries of the last context menu.
     menu: Vec<MenuAction>,
+    /// Suggestions of the "find" field (upstream `SearchContext::getModel()`,
+    /// updated in place while typing).
+    find_suggestions: Rc<slint::VecModel<ui::SimpleListItemData>>,
 }
 
 impl SchematicTab {
@@ -212,9 +224,13 @@ impl SchematicTab {
             size: LengthEdit::new(steps::TEXT_HEIGHT),
             configured_tool: None,
             probe: CrossProbe::default(),
+            find_probe: CrossProbe::default(),
             menu: Vec::new(),
+            find_suggestions: Rc::new(slint::VecModel::default()),
         };
         tab.apply_grid();
+        // Enter the select tool (its features, e.g. for the menus).
+        tab.run(|f, c| f.select_tool(c));
         tab
     }
 
@@ -451,6 +467,23 @@ impl SchematicTab {
                 sch.and_then(|s| s.symbols().get(&sym))
                     .map(|s| s.component())
             };
+            let bus_of = |seg| {
+                sch.and_then(|s| s.bus_segments().get(&seg))
+                    .map(|s| s.bus())
+            };
+            // Pins of probed component signals (only computed when needed).
+            let mut probed_pins: HashSet<(librepcb_core::project::SymbolId, Uuid)> = HashSet::new();
+            if !self.probe.component_signals.is_empty()
+                && let Some(s) = sch
+            {
+                for (id, symbol) in s.symbols() {
+                    for pin in symbol.pins(proj.view()).unwrap_or_default() {
+                        if self.probe.component_signals.contains(&pin.signal()) {
+                            probed_pins.insert((*id, pin.uuid()));
+                        }
+                    }
+                }
+            }
             scene
                 .scene()
                 .items()
@@ -469,10 +502,18 @@ impl SchematicTab {
                         && match object {
                             SchematicObject::Symbol(sym) => component_of(sym)
                                 .is_some_and(|c| self.probe.components.contains(&c)),
+                            SchematicObject::SymbolPin(sym, pin) => {
+                                probed_pins.contains(&(sym, pin))
+                            }
                             SchematicObject::NetLine(seg, _)
                             | SchematicObject::NetJunction(seg, _)
                             | SchematicObject::NetLabel(seg, _) => {
                                 net_of(seg).is_some_and(|n| self.probe.nets.contains(&n))
+                            }
+                            SchematicObject::BusLine(seg, _)
+                            | SchematicObject::BusJunction(seg, _)
+                            | SchematicObject::BusLabel(seg, _) => {
+                                bus_of(seg).is_some_and(|b| self.probe.buses.contains(&b))
                             }
                             _ => false,
                         };
@@ -546,10 +587,43 @@ impl SchematicTab {
                         symbol, uuid,
                     )));
             }
-            SchematicRequest::ChooseImageFile | SchematicRequest::BusMemberMenu { .. } => {
-                // The image and bus tools are not exposed in the tool bar
-                // yet (follow-up of M3d).
-                log::debug!("Unhandled schematic editor request: {request:?}");
+            SchematicRequest::ChooseImageFile => {
+                update.requests.push(TabRequest::ChooseImageFile);
+            }
+            SchematicRequest::BusMemberMenu { pos, nets } => {
+                // Upstream `determineNetForBusMember()`: "Add New Bus
+                // Member" (default), the nets of the bus, "Cancel".
+                let mut entries = vec![ContextMenuEntry {
+                    is_default: true,
+                    ..ContextMenuEntry::new(format!(
+                        "{} (Ctrl)",
+                        tr!(
+                            "librepcb::editor::SchematicEditorState_DrawWire",
+                            "Add New Bus Member"
+                        )
+                    ))
+                }];
+                let mut actions = vec![MenuAction::BusMember(Some(BusMemberChoice::NewMember))];
+                for net in &nets {
+                    entries.push(ContextMenuEntry {
+                        enabled: net.enabled,
+                        ..ContextMenuEntry::new(net.name.clone())
+                    });
+                    actions.push(MenuAction::BusMember(Some(BusMemberChoice::Net(net.net))));
+                }
+                entries.push(ContextMenuEntry::separator());
+                actions.push(MenuAction::Separator);
+                entries.push(ContextMenuEntry::new(tr!(
+                    "librepcb::editor::SchematicEditorState_DrawWire",
+                    "Cancel"
+                )));
+                actions.push(MenuAction::BusMember(None));
+                self.menu = actions;
+                let screen = self.canvas.view().world_to_screen(point_to_world(pos));
+                update.requests.push(TabRequest::ContextMenu {
+                    pos: screen,
+                    entries,
+                });
             }
             SchematicRequest::PolygonProperties(uuid) => {
                 update
@@ -667,6 +741,8 @@ impl SchematicTab {
                 A::PlaceRemainingGates(_) => {
                     ContextMenuEntry::new(tr!("EditorCommandSet", "Place Remaining Gates"))
                 }
+                // Not part of item context menus.
+                A::BusMember(_) => ContextMenuEntry::separator(),
             })
             .collect();
         self.menu = actions;
@@ -697,9 +773,93 @@ impl SchematicTab {
             MenuAction::PlaceRemainingGates(cmp) => {
                 self.run(|f, c| f.add_remaining_gates(c, cmp, None))
             }
+            MenuAction::BusMember(choice) => self.run(|f, c| f.choose_bus_member(c, choice)),
             MenuAction::Separator => None,
         };
         self.after_fsm(&before)
+    }
+
+    /// The bus member menu was closed without choosing an entry (like
+    /// "Cancel").
+    pub fn context_menu_closed(&mut self) -> TabUpdate {
+        let pending = self
+            .menu
+            .iter()
+            .any(|a| matches!(a, MenuAction::BusMember(_)));
+        self.menu.clear();
+        if !pending {
+            return TabUpdate::default();
+        }
+        let before = self.snapshot();
+        self.run(|f, c| f.choose_bus_member(c, None));
+        self.after_fsm(&before)
+    }
+
+    /// An image file was chosen for the image tool (the answer of
+    /// [`TabRequest::ChooseImageFile`]).
+    pub fn add_image(&mut self, data: ImageData) -> TabUpdate {
+        let before = self.snapshot();
+        self.run(|f, c| f.add_image(c, Some(data)));
+        self.after_fsm(&before)
+    }
+
+    /// Sets the term of the "find" field (upstream `setUiData()`); returns
+    /// whether it changed.
+    pub fn set_find_term(&mut self, term: &str) -> bool {
+        if self.fsm.search().term() == term.trim() {
+            return false;
+        }
+        self.fsm.set_find_term(term);
+        self.update_find_suggestions();
+        true
+    }
+
+    fn update_find_suggestions(&self) {
+        use slint::Model;
+        let items: Vec<ui::SimpleListItemData> = self
+            .fsm
+            .search()
+            .suggestions()
+            .iter()
+            .map(|c| ui::SimpleListItemData {
+                icon: Default::default(),
+                text: c.name.as_str().into(),
+            })
+            .collect();
+        let model = &self.find_suggestions;
+        if model
+            .iter()
+            .map(|i| i.text)
+            .eq(items.iter().map(|i| i.text.clone()))
+        {
+            return;
+        }
+        model.set_vec(items);
+    }
+
+    /// Zooms to the objects found by "find next/previous" (upstream
+    /// `goToObjects()`) and cross-probes them.
+    fn go_to_found(&mut self, result: Option<FindResult>, extra: &mut TabUpdate) {
+        let Some(result) = result else { return };
+        if result.zoom_rect.is_some() {
+            // Zoom to the bounding box of the found items (upstream uses
+            // the graphics items, the FSM only their positions).
+            self.apply_highlight();
+            if let Some(rect) = self
+                .scene
+                .as_ref()
+                .and_then(|s| super::editing::selection_zoom_rect(s.scene()))
+            {
+                self.canvas.zoom_to(rect);
+                self.update_overlays();
+                extra.repaint = true;
+            }
+        }
+        self.find_probe = CrossProbe {
+            components: result.components.into_iter().collect(),
+            nets: result.nets.into_iter().collect(),
+            ..CrossProbe::default()
+        };
     }
 
     /// A component was chosen in the "add component" dialog.
@@ -732,14 +892,19 @@ impl SchematicTab {
             .is_group_active()
     }
 
-    /// What this tab cross-probes: the components of selected symbols and
-    /// the nets of selected wires and labels.
+    /// What this tab cross-probes: what the FSM reports (upstream
+    /// `fsmCrossProbe()`: nets, components, component signals of pins,
+    /// buses), the components of selected symbols, the nets of selected
+    /// wires and labels, and the objects found by "find".
     pub fn cross_probe(&self) -> CrossProbe {
         let p = self.project.shared().lock();
         let Some(sch) = p.project().schematic(self.schematic) else {
             return CrossProbe::default();
         };
-        let mut probe = CrossProbe::default();
+        let mut probe = self.fsm.cross_probe().clone();
+        let found = &self.find_probe;
+        probe.components.extend(found.components.iter().copied());
+        probe.nets.extend(found.nets.iter().copied());
         for item in self.fsm.selection() {
             match *item {
                 SchematicItem::Symbol(sym) => {
@@ -824,11 +989,13 @@ impl SchematicTab {
             unlock: ui::FeatureState::NotSupported,
             modify_line_width: ui::FeatureState::NotSupported,
             edit_properties: feature(f.properties),
-            find: ui::FeatureState::NotSupported,
+            find: feature(true),
             ..Default::default()
         };
         ui::TabData {
             r#type: ui::TabType::Schematic,
+            find_term: self.fsm.search().term().into(),
+            find_autocompletions: slint::ModelRc::from(self.find_suggestions.clone()),
             title: self.title.as_str().into(),
             features,
             read_only: !writable,
@@ -971,6 +1138,17 @@ impl SchematicTab {
             && size != current.size
         {
             self.run(|f, c| f.set_size(c, size));
+        }
+        if !data.new_bus_uuid.is_empty() {
+            // Upstream `setDerivedUiData()`: `processDrawBus(uuid)`, the
+            // tool with the bus chosen in the menu of the tool button.
+            if let Ok(bus) = data.new_bus_uuid.parse::<BusId>() {
+                if self.fsm.tool() != SchematicTool::Bus {
+                    self.run(|f, c| f.draw_bus(c));
+                }
+                self.run(|f, c| f.set_bus(c, Some(bus)));
+            }
+            update.data_changed = true;
         }
         if data.tool_filled != current.filled {
             let filled = data.tool_filled;
@@ -1181,12 +1359,23 @@ impl SchematicTab {
                     self.run(|f, c| f.add_component(c, choice));
                 }
             }
-            A::ToolBus | A::ToolImage => {
-                extra.status = Some(tr!(
-                    "MainWindow",
-                    "Not available yet in this version: {0}",
-                    format!("{action:?}")
-                ));
+            A::ToolBus => {
+                self.run(|f, c| f.draw_bus(c));
+            }
+            A::ToolImage => {
+                self.run(|f, c| f.add_image(c, None));
+            }
+            A::FindRefreshSuggestions => {
+                self.run(|f, c| f.refresh_find_suggestions(c));
+                self.update_find_suggestions();
+            }
+            A::FindNext => {
+                let result = self.run(|f, c| f.find_next(c));
+                self.go_to_found(result, &mut extra);
+            }
+            A::FindPrevious => {
+                let result = self.run(|f, c| f.find_previous(c));
+                self.go_to_found(result, &mut extra);
             }
             _ => return TabUpdate::default(),
         }
@@ -1249,6 +1438,24 @@ impl SchematicTab {
         pos: Point,
         modifiers: Modifiers,
     ) -> TabUpdate {
+        // A click into the scene closes a pending bus member menu (the
+        // popup has no "closed" notification): cancel it like upstream.
+        if kind == PointerKind::Down
+            && self
+                .menu
+                .iter()
+                .any(|a| matches!(a, MenuAction::BusMember(_)))
+        {
+            let mut update = self.context_menu_closed();
+            let next = self.pointer_event(kind, button, pos, modifiers);
+            update.repaint |= next.repaint;
+            update.data_changed |= next.data_changed;
+            update.project_modified |= next.project_modified;
+            update.cursor = next.cursor.or(update.cursor);
+            update.status = next.status.or(update.status);
+            update.requests.extend(next.requests);
+            return update;
+        }
         let before = self.snapshot();
         let action = self.canvas.pointer_event(kind, button, pos);
         let m = fsm_modifiers(modifiers);
@@ -1266,6 +1473,7 @@ impl SchematicTab {
             PointerAction::LeftPressed(world) => {
                 let e = event(world);
                 self.cursor = Some(e.pos);
+                self.find_probe = CrossProbe::default();
                 if self.double_click.press(pos) {
                     self.run(|f, c| f.left_double_clicked(c, e));
                 } else {

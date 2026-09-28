@@ -14,6 +14,7 @@ import {
     PackageEditorModelsPanel,
 } from "packageeditorlistpanels.slint";
 import { Tab } from "../../tab.slint";
+import { SceneContextMenu, SceneEditor } from "../../project/sceneeditor.slint";
 import {
     AssemblyTypeRowHeader,
     AuthorRowHeader,
@@ -1005,6 +1006,20 @@ component PackageEditorTab inherits TouchArea {
         index: index;
         read-only: read-only;
         visible: view-3d && footprint-selected;
+    }
+
+    // Scene context menu (librepcb-rs, see sceneeditor.slint).
+    scene-menu := SceneContextMenu {
+        x: SceneEditor.menu-x;
+        y: SceneEditor.menu-y;
+        section-index: section-index;
+    }
+
+    property <int> scene-menu-serial: SceneEditor.menu-serial;
+    changed scene-menu-serial => {
+        if SceneEditor.menu-section == section-index {
+            scene-menu.show();
+        }
     }
 
     pointer-event(event) => {

@@ -376,7 +376,7 @@ impl FormDialog for SymbolPropertiesDialog {
         };
         // Name already used by another component: ask to swap the names.
         let (old_name, other) = {
-            let p = ctx.project.shared().lock();
+            let p = ctx.project()?.shared().lock();
             let circuit = p.project().circuit();
             let old = circuit
                 .component_instance(self.component)
@@ -430,7 +430,7 @@ impl FormDialog for SymbolPropertiesDialog {
             "Change properties of {0}",
             self.title.clone()
         );
-        transaction(ctx.project, text, |e| {
+        transaction(ctx.project()?, text, |e| {
             if let Some(other) = other {
                 e.execute(EditComponent {
                     component: component.into(),
@@ -784,11 +784,13 @@ impl FormDialog for RenameSegmentDialog {
     }
 
     fn field_event(&mut self, ctx: &DialogContext<'_>, _id: &str, _event: FieldEvent) {
-        self.update_action(ctx.project);
+        if let Ok(p) = ctx.project() {
+            self.update_action(p);
+        }
     }
 
     fn apply(&mut self, ctx: &DialogContext<'_>) -> Result<Applied, String> {
-        self.update_action(ctx.project);
+        self.update_action(ctx.project()?);
         let name = self.new_name();
         match (self.action, self.segment) {
             (RenameAction::None, _) => Ok(Applied::Nothing),
@@ -806,7 +808,7 @@ impl FormDialog for RenameSegmentDialog {
                         "Change Bus of Bus Segment"
                     ),
                 };
-                transaction(ctx.project, text, |e| {
+                transaction(ctx.project()?, text, |e| {
                     e.execute(RenameBusSegment {
                         segment,
                         name,
@@ -827,7 +829,7 @@ impl FormDialog for RenameSegmentDialog {
                     tr!("librepcb::editor::CmdNetSignalEdit", "Edit netsignal")
                 };
                 let old = self.old_name.as_str();
-                transaction(ctx.project, text, |e| {
+                transaction(ctx.project()?, text, |e| {
                     e.execute(EditNet {
                         net: old.into(),
                         name: Some(net),
@@ -840,7 +842,7 @@ impl FormDialog for RenameSegmentDialog {
             (_, RenameSegment::Net(segment)) => {
                 let net = CircuitIdentifier::new(name).map_err(|e| e.to_string())?;
                 transaction(
-                    ctx.project,
+                    ctx.project()?,
                     tr!(
                         "librepcb::editor::RenameNetSegmentDialog",
                         "Change net of net segment"
@@ -945,7 +947,7 @@ impl FormDialog for SchematicPolygonDialog {
         polygon.set_path(chosen_path(&self.form, self.polygon.path()));
         let schematic = self.schematic;
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon"),
             |e| {
                 e.apply_mutations(
@@ -1108,7 +1110,7 @@ impl FormDialog for SchematicTextDialog {
             },
         };
         let label = tr!("librepcb::editor::CmdTextEdit", "Edit text");
-        transaction(ctx.project, label.clone(), |e| {
+        transaction(ctx.project()?, label.clone(), |e| {
             e.apply_mutations(label, vec![Mutation::Schematic(mutation)])
         })?;
         self.text = text;

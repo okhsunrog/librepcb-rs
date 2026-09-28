@@ -18,6 +18,7 @@ use super::{State, deferred};
 use crate::models::vec_model;
 use crate::project::AppProject;
 use crate::tabs::{TabId, TabRequest, TabUpdate};
+use librepcb_i18n::tr;
 
 /// State of the editing support of the application.
 #[derive(Debug, Default)]
@@ -172,6 +173,47 @@ impl State {
                         self.open_form_dialog(project, Some(id), dialog);
                     }
                 }
+                TabRequest::ChooseImageFile => {
+                    self.choose_image_file(id);
+                }
+                TabRequest::ImportDxf { layers } => {
+                    let Some(project) = project.clone() else {
+                        continue;
+                    };
+                    let title = tr!("librepcb::editor::DxfImportDialog", "Choose file");
+                    let filters = [crate::file_dialog::Filter {
+                        name: "*.dxf".into(),
+                        extensions: vec!["dxf", "DXF"],
+                    }];
+                    let Some(path) = crate::file_dialog::open_file(&title, &filters, None) else {
+                        continue;
+                    };
+                    let Some(fp) = crate::app::absolute_file_path(&path) else {
+                        continue;
+                    };
+                    let unit = t_unit.unwrap_or(librepcb_core::types::LengthUnit::Millimeters);
+                    let dialog = crate::dialogs::board::DxfImportDialog::new(fp, &layers, unit);
+                    self.open_form_dialog(project, Some(id), Box::new(dialog));
+                }
+                TabRequest::OpenLibrary { .. }
+                | TabRequest::DownloadLibrary { .. }
+                | TabRequest::LibraryDownloaded(_)
+                | TabRequest::LibraryModified
+                | TabRequest::RescanLibraries
+                | TabRequest::OpenLibraryElement { .. }
+                | TabRequest::RemoveLibraryElements(_)
+                | TabRequest::ChooseLibraryIcon
+                | TabRequest::LibraryItemProperties(_)
+                | TabRequest::ImportPinsDialog
+                | TabRequest::ChooseStepFile { .. }
+                | TabRequest::CourtyardOffsetDialog
+                | TabRequest::MoveAlign { .. }
+                | TabRequest::ChooseElement(_)
+                | TabRequest::OpenUrl(_)
+                | TabRequest::ChoosePinoutFile
+                | TabRequest::DesignRulesName { .. }
+                | TabRequest::ConfirmClose { .. }
+                | TabRequest::DuplicateLibraryElement => self.apply_library_request(id, request),
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {
                         continue;
@@ -290,6 +332,44 @@ impl State {
         }
     }
 
+    /// Asks for an image file for the image tool of a schematic tab
+    /// (upstream `ImageHelpers::execImageChooserDialog()`) and passes it to
+    /// the tab.
+    fn choose_image_file(&mut self, tab: TabId) {
+        let title = tr!("librepcb::editor::ImageHelpers", "Choose Image File");
+        let filters = [crate::file_dialog::Filter {
+            name: format!(
+                "{} (*.png *.jpg *.jpeg *.svg)",
+                tr!("librepcb::editor::ImageHelpers", "Image Files")
+            ),
+            extensions: vec!["png", "jpg", "jpeg", "svg", "PNG", "JPG", "JPEG", "SVG"],
+        }];
+        let Some(path) = crate::file_dialog::open_file(&title, &filters, None) else {
+            return;
+        };
+        let data = match load_image_file(&path) {
+            Ok(data) => data,
+            Err(message) => {
+                self.notifications
+                    .borrow_mut()
+                    .push(crate::notifications::Notification {
+                        auto_popup: true,
+                        ..crate::notifications::Notification::new(
+                            ui::NotificationType::Critical,
+                            tr!("SchematicTab", "Error"),
+                            message,
+                        )
+                    });
+                return;
+            }
+        };
+        if let Some((si, ti)) = self.find_tab(tab) {
+            let update = self.sections[si].tabs_mut()[ti].add_image(data);
+            self.apply_update(si, ti, update);
+            self.after_tab_event(si, ti);
+        }
+    }
+
     /// An entry of the scene context menu was chosen.
     fn context_menu_activated(&mut self, index: i32) {
         let (Some(id), Ok(index)) = (self.editing.menu_tab.take(), usize::try_from(index)) else {
@@ -301,4 +381,40 @@ impl State {
             self.after_tab_event(si, ti);
         }
     }
+}
+
+/// Reads an image file for the image tool: PNG, JPEG and SVG (the formats
+/// schematics support; upstream converts other formats with Qt's image
+/// readers, see COMPAT.md).
+pub fn load_image_file(
+    path: &std::path::Path,
+) -> Result<librepcb_editor::fsm::schematic::ImageData, String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_lowercase();
+    let format = match ext.as_str() {
+        "png" => "png",
+        "jpg" | "jpeg" => "jpg",
+        "svg" => "svg",
+        _ => {
+            return Err(tr!(
+                "librepcb::editor::ImageHelpers",
+                "Failed to convert image '{0}' to a supported format. Please try a different image format.",
+                path.display()
+            ));
+        }
+    };
+    let data = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let basename = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default()
+        .to_owned();
+    Ok(librepcb_editor::fsm::schematic::ImageData {
+        data,
+        format: format.to_owned(),
+        basename,
+    })
 }

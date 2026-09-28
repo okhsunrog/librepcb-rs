@@ -472,7 +472,7 @@ impl State {
                 Tab::Board2d(t) => {
                     Rc::ptr_eq(t.project(), project) && focus.boards.contains(&t.board())
                 }
-                Tab::Home(_) => false,
+                _ => false,
             });
         if current_shown {
             return;

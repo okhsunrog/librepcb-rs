@@ -17,13 +17,97 @@ use crate::models::{UiModel, model_rc};
 use crate::project::AppProject;
 use crate::tabs::{Tab, TabId};
 
-/// The models of a section written by the UI: base tab data, schematic
-/// tab data and board tab data.
-pub type SectionModels<'a> = (
-    &'a Rc<UiModel<ui::TabData>>,
-    &'a Rc<UiModel<ui::SchematicTabData>>,
-    &'a Rc<UiModel<ui::Board2dTabData>>,
-);
+/// The models of a section written by the UI: base tab data and the
+/// per-kind tab data.
+pub type SectionModels<'a> = (&'a Rc<UiModel<ui::TabData>>, &'a DerivedModels);
+
+/// The per-kind "proxy view" models of a section (one row per tab, default
+/// data for tabs of other kinds).
+#[derive(Default)]
+pub struct DerivedModels {
+    /// `schematic-tabs`.
+    pub schematic: Rc<UiModel<ui::SchematicTabData>>,
+    /// `board-2d-tabs`.
+    pub board: Rc<UiModel<ui::Board2dTabData>>,
+    /// `create-library-tabs`.
+    pub create_library: Rc<UiModel<ui::CreateLibraryTabData>>,
+    /// `download-library-tabs`.
+    pub download_library: Rc<UiModel<ui::DownloadLibraryTabData>>,
+    /// `library-tabs`.
+    pub library: Rc<UiModel<ui::LibraryTabData>>,
+    /// `component-category-tabs`.
+    pub component_category: Rc<UiModel<ui::CategoryTabData>>,
+    /// `package-category-tabs`.
+    pub package_category: Rc<UiModel<ui::CategoryTabData>>,
+    /// `symbol-tabs`.
+    pub symbol: Rc<UiModel<ui::SymbolTabData>>,
+    /// `package-tabs`.
+    pub package: Rc<UiModel<ui::PackageTabData>>,
+    /// `component-tabs`.
+    pub component: Rc<UiModel<ui::ComponentTabData>>,
+    /// `device-tabs`.
+    pub device: Rc<UiModel<ui::DeviceTabData>>,
+    /// `organization-tabs`.
+    pub organization: Rc<UiModel<ui::OrganizationTabData>>,
+}
+
+/// Calls `$m!(field)` for every model of [`DerivedModels`].
+macro_rules! for_each_model {
+    ($m:ident) => {
+        $m!(schematic);
+        $m!(board);
+        $m!(create_library);
+        $m!(download_library);
+        $m!(library);
+        $m!(component_category);
+        $m!(package_category);
+        $m!(symbol);
+        $m!(package);
+        $m!(component);
+        $m!(device);
+        $m!(organization);
+    };
+}
+
+impl DerivedModels {
+    fn insert(&self, index: usize, tab: &Tab, projects: &[Rc<AppProject>]) {
+        macro_rules! ins {
+            ($f:ident) => {
+                self.$f.insert(index, Default::default());
+            };
+        }
+        for_each_model!(ins);
+        self.set(index, tab, projects);
+    }
+
+    fn remove(&self, index: usize) {
+        macro_rules! rem {
+            ($f:ident) => {
+                self.$f.remove(index);
+            };
+        }
+        for_each_model!(rem);
+    }
+
+    /// Sets the row of the tab's kind.
+    fn set(&self, index: usize, tab: &Tab, projects: &[Rc<AppProject>]) {
+        match tab {
+            Tab::Home(_) => {}
+            Tab::Schematic(_) => self.schematic.set(index, tab.schematic_data(projects)),
+            Tab::Board2d(_) => self.board.set(index, tab.board_data(projects)),
+            Tab::CreateLibrary(t) => self.create_library.set(index, t.derived_ui_data()),
+            Tab::DownloadLibrary(t) => self.download_library.set(index, t.derived_ui_data()),
+            Tab::Library(t) => self.library.set(index, t.derived_ui_data()),
+            Tab::Symbol(t) => self.symbol.set(index, t.derived_ui_data()),
+            Tab::Package(t) => self.package.set(index, t.derived_ui_data()),
+            Tab::Component(t) => self.component.set(index, t.derived_ui_data()),
+            Tab::Device(t) => self.device.set(index, t.derived_ui_data()),
+            Tab::ComponentCategory(t) => self.component_category.set(index, t.derived_ui_data()),
+            Tab::PackageCategory(t) => self.package_category.set(index, t.derived_ui_data()),
+            Tab::Organization(t) => self.organization.set(index, t.derived_ui_data()),
+        }
+    }
+}
 
 /// A window section.
 pub struct WindowSection {
@@ -33,8 +117,7 @@ pub struct WindowSection {
     previous: Vec<TabId>,
     highlight: bool,
     tabs_model: Rc<UiModel<ui::TabData>>,
-    schematic_model: Rc<UiModel<ui::SchematicTabData>>,
-    board_model: Rc<UiModel<ui::Board2dTabData>>,
+    derived: DerivedModels,
 }
 
 impl Default for WindowSection {
@@ -52,17 +135,27 @@ impl WindowSection {
             previous: Vec::new(),
             highlight: false,
             tabs_model: UiModel::shared(Vec::new()),
-            schematic_model: UiModel::shared(Vec::new()),
-            board_model: UiModel::shared(Vec::new()),
+            derived: DerivedModels::default(),
         }
     }
 
     /// The `WindowSectionData`.
     pub fn ui_data(&self) -> ui::WindowSectionData {
+        let d = &self.derived;
         ui::WindowSectionData {
             tabs: model_rc(&self.tabs_model),
-            schematic_tabs: model_rc(&self.schematic_model),
-            board_2d_tabs: model_rc(&self.board_model),
+            create_library_tabs: model_rc(&d.create_library),
+            download_library_tabs: model_rc(&d.download_library),
+            library_tabs: model_rc(&d.library),
+            component_category_tabs: model_rc(&d.component_category),
+            package_category_tabs: model_rc(&d.package_category),
+            symbol_tabs: model_rc(&d.symbol),
+            package_tabs: model_rc(&d.package),
+            component_tabs: model_rc(&d.component),
+            device_tabs: model_rc(&d.device),
+            organization_tabs: model_rc(&d.organization),
+            schematic_tabs: model_rc(&d.schematic),
+            board_2d_tabs: model_rc(&d.board),
             current_tab_index: self.current,
             highlight: self.highlight,
             ..Default::default()
@@ -71,7 +164,7 @@ impl WindowSection {
 
     /// The models written by the UI (to connect their handlers).
     pub fn models(&self) -> SectionModels<'_> {
-        (&self.tabs_model, &self.schematic_model, &self.board_model)
+        (&self.tabs_model, &self.derived)
     }
 
     /// The tabs.
@@ -125,9 +218,7 @@ impl WindowSection {
             current += 1;
         }
         self.tabs_model.insert(index, tab.ui_data());
-        self.schematic_model
-            .insert(index, tab.schematic_data(projects));
-        self.board_model.insert(index, tab.board_data(projects));
+        self.derived.insert(index, &tab, projects);
         self.tabs.insert(index, tab);
         self.set_current_tab(if switch_to { index as i32 } else { current });
         index
@@ -141,8 +232,7 @@ impl WindowSection {
         let was_current = self.current == index as i32;
         let tab = self.tabs.remove(index);
         self.tabs_model.remove(index);
-        self.schematic_model.remove(index);
-        self.board_model.remove(index);
+        self.derived.remove(index);
         self.previous.retain(|id| *id != tab.id());
         let mut current = self.current;
         if was_current {
@@ -179,22 +269,14 @@ impl WindowSection {
     pub fn refresh_tab(&self, index: usize, projects: &[Rc<AppProject>]) {
         if let Some(tab) = self.tabs.get(index) {
             self.tabs_model.set(index, tab.ui_data());
-            self.schematic_model
-                .set(index, tab.schematic_data(projects));
-            self.board_model.set(index, tab.board_data(projects));
+            self.derived.set(index, tab, projects);
         }
     }
 
     /// Updates only the per-kind rows of a tab (e.g. the frame counter).
     pub fn refresh_derived(&self, index: usize, projects: &[Rc<AppProject>]) {
         if let Some(tab) = self.tabs.get(index) {
-            match tab {
-                Tab::Schematic(_) => self
-                    .schematic_model
-                    .set(index, tab.schematic_data(projects)),
-                Tab::Board2d(_) => self.board_model.set(index, tab.board_data(projects)),
-                Tab::Home(_) => {}
-            }
+            self.derived.set(index, tab, projects);
         }
     }
 
@@ -230,7 +312,8 @@ mod tests {
         assert_eq!(s.current_index(), 2);
         assert_eq!(s.tab_index(a), Some(2));
         assert_eq!(s.models().0.len(), 3);
-        assert_eq!(s.models().1.len(), 3);
+        assert_eq!(s.models().1.schematic.len(), 3);
+        assert_eq!(s.models().1.library.len(), 3);
         s.set_current_tab(0);
         // Closing the current tab goes back to the previous one.
         let (tab, was_current) = s.remove_tab(0).unwrap();
@@ -238,6 +321,6 @@ mod tests {
         assert!(was_current);
         assert_eq!(s.current_index(), 1);
         assert_eq!(s.tab_index(a), Some(1));
-        assert_eq!(s.models().2.len(), 2);
+        assert_eq!(s.models().1.board.len(), 2);
     }
 }

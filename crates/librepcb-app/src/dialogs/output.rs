@@ -1433,11 +1433,11 @@ impl FormDialog for OutputJobsDialog {
         for job in &self.jobs {
             list.push(job.clone());
         }
-        let unchanged = ctx.project.shared().lock().project().output_jobs() == &list;
+        let unchanged = ctx.project()?.shared().lock().project().output_jobs() == &list;
         if unchanged {
             return Ok(Applied::Nothing);
         }
-        transaction(ctx.project, tr!(OJD, "Output Jobs"), |e| {
+        transaction(ctx.project()?, tr!(OJD, "Output Jobs"), |e| {
             e.apply_mutations(tr!(OJD, "Output Jobs"), vec![Mutation::SetOutputJobs(list)])
         })?;
         Ok(Applied::Project)

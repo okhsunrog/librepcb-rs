@@ -118,7 +118,13 @@ pub fn open(
 
 /// Adds the fields of a mask configuration (upstream radio buttons "Off",
 /// "From Design Rules", "Manual:" with an offset edit).
-fn mask_config_fields(form: &mut Form, id: &str, label: &str, context: &str, config: MaskConfig) {
+pub(crate) fn mask_config_fields(
+    form: &mut Form,
+    id: &str,
+    label: &str,
+    context: &str,
+    config: MaskConfig,
+) {
     let options = vec![
         tr!(context, "Off"),
         tr!(context, "From Design Rules"),
@@ -135,11 +141,11 @@ fn mask_config_fields(form: &mut Form, id: &str, label: &str, context: &str, con
     form.set_enabled(&offset_id, index == 2);
 }
 
-fn update_mask_config_fields(form: &Form, id: &str) {
+pub(crate) fn update_mask_config_fields(form: &Form, id: &str) {
     form.set_enabled(&format!("{id}_offset"), form.get_index(id) == Some(2));
 }
 
-fn chosen_mask_config(form: &Form, id: &str) -> MaskConfig {
+pub(crate) fn chosen_mask_config(form: &Form, id: &str) -> MaskConfig {
     match form.get_index(id) {
         Some(2) => MaskConfig::Manual(form.get_length(&format!("{id}_offset"))),
         Some(1) => MaskConfig::Automatic,
@@ -147,11 +153,11 @@ fn chosen_mask_config(form: &Form, id: &str) -> MaskConfig {
     }
 }
 
-fn positive(form: &Form, id: &str) -> Result<PositiveLength, String> {
+pub(crate) fn positive(form: &Form, id: &str) -> Result<PositiveLength, String> {
     PositiveLength::new(form.get_length(id)).map_err(|e| e.to_string())
 }
 
-fn unsigned(form: &Form, id: &str) -> Result<UnsignedLength, String> {
+pub(crate) fn unsigned(form: &Form, id: &str) -> Result<UnsignedLength, String> {
     UnsignedLength::new(form.get_length(id)).map_err(|e| e.to_string())
 }
 
@@ -374,7 +380,7 @@ impl FormDialog for DeviceDialog {
             "Change properties of {0}",
             self.name.as_str()
         );
-        transaction(ctx.project, text, |e| {
+        transaction(ctx.project()?, text, |e| {
             e.execute(EditComponent {
                 component: component.into(),
                 name: Some(name),
@@ -617,7 +623,7 @@ impl FormDialog for ViaDialog {
         via.set_exposure_config(chosen_mask_config(form, "exposure"));
         let segment = self.segment;
         let text = tr!("librepcb::editor::CmdBoardViaEdit", "Edit via");
-        transaction(ctx.project, text.clone(), |e| {
+        transaction(ctx.project()?, text.clone(), |e| {
             e.apply_mutations(
                 text,
                 vec![Mutation::Board(BoardMutation::UpdateNetSegmentElements {
@@ -847,7 +853,7 @@ impl FormDialog for PadDialog {
         }
         let segment = self.segment;
         let text = tr!("librepcb::editor::CmdBoardPadEdit", "Edit pad");
-        transaction(ctx.project, text.clone(), |e| {
+        transaction(ctx.project()?, text.clone(), |e| {
             e.apply_mutations(
                 text,
                 vec![Mutation::Board(BoardMutation::UpdateNetSegmentElements {
@@ -1122,7 +1128,7 @@ impl FormDialog for PlaneDialog {
         let outline = chosen_path(form, &self.outline);
         let (board, plane) = (self.board, self.plane);
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardPlaneEdit", "Edit plane"),
             |e| {
                 e.execute(EditPlane {
@@ -1222,7 +1228,7 @@ impl FormDialog for PolygonDialog {
         let board = self.board;
         let item = BoardItem::Polygon(polygon.clone());
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardPolygonEdit", "Edit polygon"),
             |e| {
                 e.execute(UpdateBoardItem {
@@ -1423,7 +1429,7 @@ impl FormDialog for StrokeTextDialog {
         match self.device {
             None => {
                 let item = BoardItem::StrokeText(text.clone());
-                transaction(ctx.project, label, |e| {
+                transaction(ctx.project()?, label, |e| {
                     e.execute(UpdateBoardItem {
                         board: Some(board),
                         item,
@@ -1432,7 +1438,7 @@ impl FormDialog for StrokeTextDialog {
             }
             Some(c) => {
                 let mut device = ctx
-                    .project
+                    .project()?
                     .shared()
                     .lock()
                     .project()
@@ -1441,7 +1447,7 @@ impl FormDialog for StrokeTextDialog {
                     .cloned()
                     .ok_or_else(|| "Device not found".to_owned())?;
                 device.insert_stroke_text(text.clone());
-                transaction(ctx.project, label.clone(), |e| {
+                transaction(ctx.project()?, label.clone(), |e| {
                     e.apply_mutations(
                         label,
                         vec![Mutation::Board(BoardMutation::UpdateDevice {
@@ -1528,7 +1534,7 @@ impl FormDialog for HoleDialog {
         let board = self.board;
         let item = BoardItem::Hole(hole.clone());
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardHoleEdit", "Edit hole"),
             |e| {
                 e.execute(UpdateBoardItem {
@@ -1560,6 +1566,58 @@ const ZONE_RULES: [ZoneRules; 4] = [
     ZoneRules::NO_DEVICES,
 ];
 
+/// The "Rules" check boxes of the zone properties dialogs.
+pub(crate) fn zone_rule_fields(form: &mut Form, rules: ZoneRules) {
+    form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Rules"));
+    let texts = [
+        (
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "No copper (except planes)"
+            ),
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "Raise a DRC error if there are any copper objects (e.g. traces or vias) in this zone. Only planes are allowed to flood this zone without raising an error."
+            ),
+        ),
+        (
+            tr!("librepcb::editor::ZonePropertiesDialog", "No planes"),
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "Prevent copper planes from flooding this zone."
+            ),
+        ),
+        (
+            tr!("librepcb::editor::ZonePropertiesDialog", "No exposure"),
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "Raise a DRC error if there is any solder resist opening (possibly exposing copper) in this zone."
+            ),
+        ),
+        (
+            tr!("librepcb::editor::ZonePropertiesDialog", "No devices"),
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "Raise a DRC error if there are any devices placed in this zone."
+            ),
+        ),
+    ];
+    for (i, (rule, (text, hint))) in ZONE_RULES.iter().zip(texts).enumerate() {
+        let id = format!("rule_{i}");
+        form.checkbox(&id, "", text, rules.contains(*rule));
+        form.set_hint(&id, hint);
+    }
+}
+
+/// The rules chosen with [`zone_rule_fields()`].
+pub(crate) fn chosen_zone_rules(form: &Form) -> ZoneRules {
+    let mut rules = ZoneRules::empty();
+    for (i, rule) in ZONE_RULES.iter().enumerate() {
+        rules.set(*rule, form.get_checked(&format!("rule_{i}")));
+    }
+    rules
+}
+
 impl ZoneDialog {
     /// Opens the dialog; `None` if the zone does not exist.
     pub fn new(project: &AppProject, board: BoardId, uuid: Uuid, unit: LengthUnit) -> Option<Self> {
@@ -1577,45 +1635,7 @@ impl ZoneDialog {
             .map(|l| ListItem::check(l.name_tr(), zone.layers().contains(l)))
             .collect();
         form.list("layers", "", &[], &items, 4, ListButtons::default());
-        form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Rules"));
-        let texts = [
-            (
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "No copper (except planes)"
-                ),
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "Raise a DRC error if there are any copper objects (e.g. traces or vias) in this zone. Only planes are allowed to flood this zone without raising an error."
-                ),
-            ),
-            (
-                tr!("librepcb::editor::ZonePropertiesDialog", "No planes"),
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "Prevent copper planes from flooding this zone."
-                ),
-            ),
-            (
-                tr!("librepcb::editor::ZonePropertiesDialog", "No exposure"),
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "Raise a DRC error if there is any solder resist opening (possibly exposing copper) in this zone."
-                ),
-            ),
-            (
-                tr!("librepcb::editor::ZonePropertiesDialog", "No devices"),
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "Raise a DRC error if there are any devices placed in this zone."
-                ),
-            ),
-        ];
-        for (i, (rule, (text, hint))) in ZONE_RULES.iter().zip(texts).enumerate() {
-            let id = format!("rule_{i}");
-            form.checkbox(&id, "", text, zone.rules().contains(*rule));
-            form.set_hint(&id, hint);
-        }
+        zone_rule_fields(&mut form, zone.rules());
         form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Options"));
         form.checkbox(
             "lock",
@@ -1667,17 +1687,13 @@ impl FormDialog for ZoneDialog {
             .map(|(l, _)| *l)
             .collect();
         zone.set_layers(layers).map_err(|e| e.to_string())?;
-        let mut rules = ZoneRules::empty();
-        for (i, rule) in ZONE_RULES.iter().enumerate() {
-            rules.set(*rule, form.get_checked(&format!("rule_{i}")));
-        }
-        zone.set_rules(rules);
+        zone.set_rules(chosen_zone_rules(form));
         zone.set_locked(form.get_checked("lock"));
         zone.set_outline(chosen_path(form, self.zone.outline()));
         let board = self.board;
         let item = BoardItem::Zone(zone.clone());
         transaction(
-            ctx.project,
+            ctx.project()?,
             tr!("librepcb::editor::CmdBoardZoneEdit", "Edit zone"),
             |e| {
                 e.execute(UpdateBoardItem {
@@ -1739,4 +1755,160 @@ impl FormDialog for LineWidthDialog {
 /// `UnsignedRatio` helper for other dialogs (board setup).
 pub fn unsigned_ratio(r: Ratio) -> Result<UnsignedRatio, String> {
     UnsignedRatio::new(r).map_err(|e| e.to_string())
+}
+
+// --- DXF import ---------------------------------------------------------------
+
+/// The last choices of the DXF import dialog (upstream: stored in the
+/// client settings under `board_editor/dxf_import_dialog/*`; here kept
+/// while the application runs).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DxfImportChoices {
+    /// Layer of the imported polygons.
+    pub layer: Layer,
+    /// Line width.
+    pub line_width: UnsignedLength,
+    /// Scale factor.
+    pub scale_factor: f64,
+    /// Place the objects interactively (with the cursor).
+    pub interactive: bool,
+    /// Fixed position (if not interactive).
+    pub position: librepcb_core::types::Point,
+    /// Join tangent polylines.
+    pub join_tangent_polylines: bool,
+    /// Import circles as holes.
+    pub circles_as_drills: bool,
+}
+
+impl Default for DxfImportChoices {
+    fn default() -> Self {
+        Self {
+            layer: Layer::BOARD_OUTLINES,
+            line_width: UnsignedLength::default(),
+            scale_factor: 1.0,
+            interactive: true,
+            position: librepcb_core::types::Point::ORIGIN,
+            join_tangent_polylines: true,
+            circles_as_drills: false,
+        }
+    }
+}
+
+thread_local! {
+    static DXF_CHOICES: RefCell<DxfImportChoices> = RefCell::new(DxfImportChoices::default());
+}
+
+const DXF_CTX: &str = "librepcb::editor::DxfImportDialog";
+
+/// Port of libs/librepcb/editor/dialogs/dxfimportdialog.{ui,cpp} for the
+/// board editor: layer, line width, scale factor, interactive or fixed
+/// placement, joining tangent polylines and circles as drills. The result
+/// is the FSM's
+/// [`DxfImportSettings`](librepcb_editor::fsm::board::DxfImportSettings)
+/// for the tab.
+pub struct DxfImportDialog {
+    form: Form,
+    file: librepcb_core::fileio::FilePath,
+}
+
+impl DxfImportDialog {
+    /// A dialog for the chosen file, with the allowed layers.
+    pub fn new(file: librepcb_core::fileio::FilePath, layers: &[Layer], unit: LengthUnit) -> Self {
+        let c = DXF_CHOICES.with_borrow(Clone::clone);
+        let mut form = Form::new(unit);
+        form.label("file", tr!("MainWindow", "File:"), file.to_native());
+        layer_field(&mut form, "layer", &tr!(DXF_CTX, "Layer:"), layers, c.layer);
+        form.length(
+            "line_width",
+            tr!(DXF_CTX, "Line width:"),
+            *c.line_width,
+            Length::ZERO,
+        );
+        form.text(
+            "scale_factor",
+            tr!(DXF_CTX, "Scale factor:"),
+            format!("{}", c.scale_factor),
+        );
+        form.checkbox(
+            "interactive",
+            tr!(DXF_CTX, "Position:"),
+            tr!(DXF_CTX, "Interactive"),
+            c.interactive,
+        );
+        position_fields(&mut form, "X:", "Y:", c.position);
+        form.set_enabled("pos_x", !c.interactive);
+        form.set_enabled("pos_y", !c.interactive);
+        form.checkbox(
+            "join",
+            tr!(DXF_CTX, "Options:"),
+            tr!(DXF_CTX, "Join tangent polylines"),
+            c.join_tangent_polylines,
+        );
+        form.checkbox(
+            "circles_as_drills",
+            "",
+            tr!(DXF_CTX, "Import circles as drills"),
+            c.circles_as_drills,
+        );
+        Self { form, file }
+    }
+
+    /// The choices as import settings.
+    fn settings(&self) -> Result<librepcb_editor::fsm::board::DxfImportSettings, String> {
+        let scale_text = self.form.get_text("scale_factor");
+        let scale_factor = scale_text
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|f| f.is_finite() && *f > 0.0)
+            .ok_or_else(|| format!("{} {scale_text}", tr!(DXF_CTX, "Scale factor:")))?;
+        let choices = DxfImportChoices {
+            layer: chosen_layer(&self.form, "layer").unwrap_or(Layer::BOARD_OUTLINES),
+            line_width: unsigned(&self.form, "line_width")?,
+            scale_factor,
+            interactive: self.form.get_checked("interactive"),
+            position: chosen_position(&self.form),
+            join_tangent_polylines: self.form.get_checked("join"),
+            circles_as_drills: self.form.get_checked("circles_as_drills"),
+        };
+        DXF_CHOICES.with_borrow_mut(|c| *c = choices.clone());
+        Ok(librepcb_editor::fsm::board::DxfImportSettings {
+            file: self.file.clone(),
+            layer: choices.layer,
+            line_width: choices.line_width,
+            scale_factor: choices.scale_factor,
+            join_tangent_polylines: choices.join_tangent_polylines,
+            circles_as_drills: choices.circles_as_drills,
+            placement: (!choices.interactive).then_some(choices.position),
+        })
+    }
+}
+
+impl FormDialog for DxfImportDialog {
+    fn title(&self) -> String {
+        tr!(DXF_CTX, "DXF Import")
+    }
+
+    form_accessors!();
+
+    fn options(&self) -> DialogOptions {
+        DialogOptions {
+            apply: false,
+            width: 450.0,
+            label_width: 110.0,
+            ..DialogOptions::default()
+        }
+    }
+
+    fn field_event(&mut self, _ctx: &DialogContext<'_>, id: &str, _event: FieldEvent) {
+        if id == "interactive" {
+            let interactive = self.form.get_checked("interactive");
+            self.form.set_enabled("pos_x", !interactive);
+            self.form.set_enabled("pos_y", !interactive);
+        }
+    }
+
+    fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
+        Ok(Applied::Tab(TabDialogResult::ImportDxf(self.settings()?)))
+    }
 }

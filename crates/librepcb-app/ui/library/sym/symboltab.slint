@@ -2,6 +2,7 @@ import { AddSymbolPinToolBar } from "addsymbolpintoolbar.slint";
 import { AddSymbolTextToolBar } from "addsymboltexttoolbar.slint";
 import { DrawSymbolPolygonToolBar } from "drawsymbolpolygontoolbar.slint";
 import { Tab } from "../../tab.slint";
+import { SceneContextMenu, SceneEditor } from "../../project/sceneeditor.slint";
 import {
     AuthorRowHeader,
     CategoriesChooserDialog,
@@ -593,6 +594,20 @@ component SymbolEditorTab inherits TouchArea {
             clicked => {
                 Backend.trigger-tab(section-index, index, TabAction.zoom-out);
             }
+        }
+    }
+
+    // Scene context menu (librepcb-rs, see sceneeditor.slint).
+    scene-menu := SceneContextMenu {
+        x: SceneEditor.menu-x;
+        y: SceneEditor.menu-y;
+        section-index: section-index;
+    }
+
+    property <int> scene-menu-serial: SceneEditor.menu-serial;
+    changed scene-menu-serial => {
+        if SceneEditor.menu-section == section-index {
+            scene-menu.show();
         }
     }
 

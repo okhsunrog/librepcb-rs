@@ -171,7 +171,7 @@ impl State {
         let (project, board) = match t {
             Tab::Schematic(t) => (Rc::clone(t.project()), None),
             Tab::Board2d(t) => (Rc::clone(t.project()), Some(t.board())),
-            Tab::Home(_) => return false,
+            _ => return false,
         };
         use crate::dialogs::output::{GraphicsExportDialog, GraphicsExportKind as K};
         let unit = t

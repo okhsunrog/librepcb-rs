@@ -3499,6 +3499,7 @@ dependencies = [
 name = "librepcb-app"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "clap",
  "clipboard-rs",
  "env_logger",
@@ -3508,6 +3509,7 @@ dependencies = [
  "librepcb-editor",
  "librepcb-i18n",
  "librepcb-mcp",
+ "librepcb-network",
  "librepcb-scene",
  "log",
  "open",
@@ -3520,6 +3522,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
