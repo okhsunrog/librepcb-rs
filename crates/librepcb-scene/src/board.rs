@@ -11,8 +11,6 @@
 //! order (bottom side first for the top view, reversed for the bottom view,
 //! which is also mirrored). Differences to upstream:
 //!
-//! - Standalone pads of net segments use the pad's preview geometries
-//!   (the board specific pad geometries are not public in core yet).
 //! - Planes are drawn with their fragments if the board has computed them
 //!   ([`Board::derived()`]), and always with their outline as a hairline.
 //! - Pad, via and hole drills are filled with the background color instead
@@ -649,6 +647,13 @@ impl BoardScene {
                     }
                 }
             }
+            // Standalone pads of the segment (a trace only ends at pads of
+            // its own segment; there are few of them).
+            if let Unit::Trace(s, _) = trace
+                && let Some(segment) = b.net_segment(*s)
+            {
+                units.extend(segment.pads().keys().map(|u| Unit::Pad(*s, *u)));
+            }
         }
         units.into_iter().collect()
     }
@@ -826,9 +831,9 @@ impl Builder<'_> {
                 };
                 let p = pad.pad();
                 let xf = convert::transform(&Transform::new(p.position(), p.rotation(), false));
-                // TODO: use the board pad geometries (`BI_Pad::getGeometries()`)
-                // once core exposes them for standalone pads.
-                let geometries = p.build_preview_geometries();
+                let connected = board.anchor_trace_layers(TraceAnchor::Pad(uuid));
+                let geometries =
+                    pad.geometries(self.copper_layers, board.design_rules(), &connected);
                 self.pad_geometries(&geometries, p.holes(), xf, BoardObject::Pad(s, uuid));
             }
             Unit::Via(s, uuid) => {

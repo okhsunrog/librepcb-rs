@@ -55,6 +55,24 @@ impl BoardPadData {
         /// Returns whether the pad is locked.
         copy locked: bool, set_locked
     );
+
+    /// Returns the geometries on the copper layers of the board and on the
+    /// stop mask and solder paste layers (upstream `BI_Pad::getGeometries()`
+    /// of a standalone pad); `connected_layers` are the layers of the
+    /// traces connected to the pad (see
+    /// [`Board::anchor_trace_layers()`](super::Board::anchor_trace_layers)).
+    pub fn geometries(
+        &self,
+        copper_layers: &BTreeSet<Layer>,
+        rules: &BoardDesignRules,
+        connected_layers: &BTreeSet<Layer>,
+    ) -> BTreeMap<Layer, Vec<PadGeometry>> {
+        PadOnBoard {
+            pad: &self.pad,
+            mirrored: false,
+        }
+        .geometries(copper_layers, rules, connected_layers)
+    }
 }
 
 /// The placement-dependent properties of a pad on a board, shared by

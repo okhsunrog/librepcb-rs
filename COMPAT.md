@@ -509,9 +509,7 @@ Rendering only; no file is affected.
 - Pad and via drills are cut out of the copper (filled subpaths nested in
   others become holes, like Qt's odd-even rule); all drills are also
   filled with the background color on a separate layer (the editor look,
-  hidden in graphics exports). Standalone board pads are drawn with the
-  pad's preview geometries (default mask offsets) until core exposes the
-  board pad geometries for them.
+  hidden in graphics exports).
 - Planes are drawn with the fragments stored in the board's derived data
   (if computed) plus their outline as a hairline.
 - Board colors are the dark scheme's primary colors (the editor look); the

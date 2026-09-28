@@ -330,6 +330,124 @@ fn test_build_modify_undo_redo() {
     );
 }
 
+/// Standalone pads are drawn with their board geometries, which depend on
+/// the connected traces: adding and removing a trace at a pad rebuilds it.
+#[test]
+fn test_standalone_pad_with_traces() {
+    use librepcb_core::geometry::{
+        ComponentSide, Junction, NonEmptyPath, Pad, PadFunction, PadHole, PadShape, Path, Trace,
+        TraceAnchor,
+    };
+    use librepcb_core::project::board::{
+        BoardNetSegment, BoardPadData, BoardSegmentElements, BoardSegmentItems,
+    };
+    use librepcb_core::project::{BoardMutation, BoardNetSegmentRef, Mutation};
+    use librepcb_core::types::{MaskConfig, Ratio, UnsignedLength, UnsignedLimitedRatio, Uuid};
+    let tmp = tempfile::tempdir().unwrap();
+    let mut h = Harness::new(create_editor(&tmp.path().join("project")));
+    let (_, board) = build_demo(&mut h);
+    // Automatic annular rings on the component side depend on the traces.
+    let mut settings = h.project().board(board).unwrap().settings().clone();
+    settings
+        .design_rules
+        .set_pad_cmp_side_auto_annular_ring(true);
+    h.run(ApplyMutations {
+        text: Some("Rules".into()),
+        mutations: vec![Mutation::Board(BoardMutation::SetSettings {
+            board,
+            settings: Box::new(settings),
+        })],
+    });
+    let size = PositiveLength::new(Length::new(5_000_000)).unwrap();
+    let pad = Pad::new(
+        Uuid::new_random(),
+        mm(40.0, 20.0),
+        Angle::DEG0,
+        PadShape::RoundedRect,
+        size,
+        size,
+        UnsignedLimitedRatio::new(Ratio::from_percent(0)).unwrap(),
+        Path::default(),
+        MaskConfig::Automatic,
+        MaskConfig::Off,
+        UnsignedLength::default(),
+        ComponentSide::Top,
+        PadFunction::StandardPad,
+        [PadHole::new(
+            Uuid::new_random(),
+            PositiveLength::new(Length::new(3_000_000)).unwrap(),
+            NonEmptyPath::from_point(mm(0.0, 0.0)),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let pad_uuid = pad.uuid();
+    {
+        let b = h.project().board(board).unwrap();
+        let data = BoardPadData::new(pad.clone(), false);
+        let layers = b.copper_layers();
+        let rules = b.design_rules();
+        let top = std::collections::BTreeSet::from([Layer::TOP_COPPER]);
+        assert_ne!(
+            data.geometries(&layers, rules, &top),
+            data.geometries(&layers, rules, &Default::default()),
+            "the geometries depend on the connected layers"
+        );
+    }
+    let segment = BoardNetSegment::with_elements(
+        Uuid::new_random(),
+        None,
+        vec![BoardPadData::new(pad, false)],
+        vec![],
+        vec![],
+        vec![],
+    );
+    let seg_ref = BoardNetSegmentRef {
+        board,
+        segment: segment.id(),
+    };
+    h.run(ApplyMutations {
+        text: Some("Add pad".into()),
+        mutations: vec![Mutation::Board(BoardMutation::AddNetSegment {
+            board,
+            segment,
+        })],
+    });
+    let junction = Junction::new(Uuid::new_random(), mm(45.0, 20.0));
+    let trace = Trace::new(
+        Uuid::new_random(),
+        // The component side: the annular ring depends on connected traces.
+        Layer::TOP_COPPER,
+        PositiveLength::new(Length::new(500_000)).unwrap(),
+        TraceAnchor::Pad(pad_uuid),
+        TraceAnchor::Junction(junction.uuid()),
+    );
+    let (trace_uuid, junction_uuid) = (trace.uuid(), junction.uuid());
+    h.run(ApplyMutations {
+        text: Some("Add trace".into()),
+        mutations: vec![Mutation::Board(BoardMutation::AddNetSegmentElements {
+            segment: seg_ref,
+            elements: BoardSegmentElements {
+                junctions: vec![junction],
+                traces: vec![trace],
+                ..BoardSegmentElements::default()
+            },
+        })],
+    });
+    h.run(ApplyMutations {
+        text: Some("Remove trace".into()),
+        mutations: vec![Mutation::Board(BoardMutation::RemoveNetSegmentElements {
+            segment: seg_ref,
+            elements: BoardSegmentItems {
+                traces: vec![trace_uuid],
+                junctions: vec![junction_uuid],
+                ..BoardSegmentItems::default()
+            },
+        })],
+    });
+    while h.undo() {}
+}
+
 #[test]
 fn test_resync_rebuilds() {
     use librepcb_core::project::ChangesSince;
