@@ -118,6 +118,7 @@
 pub mod app;
 pub mod canvas_view;
 pub mod clipboard;
+pub mod color_schemes;
 pub mod dialogs;
 pub mod file_dialog;
 pub mod helpers;
@@ -136,6 +137,7 @@ pub mod project;
 pub mod rule_check;
 pub mod screenshot;
 pub mod section;
+pub mod shortcuts;
 pub mod startup;
 pub mod tabs;
 pub mod theme;

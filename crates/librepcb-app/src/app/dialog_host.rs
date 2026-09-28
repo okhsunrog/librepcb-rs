@@ -107,7 +107,7 @@ impl State {
     }
 
     /// Updates the `Dialogs` properties from the open dialog.
-    fn refresh_form_dialog(&mut self, all: bool) {
+    pub(crate) fn refresh_form_dialog(&mut self, all: bool) {
         let workspace = self.workspace.clone();
         let Some(open) = self.form_dialog.as_mut() else {
             return;
@@ -170,6 +170,7 @@ impl State {
             workspace: Some(&workspace),
         };
         open.dialog.field_event(&ctx, &id, event);
+        let request = open.dialog.take_request();
         // Dialogs may rebuild their pages (e.g. output jobs).
         let pages_changed = self.window().is_some_and(|w| {
             let d = w.global::<ui::Dialogs>();
@@ -179,6 +180,9 @@ impl State {
                 .is_some_and(|o| o.dialog.form().pages().len() != n)
         });
         self.refresh_form_dialog(pages_changed);
+        if let Some(request) = request {
+            self.handle_app_request(request);
+        }
     }
 
     /// `Dialogs.form-button()`.
@@ -247,7 +251,9 @@ impl State {
             project: project.as_ref(),
             workspace: Some(&workspace),
         };
-        match open.dialog.button(&ctx, index) {
+        let result = open.dialog.button(&ctx, index);
+        let request = open.dialog.take_request();
+        match result {
             Ok(ButtonResult::Keep) => self.refresh_form_dialog(true),
             Ok(ButtonResult::Modified) => {
                 self.refresh_form_dialog(true);
@@ -276,6 +282,9 @@ impl State {
                     w.global::<ui::Dialogs>().set_form_error(message.into());
                 }
             }
+        }
+        if let Some(request) = request {
+            self.handle_app_request(request);
         }
     }
 

@@ -85,3 +85,11 @@ same style.
    a fixed `border-radius` (half its preferred height) instead of
    `self.height / 2`, which is a runtime binding recursion with Slint 1.18.1
    (the layout of the panel needs the border radius).
+10. Color scheme editor (M3c, librepcb-rs only): in `colorschemedialog.slint`
+    the upstream `ColorSchemeDialog` window is the component
+    `ColorSchemePanel` (a `Rectangle`: no `title`, `icon` and
+    `default-font-family`), shown as overlay by the new
+    `ColorSchemeOverlay` with the `ColorSchemeEditor` global (upstream opens
+    a separate window; the headless platform has one window only);
+    `appwindow.slint` shows the overlay above the form dialogs, `ui.slint`
+    exports the global and the data types instead of the window.

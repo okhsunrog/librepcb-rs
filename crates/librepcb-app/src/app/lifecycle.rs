@@ -14,11 +14,14 @@ use std::time::Duration;
 use librepcb_app_ui as ui;
 use librepcb_core::fileio::FilePath;
 use librepcb_i18n::{tr, trn};
+use slint::ComponentHandle;
 
 use super::State;
+use crate::color_schemes::{ColorSchemes, SchemeKind};
 use crate::dialogs::new_project::{NewProjectMode, NewProjectWizard};
 use crate::dialogs::open_prompts::{DirectoryLockDialog, RestoreAutosaveDialog};
 use crate::dialogs::project_library_updater::ProjectLibraryUpdaterDialog;
+use crate::dialogs::workspace_settings::WorkspaceSettingsDialog;
 use crate::dialogs::{AppRequest, FormDialog};
 use crate::notifications::{Notification, NotificationButton};
 use crate::project::{AppProject, OpenOutcome, OpenRequest};
@@ -281,9 +284,67 @@ impl State {
         }
     }
 
-    /// Applies modified workspace settings to the application.
+    /// Opens the workspace settings dialog (upstream
+    /// `GuiApplication::execWorkspaceSettingsDialog()`).
+    pub fn show_workspace_settings(&mut self) {
+        let settings = self.workspace.lock().settings().clone();
+        let dialog = WorkspaceSettingsDialog::new(&settings);
+        self.show_app_dialog(Box::new(dialog));
+    }
+
+    /// Applies the workspace settings to the application (at startup and
+    /// after the settings dialog): autosave interval, keyboard shortcuts,
+    /// theme, language, grid styles and color schemes.
     pub(crate) fn workspace_settings_changed(&mut self) {
+        self.apply_workspace_settings(true);
+    }
+
+    /// Applies the workspace settings; the language only if `language`
+    /// (at startup, the command line option may override it).
+    pub(crate) fn apply_workspace_settings(&mut self, language: bool) {
         self.setup_autosave_timer();
+        let (overrides, theme, locale, sch_grid, brd_grid, sch_schemes, brd_schemes) = {
+            let ws = self.workspace.lock();
+            let s = ws.settings();
+            (
+                s.keyboard_shortcuts.get().overrides().clone(),
+                s.ui_theme.get().clone(),
+                s.application_locale.get().clone(),
+                *s.schematic_grid_style.get(),
+                *s.board_grid_style.get(),
+                ColorSchemes::load(SchemeKind::Schematic, s.schematic_color_schemes.get()),
+                ColorSchemes::load(SchemeKind::Board, s.board_color_schemes.get()),
+            )
+        };
+        crate::shortcuts::set_overrides(&overrides);
+        let theme = crate::theme::UiTheme::from_setting(&theme);
+        if theme != self.theme {
+            self.theme = theme;
+            if let Some(w) = self.window() {
+                w.global::<ui::Data>().set_theme(theme.to_ui());
+            }
+        }
+        if language && !locale.is_empty() && locale != librepcb_i18n::current_language() {
+            match librepcb_i18n::set_language(&locale) {
+                Ok(lang) => {
+                    if let Err(e) = slint::select_bundled_translation(lang) {
+                        log::warn!("Failed to select the UI language {lang}: {e}");
+                    }
+                }
+                Err(e) => log::warn!("{e}"),
+            }
+        }
+        self.apply_grid_styles(sch_grid, brd_grid);
+        self.color_schemes = (sch_schemes.scene_scheme(), brd_schemes.scene_scheme());
+        for si in 0..self.sections.len() {
+            for ti in 0..self.sections[si].tabs().len() {
+                let update = self.sections[si].tabs_mut()[ti]
+                    .set_color_schemes(&self.color_schemes.0, &self.color_schemes.1);
+                if update != crate::tabs::TabUpdate::default() {
+                    self.apply_update(si, ti, update);
+                }
+            }
+        }
     }
 
     /// Shows the project library updater (upstream
@@ -381,8 +442,8 @@ impl State {
 
     fn show_dialog_kind(&mut self, kind: crate::dialogs::DialogKind) {
         match kind {
-            crate::dialogs::DialogKind::ColorScheme(_) => {
-                self.not_implemented("color schemes");
+            crate::dialogs::DialogKind::ColorScheme(kind) => {
+                self.show_color_scheme_editor(kind);
             }
         }
     }

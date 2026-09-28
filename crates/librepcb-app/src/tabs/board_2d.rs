@@ -405,6 +405,25 @@ impl Board2dTab {
         }
     }
 
+    /// Changes the color scheme (workspace settings) and rebuilds the scene.
+    pub fn set_color_scheme(&mut self, scheme: &ColorScheme) -> TabUpdate {
+        if self.scheme == *scheme {
+            return TabUpdate::default();
+        }
+        self.scheme = scheme.clone();
+        self.rebuild();
+        let background = self
+            .scene
+            .as_ref()
+            .map_or(Color::BLACK, BoardScene::background);
+        self.canvas.set_background(background);
+        TabUpdate {
+            repaint: true,
+            data_changed: true,
+            ..TabUpdate::default()
+        }
+    }
+
     /// Rebuilds the scene from scratch (e.g. after the side was flipped),
     /// keeping the layer visibility.
     fn rebuild(&mut self) {

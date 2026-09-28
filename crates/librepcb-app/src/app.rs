@@ -45,6 +45,7 @@ use crate::theme::UiTheme;
 use crate::workspace_models::{FileSystemTree, QuickAccess};
 
 mod add_component_host;
+mod color_scheme_host;
 mod dialog_host;
 mod libraries_panel;
 mod library_elements;
@@ -106,6 +107,10 @@ pub struct State {
     pub(crate) editing: tab_editing::EditingState,
     /// The open form dialog (see [`crate::dialogs`]).
     pub(crate) form_dialog: Option<OpenDialog>,
+    /// The color scheme being edited (see [`color_scheme_host`]).
+    pub(crate) color_scheme_edit: Option<color_scheme_host::ColorSchemeEdit>,
+    /// The active color schemes of the schematic and board scenes.
+    pub(crate) color_schemes: (librepcb_scene::ColorScheme, librepcb_scene::ColorScheme),
     /// The open "add component" dialog.
     pub(crate) add_component: Option<OpenAddComponent>,
     /// The local libraries of the libraries panel.
@@ -182,6 +187,11 @@ impl App {
                 mcp: McpController::default(),
                 editing: tab_editing::EditingState::default(),
                 form_dialog: None,
+                color_scheme_edit: None,
+                color_schemes: (
+                    librepcb_scene::ColorScheme::SCHEMATIC_LIGHT,
+                    librepcb_scene::ColorScheme::BOARD_DARK,
+                ),
                 add_component: None,
                 local_libraries: crate::library_manager::LibrariesModel::new(false),
                 remote_libraries: crate::library_manager::LibrariesModel::new(true),
@@ -285,7 +295,7 @@ impl App {
             s.current_tab_changed();
         }
 
-        self.state.borrow().setup_autosave_timer();
+        self.state.borrow_mut().apply_workspace_settings(false);
 
         // Rebuild scenes when projects are modified from elsewhere.
         let poll_weak = weak.clone();
@@ -461,9 +471,10 @@ impl App {
         libraries_panel::bind(weak);
         dialog_host::bind(&self.window, weak);
         add_component_host::bind(&self.window, weak);
+        color_scheme_host::bind(&self.window, weak);
 
         // Pure helpers.
-        b.on_is_shortcut(|event, command| helpers::is_shortcut(&event, &command));
+        b.on_is_shortcut(|event, command| crate::shortcuts::is_shortcut(&event, &command));
         b.on_format_length(helpers::format_length);
         b.on_parse_length_input(|text, unit, minimum| {
             helpers::parse_length_input(&text, unit, minimum)
@@ -760,7 +771,8 @@ impl State {
     }
 
     /// Adds a tab to the current section and makes it current.
-    pub(crate) fn add_tab(&mut self, tab: Tab) {
+    pub(crate) fn add_tab(&mut self, mut tab: Tab) {
+        tab.set_color_schemes(&self.color_schemes.0, &self.color_schemes.1);
         let section = self
             .window()
             .map_or(0, |w| w.global::<ui::Data>().get_current_section_index())
@@ -923,7 +935,8 @@ impl State {
         self.add_tab_maybe_current(tab, switch_to);
     }
 
-    pub(crate) fn add_tab_maybe_current(&mut self, tab: Tab, switch_to: bool) {
+    pub(crate) fn add_tab_maybe_current(&mut self, mut tab: Tab, switch_to: bool) {
+        tab.set_color_schemes(&self.color_schemes.0, &self.color_schemes.1);
         if switch_to {
             self.add_tab(tab);
         } else {
@@ -960,6 +973,7 @@ impl State {
             ui::Action::ProjectOpen => self.open_project_dialog(),
             ui::Action::ProjectNew => self.show_new_project_wizard(false, None),
             ui::Action::ProjectImportEagle => self.show_new_project_wizard(true, None),
+            ui::Action::WorkspaceSettings => self.show_workspace_settings(),
             ui::Action::WorkspaceLibrariesRescan => self.start_library_scan(),
             ui::Action::LibraryPanelEnsurePopulated
             | ui::Action::LibraryPanelCheckForUpdates

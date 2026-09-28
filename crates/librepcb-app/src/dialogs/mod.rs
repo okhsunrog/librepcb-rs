@@ -48,6 +48,7 @@ pub mod project_library_updater;
 pub mod review;
 pub mod schematic;
 pub mod setup;
+pub mod workspace_settings;
 
 use std::rc::Rc;
 
@@ -172,9 +173,9 @@ pub enum AppRequest {
 /// Dialogs which a dialog can open (see [`AppRequest::ShowDialog`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialogKind {
-    /// The color scheme editor of the workspace settings (schematic:
-    /// `true`, board: `false`).
-    ColorScheme(bool),
+    /// The color scheme editor of the workspace settings dialog (for its
+    /// active scheme of the kind).
+    ColorScheme(crate::color_schemes::SchemeKind),
 }
 
 /// Results of dialogs which answer a request of a tab's FSM.
@@ -290,6 +291,18 @@ pub trait FormDialog {
     /// [`DialogOptions::extra_buttons`]).
     fn button(&mut self, _ctx: &DialogContext<'_>, _index: usize) -> Result<ButtonResult, String> {
         Ok(ButtonResult::Keep)
+    }
+
+    /// A request to the application after a field event or a button (e.g.
+    /// to open another dialog), polled by the application.
+    fn take_request(&mut self) -> Option<AppRequest> {
+        None
+    }
+
+    /// The dialog as `Any` (to access its type from the application, e.g.
+    /// the workspace settings dialog from the color scheme editor).
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
     }
 
     /// The preview image shown next to the fields (if any).

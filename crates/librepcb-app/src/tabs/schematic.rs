@@ -377,6 +377,28 @@ impl SchematicTab {
         update
     }
 
+    /// Changes the color scheme (workspace settings) and rebuilds the scene.
+    pub fn set_color_scheme(&mut self, scheme: &ColorScheme) -> TabUpdate {
+        if self.scheme == *scheme {
+            return TabUpdate::default();
+        }
+        self.scheme = scheme.clone();
+        self.scene = None;
+        // Outdated: the scene is built again by the next sync.
+        self.sync = SceneSync::at(u64::MAX);
+        self.sync_scene();
+        let background = self
+            .scene
+            .as_ref()
+            .map_or(Color::WHITE, SchematicScene::background);
+        self.canvas.set_background(background);
+        TabUpdate {
+            repaint: true,
+            data_changed: true,
+            ..TabUpdate::default()
+        }
+    }
+
     /// Syncs the scene with the project's change journal (incrementally
     /// where possible).
     fn sync_scene(&mut self) {

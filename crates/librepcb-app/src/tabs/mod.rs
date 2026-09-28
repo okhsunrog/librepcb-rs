@@ -493,6 +493,19 @@ impl Tab {
         }
     }
 
+    /// Changes the color schemes (schematic and board) of the scene tabs.
+    pub fn set_color_schemes(
+        &mut self,
+        schematic: &librepcb_scene::ColorScheme,
+        board: &librepcb_scene::ColorScheme,
+    ) -> TabUpdate {
+        match self {
+            Self::Schematic(t) => t.set_color_scheme(schematic),
+            Self::Board2d(t) => t.set_color_scheme(board),
+            _ => TabUpdate::default(),
+        }
+    }
+
     /// The project shown by the tab, if any.
     pub fn project(&self) -> Option<&Rc<AppProject>> {
         match self {

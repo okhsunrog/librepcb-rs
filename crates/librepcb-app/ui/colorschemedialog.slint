@@ -225,11 +225,10 @@ component ColorLabels inherits HorizontalLayout {
     }
 }
 
-export component ColorSchemeDialog inherits Window {
-    title: @tr("Color Scheme");
-    icon: @image-url("resources/img/app/librepcb.svg");
+// librepcb-rs: the content of upstream's `ColorSchemeDialog` window as a
+// component, shown as overlay by `ColorSchemeOverlay` (see PROVENANCE.md).
+export component ColorSchemePanel inherits Rectangle {
     background: Data.theme.window;
-    default-font-family: "Noto Sans";
     preferred-width: 300px;
     preferred-height: 500px;
     forward-focus: name-edt;
@@ -658,6 +657,61 @@ export component ColorSchemeDialog inherits Window {
 
                 copy-to-clipboard(text) => {
                     copy-to-clipboard();
+                }
+            }
+        }
+    }
+}
+
+// librepcb-rs: the color scheme editor shown as overlay of the main window
+// (upstream opens `ColorSchemeDialog` as a separate window).
+export global ColorSchemeEditor {
+    in-out property <bool> shown: false;
+    in-out property <string> title;
+    in-out property <string> name;
+    in-out property <[ColorSchemeItemData]> model;
+    callback copy-to-clipboard() -> bool;
+    callback close-requested();
+}
+
+export component ColorSchemeOverlay inherits Rectangle {
+    background: black.with-alpha(0.3 - Data.theme.base.to-hsv().value * 0.2);
+
+    TouchArea {
+        // Discard clicks and scroll events outside the dialog.
+        scroll-event(event) => {
+            accept
+        }
+    }
+
+    Rectangle {
+        width: min(parent.width - 40px, 650px);
+        height: min(parent.height - 40px, 700px);
+        background: Data.theme.window;
+        border-color: Data.theme.control-border;
+        border-width: 1px;
+        border-radius: 5px;
+
+        VerticalLayout {
+            padding: 8px;
+            spacing: 4px;
+
+            Text {
+                text: ColorSchemeEditor.title;
+                color: Data.theme.base-text;
+                font-weight: 700;
+                font-size: 14px;
+            }
+
+            panel := ColorSchemePanel {
+                name <=> ColorSchemeEditor.name;
+                model <=> ColorSchemeEditor.model;
+
+                copy-to-clipboard => {
+                    ColorSchemeEditor.copy-to-clipboard()
+                }
+                close-requested => {
+                    ColorSchemeEditor.close-requested();
                 }
             }
         }
