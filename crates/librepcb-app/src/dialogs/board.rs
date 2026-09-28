@@ -13,7 +13,7 @@
 //! shown) nor the custom shape outline; path vertices are edited in place
 //! (no adding/removing).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use librepcb_core::geometry::ComponentSide;
 use librepcb_core::geometry::{PadFunction, PadShape, Path, ZoneRules};
@@ -47,6 +47,7 @@ use super::{
 };
 use crate::length_edit::steps;
 use crate::project::AppProject;
+use crate::tabs::DxfImportKind;
 
 /// Layers allowed for board polygons and stroke texts (upstream
 /// `BoardEditorState::getAllowedGeometryLayers()`).
@@ -1756,9 +1757,10 @@ pub fn unsigned_ratio(r: Ratio) -> Result<UnsignedRatio, String> {
 
 // --- DXF import ---------------------------------------------------------------
 
-/// The last choices of the DXF import dialog (upstream: stored in the
-/// client settings under `board_editor/dxf_import_dialog/*`; here kept
-/// while the application runs).
+/// The last choices of the DXF import dialog of an editor (upstream:
+/// stored in the client settings under `board_editor/dxf_import_dialog/*`,
+/// `symbol_editor/...` and `package_editor/...`; here kept while the
+/// application runs).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DxfImportChoices {
     /// Layer of the imported polygons.
@@ -1777,10 +1779,16 @@ pub struct DxfImportChoices {
     pub circles_as_drills: bool,
 }
 
-impl Default for DxfImportChoices {
-    fn default() -> Self {
+impl DxfImportChoices {
+    /// The defaults of an editor (upstream: the `defaultLayer` argument of
+    /// `DxfImportDialog`).
+    pub fn defaults(kind: DxfImportKind) -> Self {
         Self {
-            layer: Layer::BOARD_OUTLINES,
+            layer: match kind {
+                DxfImportKind::Board => Layer::BOARD_OUTLINES,
+                DxfImportKind::Symbol => Layer::SYMBOL_OUTLINES,
+                DxfImportKind::Package => Layer::TOP_DOCUMENTATION,
+            },
             line_width: UnsignedLength::default(),
             scale_factor: 1.0,
             interactive: true,
@@ -1792,33 +1800,48 @@ impl Default for DxfImportChoices {
 }
 
 thread_local! {
-    static DXF_CHOICES: RefCell<DxfImportChoices> = RefCell::new(DxfImportChoices::default());
+    static DXF_CHOICES: RefCell<HashMap<DxfImportKind, DxfImportChoices>> =
+        RefCell::new(HashMap::new());
 }
 
 const DXF_CTX: &str = "librepcb::editor::DxfImportDialog";
 
 /// Port of libs/librepcb/editor/dialogs/dxfimportdialog.{ui,cpp} for the
-/// board editor: layer, line width, scale factor, interactive or fixed
-/// placement, joining tangent polylines and circles as drills. The result
-/// is the FSM's
+/// board, symbol and package editors: layer, line width, scale factor,
+/// interactive or fixed placement, joining tangent polylines and circles
+/// as drills (not in the symbol editor). The result is the FSM's
 /// [`DxfImportSettings`](librepcb_editor::fsm::board::DxfImportSettings)
 /// for the tab.
 pub struct DxfImportDialog {
     form: Form,
     file: librepcb_core::fileio::FilePath,
+    kind: DxfImportKind,
 }
 
 impl DxfImportDialog {
     /// A dialog for the chosen file, with the allowed layers.
-    pub fn new(file: librepcb_core::fileio::FilePath, layers: &[Layer], unit: LengthUnit) -> Self {
-        let c = DXF_CHOICES.with_borrow(Clone::clone);
+    pub fn new(
+        file: librepcb_core::fileio::FilePath,
+        layers: &[Layer],
+        unit: LengthUnit,
+        kind: DxfImportKind,
+    ) -> Self {
+        let c = DXF_CHOICES.with_borrow(|c| c.get(&kind).cloned());
+        let c = c.unwrap_or_else(|| DxfImportChoices::defaults(kind));
+        // Choices of another editor version may name a layer which is not
+        // allowed here.
+        let layer = if layers.contains(&c.layer) {
+            c.layer
+        } else {
+            DxfImportChoices::defaults(kind).layer
+        };
         let mut form = Form::new(unit);
         form.label(
             "file",
             tr!("librepcb::editor::MainWindow", "File:"),
             file.to_native(),
         );
-        layer_field(&mut form, "layer", &tr!(DXF_CTX, "Layer:"), layers, c.layer);
+        layer_field(&mut form, "layer", &tr!(DXF_CTX, "Layer:"), layers, layer);
         form.length(
             "line_width",
             tr!(DXF_CTX, "Line width:"),
@@ -1845,13 +1868,15 @@ impl DxfImportDialog {
             tr!(DXF_CTX, "Join tangent polylines"),
             c.join_tangent_polylines,
         );
-        form.checkbox(
-            "circles_as_drills",
-            "",
-            tr!(DXF_CTX, "Import circles as drills"),
-            c.circles_as_drills,
-        );
-        Self { form, file }
+        if kind != DxfImportKind::Symbol {
+            form.checkbox(
+                "circles_as_drills",
+                "",
+                tr!(DXF_CTX, "Import circles as drills"),
+                c.circles_as_drills,
+            );
+        }
+        Self { form, file, kind }
     }
 
     /// The choices as import settings.
@@ -1864,15 +1889,17 @@ impl DxfImportDialog {
             .filter(|f| f.is_finite() && *f > 0.0)
             .ok_or_else(|| format!("{} {scale_text}", tr!(DXF_CTX, "Scale factor:")))?;
         let choices = DxfImportChoices {
-            layer: chosen_layer(&self.form, "layer").unwrap_or(Layer::BOARD_OUTLINES),
+            layer: chosen_layer(&self.form, "layer")
+                .unwrap_or(DxfImportChoices::defaults(self.kind).layer),
             line_width: unsigned(&self.form, "line_width")?,
             scale_factor,
             interactive: self.form.get_checked("interactive"),
             position: chosen_position(&self.form),
             join_tangent_polylines: self.form.get_checked("join"),
-            circles_as_drills: self.form.get_checked("circles_as_drills"),
+            circles_as_drills: self.kind != DxfImportKind::Symbol
+                && self.form.get_checked("circles_as_drills"),
         };
-        DXF_CHOICES.with_borrow_mut(|c| *c = choices.clone());
+        DXF_CHOICES.with_borrow_mut(|c| c.insert(self.kind, choices.clone()));
         Ok(librepcb_editor::fsm::board::DxfImportSettings {
             file: self.file.clone(),
             layer: choices.layer,

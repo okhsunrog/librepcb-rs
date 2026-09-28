@@ -8,9 +8,13 @@
 //! version, deprecated, categories), the checks with approvals and
 //! automatic fixes, undo/redo and saving (see [`ElementCore`]).
 //!
-//! Differences to upstream: images, DXF import and graphics export are
-//! not available in the symbol editor yet; the file system watcher
-//! ("files modified" banner) is not ported.
+//! Images and DXF files are chosen by the application (image file dialog,
+//! DXF import dialog) and passed to [`SymbolTab::add_image()`] and
+//! [`SymbolTab::import_dxf()`].
+//!
+//! Differences to upstream: graphics export is not available in the symbol
+//! editor yet; the file system watcher ("files modified" banner) is not
+//! ported.
 
 use std::collections::HashSet;
 
@@ -20,13 +24,14 @@ use librepcb_canvas::peniko::Color;
 use librepcb_canvas::{
     Grid, Modifiers, PointerAction, PointerButton, PointerKind, SelectionMode, View,
 };
+use librepcb_core::geometry::Image;
 use librepcb_core::library::sym::Symbol;
 use librepcb_core::types::{
     Angle, GridStyle, HAlign, Layer, Length, LengthUnit, Orientation, PositiveLength,
     UnsignedLength, VAlign,
 };
 use librepcb_editor::fsm::library::{
-    LibraryContext, LibraryEditorSettings, LibraryRequest, LibraryTool, LibraryView,
+    ElementHost, LibraryContext, LibraryEditorSettings, LibraryRequest, LibraryTool, LibraryView,
     SymbolEditorFsm, SymbolHost,
 };
 use librepcb_editor::fsm::{PointerEvent, ViewState};
@@ -40,7 +45,7 @@ use super::editing::{
 };
 use super::element_core::{ElementCore, OpenMode};
 use super::schematic_view::HIT_TOLERANCE_PX;
-use super::{ContextMenuEntry, TabId, TabRequest, TabUpdate, feature};
+use super::{ContextMenuEntry, DxfImportKind, TabId, TabRequest, TabUpdate, feature};
 use crate::canvas_view::{CanvasView, DEFAULT_SCHEMATIC_RECT};
 use crate::clipboard::{ensure_opened, with_clipboard};
 use crate::helpers::{
@@ -66,6 +71,9 @@ pub enum LibraryMenuAction {
     Cut,
     /// Copy.
     Copy,
+    /// Apply the geometry of the clipboard object to the selected objects
+    /// (package editor).
+    PasteGeometry,
     /// Remove.
     Remove,
     /// Rotate counterclockwise.
@@ -84,12 +92,15 @@ pub enum LibraryMenuAction {
     Separator,
 }
 
-/// The entries of the context menu of an item.
+/// The entries of the context menu of an item (`paste_geometry`: the
+/// clipboard object's geometry can be applied to the selection, upstream
+/// `canPasteGeometry()`).
 pub fn context_menu_entries(
     has_properties: bool,
     remove_vertex: bool,
     add_vertex: bool,
     footprint: bool,
+    paste_geometry: bool,
 ) -> (Vec<LibraryMenuAction>, Vec<ContextMenuEntry>) {
     use LibraryMenuAction as A;
     let mut actions = Vec::new();
@@ -105,14 +116,11 @@ pub fn context_menu_entries(
     if remove_vertex || add_vertex {
         actions.push(A::Separator);
     }
-    actions.extend([
-        A::Cut,
-        A::Copy,
-        A::Remove,
-        A::Separator,
-        A::RotateCcw,
-        A::RotateCw,
-    ]);
+    actions.extend([A::Cut, A::Copy]);
+    if paste_geometry {
+        actions.push(A::PasteGeometry);
+    }
+    actions.extend([A::Remove, A::Separator, A::RotateCcw, A::RotateCw]);
     if footprint {
         actions.push(A::FlipHorizontal);
     } else {
@@ -131,6 +139,10 @@ pub fn context_menu_entries(
             A::AddVertex => ContextMenuEntry::new(tr!("EditorCommandSet", "Add Vertex")),
             A::Cut => ContextMenuEntry::new(tr!("EditorCommandSet", "Cut")),
             A::Copy => ContextMenuEntry::new(tr!("EditorCommandSet", "Copy")),
+            A::PasteGeometry => ContextMenuEntry::new(tr!(
+                "librepcb::editor::PackageEditorState_Select",
+                "Paste Geometry"
+            )),
             A::Remove => ContextMenuEntry::new(tr!("EditorCommandSet", "Remove")),
             A::RotateCcw => {
                 ContextMenuEntry::new(tr!("EditorCommandSet", "Rotate Counterclockwise"))
@@ -249,16 +261,52 @@ struct SymbolSceneView<'a> {
     scene: Option<&'a SymbolScene>,
     view: &'a View,
     cursor: Option<librepcb_core::types::Point>,
+    /// The images of the symbol: the scene draws only their borders, so
+    /// they are hit tested here (upstream `ImageGraphicsItem::shape()`: the
+    /// image rectangle).
+    images: &'a [Image],
+}
+
+/// The corners of an image (world coordinates, mm).
+fn image_corners(image: &Image) -> [Point; 4] {
+    let xf = librepcb_canvas::kurbo::Affine::translate(point_to_world(image.position()).to_vec2())
+        * librepcb_canvas::kurbo::Affine::rotate(librepcb_canvas::convert::angle(image.rotation()));
+    let (w, h) = (image.width().to_mm(), image.height().to_mm());
+    [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)].map(|(x, y)| xf * Point::new(x, y))
 }
 
 impl LibraryView<SymbolItem> for SymbolSceneView<'_> {
     fn items_at(&self, pos: librepcb_core::types::Point, tolerance: Length) -> Vec<SymbolItem> {
-        self.scene
+        let mut items: Vec<SymbolItem> = self
+            .scene
             .map(|s| s.objects_at(pos, tolerance))
             .unwrap_or_default()
             .into_iter()
             .map(symbol_item)
-            .collect()
+            .collect();
+        // Images are below all other items.
+        let p = point_to_world(pos);
+        for image in self.images.iter().rev() {
+            let item = SymbolItem::Image(image.uuid());
+            let path = librepcb_canvas::kurbo::BezPath::from_iter(
+                image_corners(image)
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        if i == 0 {
+                            librepcb_canvas::kurbo::PathEl::MoveTo(*c)
+                        } else {
+                            librepcb_canvas::kurbo::PathEl::LineTo(*c)
+                        }
+                    })
+                    .chain([librepcb_canvas::kurbo::PathEl::ClosePath]),
+            );
+            use librepcb_canvas::kurbo::Shape;
+            if !items.contains(&item) && path.contains(p) {
+                items.push(item);
+            }
+        }
+        items
     }
 
     fn items_in_rect(
@@ -266,12 +314,21 @@ impl LibraryView<SymbolItem> for SymbolSceneView<'_> {
         p1: librepcb_core::types::Point,
         p2: librepcb_core::types::Point,
     ) -> Vec<SymbolItem> {
-        self.scene
+        let mut items: Vec<SymbolItem> = self
+            .scene
             .map(|s| s.objects_in_rect(p1, p2))
             .unwrap_or_default()
             .into_iter()
             .map(symbol_item)
-            .collect()
+            .collect();
+        let rect = Rect::from_points(point_to_world(p1), point_to_world(p2));
+        for image in self.images {
+            let item = SymbolItem::Image(image.uuid());
+            if !items.contains(&item) && image_corners(image).iter().any(|c| rect.contains(*c)) {
+                items.push(item);
+            }
+        }
+        items
     }
 
     fn tolerance(&self) -> Length {
@@ -432,10 +489,19 @@ impl SymbolTab {
         &mut self,
         f: impl FnOnce(&mut SymbolEditorFsm, &mut LibraryContext<'_, SymbolHost>) -> R,
     ) -> R {
+        let images: Vec<Image> = self
+            .core
+            .editor
+            .element()
+            .images()
+            .iter()
+            .cloned()
+            .collect();
         let view = SymbolSceneView {
             scene: self.scene.as_ref(),
             view: self.canvas.view(),
             cursor: self.cursor,
+            images: &images,
         };
         let fsm = &mut self.fsm;
         let editor = &mut self.core.editor;
@@ -581,11 +647,15 @@ impl SymbolTab {
                 segment,
             } => {
                 let has_properties = !matches!(item, SymbolItem::Image(_));
+                // Always false for symbols (like upstream), asked anyway.
+                with_clipboard(ensure_opened);
+                let paste_geometry = self.run(|f, c| f.can_paste_geometry(c));
                 let (actions, entries) = context_menu_entries(
                     has_properties,
                     !vertices.is_empty(),
                     segment.is_some(),
                     false,
+                    paste_geometry,
                 );
                 self.menu = actions;
                 self.menu_item = Some(item);
@@ -633,6 +703,10 @@ impl SymbolTab {
             A::Copy => {
                 self.run(|f, c| f.copy(c));
             }
+            A::PasteGeometry => {
+                with_clipboard(ensure_opened);
+                self.run(|f, c| f.paste_geometry(c));
+            }
             A::Remove => {
                 self.run(|f, c| f.remove(c));
             }
@@ -662,6 +736,25 @@ impl SymbolTab {
         names: Vec<librepcb_core::types::CircuitIdentifier>,
     ) -> TabUpdate {
         self.run(|f, c| f.import_pins(c, &names));
+        self.after_fsm()
+    }
+
+    /// Adds an image chosen with the image file dialog (the answer of
+    /// [`TabRequest::ChooseImageFile`], upstream
+    /// `SymbolEditorFsm::processStartAddingImage()`).
+    pub fn add_image(&mut self, data: librepcb_editor::fsm::schematic::ImageData) -> TabUpdate {
+        self.run(|f, c| f.add_image(c, data));
+        self.after_fsm()
+    }
+
+    /// Imports a DXF file with the choices of the import dialog (the
+    /// answer of [`TabRequest::ImportDxf`], upstream
+    /// `SymbolEditorFsm::processStartDxfImport()`: in the select tool).
+    pub fn import_dxf(
+        &mut self,
+        settings: librepcb_editor::fsm::board::DxfImportSettings,
+    ) -> TabUpdate {
+        self.run(|f, c| f.select_tool(c) && f.import_dxf(c, &settings));
         self.after_fsm()
     }
 
@@ -718,6 +811,7 @@ impl SymbolTab {
             data.features.mirror = edit(f.mirror);
             data.features.snap_to_grid = edit(f.snap_to_grid);
             data.features.edit_properties = feature(f.properties);
+            data.features.import_graphics = edit(f.import_graphics);
         }
         data
     }
@@ -1096,7 +1190,26 @@ impl SymbolTab {
                 extra.requests.extend(self.core.commit_metadata());
                 extra.requests.push(TabRequest::DuplicateLibraryElement);
             }
-            A::ToolImage | A::ImportDxf | A::ExportPdf | A::ExportImage | A::Print => {
+            A::ToolImage => {
+                // Upstream `processStartAddingImage()` opens the image
+                // chooser; here the application does and passes the file
+                // to `add_image()`.
+                if self.core.is_writable() {
+                    extra.requests.push(TabRequest::ChooseImageFile);
+                }
+            }
+            A::ImportDxf => {
+                // Upstream `processStartDxfImport()` opens the file chooser
+                // and the import dialog; here the application does and
+                // passes the choice to `import_dxf()`.
+                if self.core.is_writable() {
+                    extra.requests.push(TabRequest::ImportDxf {
+                        layers: <SymbolHost as ElementHost>::polygon_layers(),
+                        kind: DxfImportKind::Symbol,
+                    });
+                }
+            }
+            A::ExportPdf | A::ExportImage | A::Print => {
                 extra.status = Some(tr!(
                     "librepcb::editor::MainWindow",
                     "Not available yet in this version: {0}",

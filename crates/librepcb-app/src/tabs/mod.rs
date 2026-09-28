@@ -158,6 +158,19 @@ pub struct TabUpdate {
     pub project_modified: bool,
 }
 
+/// The editor importing a DXF file (upstream: the arguments of
+/// `DxfImportDialog` which differ between the editors).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DxfImportKind {
+    /// Board editor (default layer: board outlines, circles as drills).
+    Board,
+    /// Symbol editor (default layer: symbol outlines, no drills).
+    Symbol,
+    /// Package editor (default layer: top documentation, circles as
+    /// drills).
+    Package,
+}
+
 /// An entry of a scene context menu.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextMenuEntry {
@@ -227,7 +240,7 @@ pub enum TabRequest {
         /// The current width.
         current: UnsignedLength,
     },
-    /// Choose an image file for the schematic image tool (upstream
+    /// Choose an image file for the schematic or symbol image tool (upstream
     /// `ImageHelpers::execImageChooserDialog()`); the file is passed back
     /// with [`Tab::add_image()`].
     ChooseImageFile,
@@ -237,6 +250,8 @@ pub enum TabRequest {
     ImportDxf {
         /// The layers the polygons can be imported to.
         layers: Vec<librepcb_core::types::Layer>,
+        /// The editor importing the file.
+        kind: DxfImportKind,
     },
     /// Open the library tab of a library (e.g. a created one; `wizard`:
     /// in wizard mode).
@@ -813,6 +828,7 @@ impl Tab {
     pub fn add_image(&mut self, data: librepcb_editor::fsm::schematic::ImageData) -> TabUpdate {
         match self {
             Self::Schematic(t) => t.add_image(data),
+            Self::Symbol(t) => t.add_image(data),
             _ => TabUpdate::default(),
         }
     }
@@ -925,6 +941,8 @@ impl Tab {
     ) -> TabUpdate {
         match self {
             Self::Board2d(t) => t.import_dxf(settings),
+            Self::Symbol(t) => t.import_dxf(settings),
+            Self::Package(t) => t.import_dxf(settings),
             _ => TabUpdate::default(),
         }
     }

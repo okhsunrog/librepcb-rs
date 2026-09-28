@@ -1096,10 +1096,13 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *Bus member menu:* the "Add New Bus Member" / nets / "Cancel" menu is
     the scene's Slint popup; closing it by clicking into the scene counts
     as "Cancel" (upstream's `QMenu::exec()` is modal).
-  - *Images:* PNG, JPEG and SVG files only (upstream converts other
-    formats supported by Qt's image readers to PNG); the image file name
-    is not asked for (the file's base name is used).
-  - *DXF import dialog:* a form dialog; the scale factor is a text field.
+  - *Images* (schematic and symbol editor): PNG, JPEG and SVG files only
+    (upstream converts other formats supported by Qt's image readers to
+    PNG); the image file name is not asked for (the file's base name is
+    used). In the symbol editor, images are hit tested by their rectangle
+    in the tab (the scene draws only their borders).
+  - *DXF import dialog* (board, symbol and package editors): a form
+    dialog; the scale factor is a text field.
   - *Find:* the zoom rectangle is the bounding box of the highlighted
     scene items (upstream: graphics items of the found objects), with
     upstream's margin.
@@ -1294,10 +1297,10 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *No file system watcher:* the "files modified" banner of the tabs is
     never shown; elements changed on disk are not reloaded.
 - **Library element editors (M4b):**
-  - *Symbol and package editors:* images, DXF import and "Paste
-    Geometry" are not available in the tabs yet (the editor FSMs provide
-    them: `add_image()`, `import_dxf()`, `paste_geometry()`), nor graphics
-    export, printing and the background image. There is no 3D view in the
+  - *Symbol and package editors:* graphics export, printing and the
+    background image are not available in the tabs yet; images in the
+    symbol editor are invisible unless they have a border (the scenes do
+    not draw images yet, see "scene"). There is no 3D view in the
     package editor: the 3D models can be added (the STEP file is stored
     as-is, not minified and not validated since there is no
     OpenCascade), renamed, replaced, reordered, removed and assigned to

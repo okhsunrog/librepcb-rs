@@ -1620,6 +1620,7 @@ impl Board2dTab {
                 if self.fsm.view_state().features.import_graphics {
                     extra.requests.push(TabRequest::ImportDxf {
                         layers: self.geometry_layers(),
+                        kind: super::DxfImportKind::Board,
                     });
                 }
             }
