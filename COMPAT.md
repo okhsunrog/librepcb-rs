@@ -978,13 +978,77 @@ upstream `librepcb-cli` 2.1.1 except for:
   as decimal separator and no group separators instead of `QLocale`; input
   parsing uses the math parser with `.` (upstream accepts the locale's
   decimal separator too).
-- **Workspace selection:** no workspace wizard. The workspace comes from
-  `--workspace`, `LIBREPCB_WORKSPACE`, upstream's client settings
+- **Workspace selection (M3c):** the workspace comes from
+  `LIBREPCB_WORKSPACE` or upstream's client settings
   (`workspaces/most_recently_used` in `~/.config/LibrePCB/LibrePCB.conf`,
-  read only, Linux) or `~/LibrePCB-Workspace`, which is created without
-  asking.
-- **Locked projects** open read-only with a notification (upstream asks
-  whether to override the lock); `*.lppz` archives cannot be opened yet.
+  Linux; the chosen workspace is written back there like upstream, other
+  entries of the file are kept); the initialize workspace wizard asks if
+  none is set, it does not exist, or it needs an upgrade or initialization.
+  `--workspace` (and the headless `--screenshot` mode) skip the wizard and
+  create the workspace without asking. Differences to upstream's wizard:
+  the data directory is copied synchronously (no progress bar), the
+  example projects are not downloaded when a workspace is created, the
+  language list shows the locale codes (upstream: native language names),
+  and the dialogs are overlays of the main window. "Switch Workspace"
+  shows the same wizard and stores the choice for the next start.
+- **Opening projects (M3c):** a project locked by another application
+  shows upstream's directory lock dialog ("Open anyway" after "I accept
+  the risk." for locks of other users or unknown applications); in
+  addition to upstream, "Open Read-Only" opens it without lock. Other
+  errors while locking the directory (e.g. no write permission) open the
+  project read-only with a notification. An autosave backup (after a
+  crash) is restored after upstream's question (Yes/No/Cancel). Opening
+  works in steps (the file system reports the lock or the backup, the
+  prompt is shown, opening continues with the answer) instead of blocking
+  callbacks. `*.lppz` archives cannot be opened yet.
+- **File format upgrade notification:** like upstream; the migration log
+  is written to `logs/migration_preview.html` of the project and opened
+  with the default application (not the configured external web
+  browser). Libraries opened in an older file format show no message
+  (upstream neither).
+- **Autosave (M3c):** one timer for all open projects with the interval of
+  the workspace settings (upstream: a timer per project); a project which
+  is busy (locked by a worker or the MCP server, or an undo group is
+  active) is skipped until the next interval (upstream retries after 10 s).
+- **New project wizard (M3c):** the pages are shown in a form dialog with
+  "Back"/"Next"/"Finish" (upstream `QWizard`); the EAGLE files are parsed
+  synchronously when their paths change; the location is not remembered
+  per workspace (upstream client setting `new_project_wizard/location`)
+  and the EAGLE file paths are not remembered; the EAGLE import messages
+  are shown in a notification (upstream: a separate log window). "New
+  project" in a folder of the home tab's folder tree creates the project
+  in that folder (upstream `setLocationOverride()`).
+- **Project library tab and updater (M3c):** the updater does not close a
+  project with unsaved changes (upstream asks whether to save it); the
+  update is aborted with a message instead. The updater dialog is closed
+  and shown again with the log after the update (upstream keeps the
+  window open). Opening an element of the project library tab opens the
+  workspace library element (like upstream).
+- **Workspace settings dialog (M3c):** all settings are applied with
+  "OK"/"Apply" (upstream applies the theme, language, grid styles and
+  color schemes immediately and reverts them on "Cancel"); the language
+  change applies to the running application. "Restore Defaults" asks by
+  showing the question as an error message and restores on the second
+  click (upstream: a message box). Keyboard shortcuts are edited as text
+  (Qt portable key sequences, one per line; only the first chord of
+  multi-chord sequences is used) instead of recording key presses, the
+  commands are listed without upstream's categories (the `.slint` command
+  set has none) and overridden shortcuts are marked with a color swatch
+  (upstream: bold). The API endpoint table is a list with check boxes for
+  the selected endpoint; the library locale/norm order lists take free
+  text (upstream: combo boxes of all locales/norms). The desktop
+  integration and the 3D view color schemes are not available; the
+  rendering method setting is stored but has no effect.
+- **Color schemes:** the schematic and board color schemes of the
+  workspace settings (user defined schemes, active scheme) are read and
+  written like upstream (`(active <uuid> "<name>")`, `(scheme ...)` with
+  the loaded nodes kept); the default (no user scheme, first base scheme
+  active) removes the settings entry. The color scheme editor is upstream's
+  `colorschemedialog.slint` shown as overlay. The schematic and board tabs
+  use the primary colors of the active schemes (applied after "OK"); the
+  secondary (highlight) colors and the grid color of the schemes are not
+  used by the scenes yet, and the library element editors (symbol,
+  package) and the previews always use the default schemes.
 - **Grid interval and unit** changed in a tab modify the schematic or the
   board settings like upstream (so the editor tools snap to the shown
   grid), but as an undoable step ("Change Grid Properties"); upstream
@@ -1054,7 +1118,9 @@ upstream `librepcb-cli` 2.1.1 except for:
     no "Browse Output Directory".
   - *Move/align:* the new positions are applied when accepting (upstream:
     live while editing); used by the package editor.
-  - *Not ported yet:* the workspace settings, lock handler and project wizard dialogs (M3c).
+  - The workspace settings, directory lock, autosave restore, new
+    project wizard, project library updater, initialize workspace and
+    library import wizards (M3c/M4c) are described in their own entries.
 - **Clipboard:** copy/paste uses the system clipboard with upstream's MIME
   types through `clipboard-rs` (X11, Wayland, macOS, Windows). Exchange
   with upstream LibrePCB (same version) works on X11/Wayland; on Windows
@@ -1135,9 +1201,25 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *Slint 1.18.1 workaround:* the footprint tags panel of the package
     tab has a fixed border radius for its "new tag" field (see
     `ui/PROVENANCE.md`, item 9).
-- **Keyboard shortcuts:** `Backend.is-shortcut` compares with the default
-  shortcut of the `.slint` command set only (no user overrides, no
-  alternative shortcuts).
+- **Keyboard shortcuts:** `Backend.is-shortcut` compares with the user's
+  overrides of the workspace settings if a command has any (an empty list
+  disables it), else with the default shortcut of the `.slint` command set
+  (upstream's C++ command set has alternative default shortcuts for some
+  commands, which are not available). The overrides are global to the
+  process (shared by all windows).
+- **Library import wizards (M4c):** the EAGLE and KiCad wizards show their
+  pages in a form dialog; the element tree is one checkable list per kind
+  (a partially checked element, i.e. a dependency of a checked element, is
+  marked with an orange swatch; KiCad symbols have one row each for the
+  symbols, the component and the device); the EAGLE library is parsed and
+  the KiCad libraries are scanned and parsed synchronously when going to
+  the next page (upstream: in a background thread with progress); the
+  additional component/package category is chosen from a combo box of the
+  workspace categories (upstream: category chooser dialog); the options
+  and paths are not remembered in the client settings. The import itself
+  runs in a worker thread with progress and is canceled when the dialog
+  is closed (upstream asks first), and the libraries are rescanned
+  afterwards.
 - **Zooming** is not animated.
 - **Embedded MCP server** (no upstream counterpart): a status bar button
   (next to the notifications button) and `--mcp[=ADDR]` start LibrePCB's

@@ -66,8 +66,8 @@ Done, in `crates/librepcb-core` unless noted:
   `utils::message_logger`). The EAGLE test project is imported byte for
   byte like upstream's golden sample; imported libraries pass
   `librepcb-cli open-library --all --strict`. MCP: `library_import`,
-  `project_create` with `eagle_schematic`. The app wizards are still to be
-  built on it.
+  `project_create` with `eagle_schematic`. The app's import wizards (M4c)
+  and the new project wizard's EAGLE page use it.
 - **`crates/librepcb-autoroute`:** built-in grid A* router with rip-up and
   exact clearance verification.
 - **`crates/librepcb-scene`:** scene builders for schematics, boards,
@@ -121,6 +121,14 @@ Done, in `crates/librepcb-core` unless noted:
   (`tests/app/{library_management,library_elements}.rs`); see
   `docs/ui-design.md` (M4) and COMPAT.md "Library management" /
   "Library element editors" for the gaps.
+  M3c (project lifecycle) is done: new project wizard (incl. EAGLE project
+  import), directory lock and autosave restore prompts, autosave, file
+  format upgrade notification, project library tab and updater, workspace
+  settings dialog (all tabs, keyboard shortcut overrides, color schemes
+  applied to the scenes), initialize workspace wizard
+  (`tests/app/{lifecycle,workspace_settings,workspace_wizard}.rs`).
+  M4c (EAGLE/KiCad library import wizards on `librepcb-import`) is done
+  (`tests/app/library_import.rs`).
 
 ## Next steps
 
@@ -130,8 +138,10 @@ install, part search, schematic with `connect`/`schematic_tidy`, board
 outline, connectivity-based placement, Freerouting, GND plane, ERC/DRC,
 Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
 
-1. M4c: EAGLE/KiCad library import wizards (the `librepcb-import` crate
-   exists on the coordinating branch), then M3c (project lifecycle).
+1. M3c/M4c polish (see COMPAT.md "app"): scene highlight colors and the
+   library editors from the color schemes, recording key presses in the
+   shortcut editor, remembering wizard paths, the example projects
+   download.
 2. M2 viewer: finish M2b (library info on the home panel, grid/unit and
    layer visibility persisted in the user settings, keyboard handling) and
    the rest of M2d (rule check location markers and autofixes, print and
@@ -140,7 +150,7 @@ Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
    intent file (see `mcp-research-konnect.md`), more end-to-end scenarios
    (ICs with multiple gates, multi-page schematics, 4-layer boards).
 4. `Board::updateDrcMessageApprovals()`, STEP/3D (needs an OpenCascade
-   replacement). Import wizards in the app (on `librepcb-import`).
+   replacement).
 
 ## How the work is organized
 

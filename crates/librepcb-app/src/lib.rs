@@ -53,6 +53,15 @@
 //!   component" dialog (`ui/dialogs/addcomponentdialog.slint`). They are
 //!   shown as overlays of the main window (`app::dialog_host`,
 //!   `app::add_component_host`) and apply their changes as one undo group.
+//! - **Project lifecycle and workspace (M3c/M4c):** the new project wizard,
+//!   the directory lock and autosave restore prompts, autosave, the file
+//!   format upgrade notification, the project library tab and updater, the
+//!   workspace settings dialog ([`color_schemes`], [`shortcuts`]), the
+//!   initialize workspace wizard (shown before the application exists with
+//!   [`modal_dialog`]) and the EAGLE/KiCad library import wizards are form
+//!   dialogs too (`app::lifecycle`, `app::library_import_host`); wizards
+//!   use "Back"/"Next" extra buttons, and dialogs ask the application for
+//!   actions with [`dialogs::AppRequest`].
 //!
 //! # Running
 //!

@@ -155,13 +155,29 @@ them into the app):
   (`FormDialog::apply()`), or returns a value for the tab (line width,
   move/align positions) or output jobs to run in a worker thread. The
   dialogs are tested without a window by editing their forms.
-- M3c project lifecycle: new project wizard, project library updater,
-  directory lock handler dialog (upstream-compatible lock prompts),
-  autosave/restore, file format upgrade messages, recent/favorite
-  projects, workspace settings dialog (settings items incl. library
-  locale/norm order, API servers, keyboard shortcuts, color schemes via
-  the already-copied `colorschemedialog.slint`), initialize workspace
-  wizard.
+- M3c project lifecycle (**done**, `src/app/lifecycle.rs` and the dialogs
+  `new_project`, `open_prompts`, `project_library_updater`,
+  `workspace_settings`, `initialize_workspace` of `src/dialogs/`): new
+  project wizard (metadata, license, path, schematic/board
+  initialization with the stroke fonts and upstream's templates, EAGLE
+  project import page; also from a folder of the home tab), directory
+  lock dialog (upstream wording, "Open anyway" with "I accept the risk.",
+  plus "Open Read-Only"), autosave (workspace interval, `.autosave/` of the
+  transactional file system) and the restore question after a crash, the
+  file format upgrade notification with the migration log, project
+  library tab ("Library Manager": versions, downgrades, copy to a local
+  library) with the project library updater, workspace settings dialog
+  (all tabs: general, appearance with color schemes and the color scheme
+  editor overlay from `colorschemedialog.slint`, library, external
+  applications, keyboard shortcuts with overrides honored by
+  `Backend.is-shortcut`, internet access), initialize workspace wizard
+  (first start before the main window content exists, via
+  `src/modal_dialog.rs`; "Switch Workspace"). Wizards are form dialogs
+  whose extra buttons are "Back"/"Next" and whose OK button is "Finish";
+  dialogs can request application actions (`AppRequest`). Tests:
+  `tests/app/{lifecycle,workspace_settings,workspace_wizard}.rs`
+  (screenshots `lifecycle_*.png`, `settings_*.png`,
+  `workspace_wizard_*.png`). Gaps: see COMPAT.md.
 - M3d the missing FSM parts: buses, images, standalone board pads, DXF
   import, "find", segment simplification after edits (see COMPAT.md
   "Schematic editor FSM" / "Board editor FSM"). **Done**: in
@@ -209,12 +225,17 @@ and download library tabs, libraries panel):
   the other UI models). Test: `tests/app/library_elements.rs` (one
   headless test per tab kind, screenshots `element_*.png`). Gaps: see
   COMPAT.md "Library element editors".
-- M4c library import: Eagle and KiCad library import wizards (parsers in
-  core, wizard UI in Slint).
+- M4c library import (**done**, `src/dialogs/library_import.rs`,
+  `src/app/library_import_host.rs`): EAGLE and KiCad library import
+  wizards on `librepcb-import` (start, choose library, select elements
+  with dependency states, options, result) from the library tab's import
+  page and the library menu; the import runs in a worker thread with
+  progress and cancellation, followed by a library rescan. Test:
+  `tests/app/library_import.rs` (screenshots `library_import_*.png`).
 
 **M5 — the rest:** 3D board view and STEP export (needs an OpenCascade
-replacement or a mesh-based approach), Eagle/KiCad project import, PCB
-ordering API integration, printing, keyboard shortcut editor polish,
+replacement or a mesh-based approach), PCB ordering API integration,
+printing, keyboard shortcut editor polish (recording key presses),
 accessibility pass.
 
 ## Risks
