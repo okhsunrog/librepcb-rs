@@ -1,13 +1,20 @@
 # Status and handoff
 
-State of the port as of 2026-09-27, for continuing the work in a new
+State of the port as of 2026-09-28, for continuing the work in a new
 session (for example a cloud session). Read `AGENTS.md` first; this file
 covers where things stand and how the work has been organized.
 
 ## Where we are
 
-Milestone M1 (headless `librepcb-cli`) is done (without 3D/STEP);
-M1.5 (MCP) works end to end. About 1150 tests pass.
+Milestones M1 (headless `librepcb-cli`), M1.5 (MCP), M2 (viewer), M3
+(schematic and board editors with all project dialogs and the project
+lifecycle) and M4 (library management, element editors, EAGLE/KiCad
+import) are done, except 3D/STEP and the gaps in `COMPAT.md` Part 2.
+1428 tests pass (`cargo test --workspace`); fmt and clippy
+`-D warnings` are clean. The app has not been tried by a human on a
+desktop yet: all UI checks ran headless (Slint software renderer, Slint
+MCP, screenshots), so platform integration (Wayland/X11, clipboard,
+native file dialogs, DPI, GPU rendering) still needs a manual pass.
 
 Done, in `crates/librepcb-core` unless noted:
 
