@@ -595,8 +595,7 @@ Rendering only; no file is affected.
   they are written, i.e. after an edit or a file format upgrade). Keyboard
   shortcuts keep their key sequences as strings without
   `QKeySequence` normalization. The migration of the legacy `themes` entry
-  only restores the grid styles; its colors are not converted into user
-  color schemes (upstream creates `*_color_schemes` entries from them).
+  writes the user color schemes like upstream (as raw S-expressions).
   API endpoint URLs are stored verbatim (upstream: `QUrl`), and an endpoint
   counts as valid if its URL is non-empty (upstream: `QUrl::isValid()`).
 - The "workspace requires LibrePCB %2 or later" message fills in both

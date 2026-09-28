@@ -16,8 +16,8 @@
 //!   since the color scheme logic (UI) is not ported. Keyboard shortcuts
 //!   ([`KeyboardShortcuts`]) keep their key sequences as strings (Qt
 //!   "portable text") without parsing them.
-//! - The migration of legacy `themes` only restores the grid styles, not
-//!   the colors (see COMPAT.md).
+//! - The migration of legacy `themes` creates the user color schemes as raw
+//!   S-expressions, the same content upstream's `UserColorScheme` writes.
 //! - API endpoint URLs are stored verbatim ([`ApiEndpointSettings`]).
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,7 +25,7 @@ use std::fmt;
 
 use crate::application;
 use crate::serialization::{self, FromSExpression, List, Mode, SExpression};
-use crate::types::{AutoUpdateMode, GridStyle, LengthUnit, Uuid, Version};
+use crate::types::{AutoUpdateMode, Color, GridStyle, LengthUnit, Uuid, Version};
 
 /// URL of the official LibrePCB API server.
 pub const OFFICIAL_API_URL: &str = "https://api.librepcb.org";
@@ -148,6 +148,23 @@ impl ListItem for ApiEndpointSettings {
         node.append_child("parts", &self.use_for_parts_info);
         node.append_child("order", &self.use_for_order);
     }
+}
+
+/// The kinds of color schemes (upstream
+/// `WorkspaceSettingsItem_ColorSchemes::Kind`).
+#[derive(Debug, Clone, Copy)]
+enum ColorSchemeKind {
+    Schematic,
+    Board,
+    View3d,
+}
+
+/// The colors of a legacy theme to migrate.
+struct LegacyColors<'a> {
+    primary: &'a BTreeMap<String, Color>,
+    secondary: &'a BTreeMap<String, Color>,
+    name: &'a str,
+    active: bool,
 }
 
 /// Settings kept as raw S-expression content (the children of the item
@@ -604,25 +621,164 @@ impl WorkspaceSettings {
         }
     }
 
+    /// Migrates legacy themes to the grid style and color scheme settings
+    /// (upstream `load()`): the grid styles of the active theme, and the
+    /// colors of each theme as user color schemes (only for color scheme
+    /// kinds without settings yet).
     fn migrate_legacy_themes(&mut self, themes: &SExpression) -> serialization::Result<()> {
         let active: Uuid = themes.child_value("active/@0")?;
         for theme in themes.children_named("theme") {
             let uuid: Uuid = theme.child_value("@0")?;
-            if uuid != active {
-                continue;
+            if uuid == active {
+                if let Some(node) = theme.child("schematic_grid_style/@0") {
+                    self.schematic_grid_style
+                        .set(GridStyle::from_sexpression(node)?);
+                    self.schematic_grid_style.clear_edited_flag();
+                }
+                if let Some(node) = theme.child("board_grid_style/@0") {
+                    self.board_grid_style
+                        .set(GridStyle::from_sexpression(node)?);
+                    self.board_grid_style.clear_edited_flag();
+                }
             }
-            if let Some(node) = theme.child("schematic_grid_style/@0") {
-                self.schematic_grid_style
-                    .set(GridStyle::from_sexpression(node)?);
-                self.schematic_grid_style.clear_edited_flag();
-            }
-            if let Some(node) = theme.child("board_grid_style/@0") {
-                self.board_grid_style
-                    .set(GridStyle::from_sexpression(node)?);
-                self.board_grid_style.clear_edited_flag();
+            let name = theme.required_child("@1")?.value()?.to_owned();
+            if let Some(colors) = theme.child("colors") {
+                let mut primary = BTreeMap::new();
+                let mut secondary = BTreeMap::new();
+                for node in colors.children().iter().filter(|c| c.is_list()) {
+                    let role = node.name()?.to_owned();
+                    if let Some(color) = node.child("primary/@0") {
+                        primary.insert(role.clone(), Color::from_sexpression(color)?);
+                    }
+                    if let Some(color) = node.child("secondary/@0") {
+                        secondary.insert(role, Color::from_sexpression(color)?);
+                    }
+                }
+                let legacy = LegacyColors {
+                    primary: &primary,
+                    secondary: &secondary,
+                    name: &name,
+                    active: uuid == active,
+                };
+                for kind in [
+                    ColorSchemeKind::Schematic,
+                    ColorSchemeKind::Board,
+                    ColorSchemeKind::View3d,
+                ] {
+                    self.migrate_legacy_colors(kind, &legacy);
+                }
             }
         }
         Ok(())
+    }
+
+    /// Creates a user color scheme from the colors of a legacy theme
+    /// (upstream `migrateColors` lambda and `UserColorScheme::serialize()`).
+    fn migrate_legacy_colors(&mut self, kind: ColorSchemeKind, legacy: &LegacyColors<'_>) {
+        let (item, prefix, (base_uuid, base_name)) = match kind {
+            ColorSchemeKind::Schematic => (
+                &mut self.schematic_color_schemes,
+                "schematic_",
+                ("9121eabe-55b3-4a7c-bffe-20115b8ad314", "LibrePCB Light"),
+            ),
+            ColorSchemeKind::Board => (
+                &mut self.board_color_schemes,
+                "board_",
+                ("c605f278-5210-472e-a59f-1b73a15aee2d", "LibrePCB Dark"),
+            ),
+            ColorSchemeKind::View3d => (
+                &mut self.view_3d_color_schemes,
+                "3d_",
+                ("b3c5c2ed-45bc-47f5-b639-3713c6db826d", "LibrePCB Light"),
+            ),
+        };
+        if self.file_content.contains_key(item.key()) {
+            return; // Already migrated.
+        }
+        let roles: BTreeSet<&String> = legacy
+            .primary
+            .keys()
+            .chain(legacy.secondary.keys())
+            .filter(|role| role.starts_with(prefix))
+            .collect();
+        if roles.is_empty() {
+            return;
+        }
+
+        // The new scheme: the base node and one node per modified color,
+        // sorted.
+        let mut nodes = Vec::new();
+        let mut base = List::new("base");
+        base.push(SExpression::token(base_uuid));
+        base.append_value(base_name);
+        nodes.push(SExpression::List(base));
+        for role in roles {
+            let mut node = List::new("color");
+            node.push(SExpression::token(role.clone()));
+            if let Some(color) = legacy.primary.get(role) {
+                node.append_child("primary", color);
+            }
+            if let Some(color) = legacy.secondary.get(role) {
+                node.append_child("secondary", color);
+            }
+            nodes.push(SExpression::List(node));
+        }
+        nodes.sort();
+        let uuid = Uuid::new_random();
+        let mut scheme = List::new("scheme");
+        scheme.append_value(&uuid);
+        scheme.append_value(legacy.name);
+        for node in nodes {
+            scheme.ensure_line_break();
+            scheme.push(node);
+        }
+        scheme.ensure_line_break();
+
+        // Add it to the schemes migrated from previous themes (ordered by
+        // UUID like upstream's `QMap`).
+        let mut schemes: BTreeMap<Uuid, SExpression> = item
+            .get()
+            .0
+            .iter()
+            .filter(|c| c.name().is_ok_and(|n| n == "scheme"))
+            .filter_map(|c| Some((c.child_value::<Uuid>("@0").ok()?, c.clone())))
+            .collect();
+        schemes.insert(uuid, SExpression::List(scheme));
+        let previous_active = item
+            .get()
+            .0
+            .iter()
+            .find(|c| c.name().is_ok_and(|n| n == "active"))
+            .and_then(|c| c.child_value::<Uuid>("@0").ok());
+        let active = if legacy.active {
+            Some(uuid)
+        } else {
+            previous_active
+        };
+        let active_name = active
+            .and_then(|a| schemes.get(&a))
+            .and_then(|s| s.child("@1"))
+            .and_then(|n| n.value().ok())
+            .unwrap_or(base_name)
+            .to_owned();
+        let mut active_node = List::new("active");
+        match active {
+            Some(uuid) if schemes.contains_key(&uuid) => {
+                active_node.append_value(&uuid);
+            }
+            _ => {
+                active_node.push(SExpression::token(base_uuid));
+            }
+        }
+        active_node.append_value(&active_name);
+        let mut children = vec![SExpression::LineBreak, SExpression::List(active_node)];
+        for scheme in schemes.into_values() {
+            children.push(SExpression::LineBreak);
+            children.push(scheme);
+        }
+        children.push(SExpression::LineBreak);
+        item.set(RawSettings(children));
+        item.clear_edited_flag();
     }
 
     /// Restores all default values and removes unknown entries (upstream

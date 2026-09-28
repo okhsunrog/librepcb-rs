@@ -368,6 +368,86 @@ fn test_raw_color_schemes_and_legacy_themes() {
     );
 }
 
+/// The colors of legacy themes become user color schemes (upstream
+/// `WorkspaceSettings::load()` with `UserColorScheme::serialize()`), for
+/// each kind that has no color scheme settings yet.
+#[test]
+fn test_legacy_theme_colors_migration() {
+    let content = "(librepcb_workspace_settings\n\
+         \x20(board_color_schemes\n\
+         \x20 (active c605f278-5210-472e-a59f-1b73a15aee2d \"LibrePCB Dark\")\n\
+         \x20)\n\
+         \x20(themes\n\
+         \x20 (active 5c6f2a4f-8c3d-4b5a-9e6f-1a2b3c4d5e6f)\n\
+         \x20 (theme 11111111-8c3d-4b5a-9e6f-1a2b3c4d5e6f \"Other\"\n\
+         \x20  (colors (schematic_wires (primary \"#ff00ff00\")))\n\
+         \x20 )\n\
+         \x20 (theme 5c6f2a4f-8c3d-4b5a-9e6f-1a2b3c4d5e6f \"My Theme\"\n\
+         \x20  (colors\n\
+         \x20   (schematic_background (primary \"#ff112233\") (secondary \"#80445566\"))\n\
+         \x20   (board_copper_top (primary \"#ffaabbcc\"))\n\
+         \x20   (schematic_frames (secondary \"#ff000000\"))\n\
+         \x20  )\n\
+         \x20 )\n\
+         \x20)\n\
+         )\n";
+    let mut obj = WorkspaceSettings::new();
+    obj.load(&parse(content), &"1".parse().unwrap());
+    assert!(!obj.is_edited());
+    let children = &obj.schematic_color_schemes.get().0;
+    let schemes: Vec<_> = children
+        .iter()
+        .filter(|c| c.name().is_ok_and(|n| n == "scheme"))
+        .collect();
+    assert_eq!(schemes.len(), 2);
+    let uuid_of = |name: &str| -> String {
+        schemes
+            .iter()
+            .find(|s| s.child("@1").unwrap().value().unwrap() == name)
+            .unwrap()
+            .child("@0")
+            .unwrap()
+            .value()
+            .unwrap()
+            .to_owned()
+    };
+    let (mine, other) = (uuid_of("My Theme"), uuid_of("Other"));
+    let scheme_mine = format!(
+        "  (scheme {mine} \"My Theme\"\n\
+         \x20  (base 9121eabe-55b3-4a7c-bffe-20115b8ad314 \"LibrePCB Light\")\n\
+         \x20  (color schematic_background (primary \"#ff112233\") (secondary \"#80445566\"))\n\
+         \x20  (color schematic_frames (secondary \"#ff000000\"))\n\
+         \x20 )\n"
+    );
+    let scheme_other = format!(
+        "  (scheme {other} \"Other\"\n\
+         \x20  (base 9121eabe-55b3-4a7c-bffe-20115b8ad314 \"LibrePCB Light\")\n\
+         \x20  (color schematic_wires (primary \"#ff00ff00\"))\n\
+         \x20 )\n"
+    );
+    let (first, second) = if mine < other {
+        (scheme_mine, scheme_other)
+    } else {
+        (scheme_other, scheme_mine)
+    };
+    // The board color schemes exist already, the themes have no 3D colors:
+    // both are not migrated. The legacy themes are removed on upgrade.
+    assert_eq!(
+        to_string(&obj.serialize()),
+        format!(
+            "(librepcb_workspace_settings\n\
+             \x20(board_color_schemes\n\
+             \x20 (active c605f278-5210-472e-a59f-1b73a15aee2d \"LibrePCB Dark\")\n\
+             \x20)\n\
+             \x20(schematic_color_schemes\n\
+             \x20 (active {mine} \"My Theme\")\n\
+             {first}{second}\
+             \x20)\n\
+             )\n"
+        )
+    );
+}
+
 #[test]
 fn test_api_endpoint_defaults() {
     let root = parse(
