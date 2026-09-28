@@ -20,6 +20,7 @@ import { WindowSection } from "windowsection.slint";
 import { StatusBar } from "statusbar.slint";
 import { Dialogs, FormDialog } from "dialogs/formdialog.slint";
 import { AddComponentDialog, AddComponentDialogData } from "dialogs/addcomponentdialog.slint";
+import { ColorSchemeEditor, ColorSchemeOverlay } from "colorschemedialog.slint";
 import {
     Backend,
     Data,
@@ -223,6 +224,14 @@ export component AppWindow inherits Window {
             width: parent.width;
             height: parent.height;
             window-height: root.height;
+        }
+
+        if ColorSchemeEditor.shown: ColorSchemeOverlay {
+            x: 0;
+            y: 0;
+            z: 400;
+            width: parent.width;
+            height: parent.height;
         }
 
         if AddComponentDialogData.shown: AddComponentDialog {

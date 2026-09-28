@@ -1904,7 +1904,7 @@ impl PackageTab {
             | A::ToggleBackgroundImage
             | A::ReloadFromDisk => {
                 extra.status = Some(tr!(
-                    "MainWindow",
+                    "librepcb::editor::MainWindow",
                     "Not available yet in this version: {0}",
                     format!("{action:?}")
                 ));

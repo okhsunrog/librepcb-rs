@@ -238,7 +238,7 @@ impl State {
                         auto_popup: true,
                         ..Notification::new(
                             ui::NotificationType::Critical,
-                            tr!("MainWindow", "Error"),
+                            tr!("librepcb::editor::MainWindow", "Error"),
                             e.to_string(),
                         )
                     });

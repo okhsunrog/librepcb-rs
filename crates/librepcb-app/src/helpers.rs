@@ -199,34 +199,6 @@ pub fn parse_ratio_input(text: &str, minimum: i32, maximum: i32) -> ui::RatioEdi
     }
 }
 
-/// `Backend.is-shortcut`: whether a key event matches an editor command's
-/// shortcut. Letters are compared case-insensitively since Slint reports
-/// the shifted character.
-///
-/// Upstream compares against all shortcuts of the command (including user
-/// overrides from the workspace settings); for now only the default
-/// shortcut of the `.slint` command set is compared.
-pub fn is_shortcut(event: &slint::language::KeyEvent, command: &ui::EditorCommand) -> bool {
-    if command.key.is_empty() {
-        return false;
-    }
-    let m = &event.modifiers;
-    let c = &command.modifiers;
-    let modifiers_match = m.control == c.control && m.alt == c.alt && m.meta == c.meta;
-    let text_matches = event.text == command.key
-        || (event.text.chars().count() == 1
-            && event.text.to_lowercase() == command.key.to_lowercase());
-    // Shift is part of the text for symbols (e.g. "+"), so only compare it
-    // for letters and special keys.
-    let shift_matches = m.shift == c.shift
-        || !event
-            .text
-            .chars()
-            .next()
-            .is_some_and(|ch| ch.is_alphabetic());
-    modifiers_match && text_matches && shift_matches
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

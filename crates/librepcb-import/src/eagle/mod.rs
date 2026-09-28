@@ -21,6 +21,7 @@ pub use error::{Error, Result};
 pub use library_converter::{EagleLibraryConverter, EagleLibraryConverterSettings};
 pub use library_import::{
     CATEGORY_NAME, EagleLibraryImport, ImportComponent, ImportDevice, ImportPackage, ImportSymbol,
+    NAME_PREFIX,
 };
 pub use project_import::EagleProjectImport;
 pub use type_converter::{ConvertedPin, EagleTypeConverter, Geometry};

@@ -133,7 +133,7 @@ impl State {
                         auto_popup: true,
                         ..crate::notifications::Notification::new(
                             ui::NotificationType::Critical,
-                            tr!("MainWindow", "Error"),
+                            tr!("librepcb::editor::MainWindow", "Error"),
                             e,
                         )
                     });
@@ -181,7 +181,7 @@ impl State {
                         auto_popup: true,
                         ..crate::notifications::Notification::new(
                             ui::NotificationType::Critical,
-                            tr!("MainWindow", "Error"),
+                            tr!("librepcb::editor::MainWindow", "Error"),
                             e,
                         )
                     });

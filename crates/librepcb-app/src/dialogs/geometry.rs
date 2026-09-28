@@ -109,7 +109,7 @@ pub fn path_fields(form: &mut Form, path: &Path) {
         form.length(&format!("vertex_{i}_y"), "Y:", v.pos.y, Length::MIN);
         form.angle(
             &format!("vertex_{i}_angle"),
-            tr!("librepcb::editor::PathEditorWidget", "Angle"),
+            tr!("librepcb::editor::PathModel", "Angle"),
             v.angle,
         );
     }

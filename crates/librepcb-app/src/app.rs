@@ -45,10 +45,13 @@ use crate::theme::UiTheme;
 use crate::workspace_models::{FileSystemTree, QuickAccess};
 
 mod add_component_host;
+mod color_scheme_host;
 mod dialog_host;
 mod libraries_panel;
 mod library_elements;
 mod library_host;
+mod library_import_host;
+mod lifecycle;
 mod tab_editing;
 
 pub use add_component_host::OpenAddComponent;
@@ -97,12 +100,18 @@ pub struct State {
     pub(crate) sections: Vec<WindowSection>,
     pub(crate) sections_model: Rc<UiModel<ui::WindowSectionData>>,
     pub(crate) status_timer: slint::Timer,
+    /// Autosave of the open projects (see [`lifecycle`]).
+    pub(crate) autosave_timer: slint::Timer,
     /// The embedded MCP server (see [`crate::mcp`]).
     pub(crate) mcp: McpController,
     /// Editing in the scene tabs (see [`tab_editing`]).
     pub(crate) editing: tab_editing::EditingState,
     /// The open form dialog (see [`crate::dialogs`]).
     pub(crate) form_dialog: Option<OpenDialog>,
+    /// The color scheme being edited (see [`color_scheme_host`]).
+    pub(crate) color_scheme_edit: Option<color_scheme_host::ColorSchemeEdit>,
+    /// The active color schemes of the schematic and board scenes.
+    pub(crate) color_schemes: (librepcb_scene::ColorScheme, librepcb_scene::ColorScheme),
     /// The open "add component" dialog.
     pub(crate) add_component: Option<OpenAddComponent>,
     /// The local libraries of the libraries panel.
@@ -175,9 +184,15 @@ impl App {
                 sections: Vec::new(),
                 sections_model: UiModel::shared(Vec::new()),
                 status_timer: slint::Timer::default(),
+                autosave_timer: slint::Timer::default(),
                 mcp: McpController::default(),
                 editing: tab_editing::EditingState::default(),
                 form_dialog: None,
+                color_scheme_edit: None,
+                color_schemes: (
+                    librepcb_scene::ColorScheme::SCHEMATIC_LIGHT,
+                    librepcb_scene::ColorScheme::BOARD_DARK,
+                ),
                 add_component: None,
                 local_libraries: crate::library_manager::LibrariesModel::new(false),
                 remote_libraries: crate::library_manager::LibrariesModel::new(true),
@@ -281,6 +296,8 @@ impl App {
             s.current_tab_changed();
         }
 
+        self.state.borrow_mut().apply_workspace_settings(false);
+
         // Rebuild scenes when projects are modified from elsewhere.
         let poll_weak = weak.clone();
         self.poll_timer.start(
@@ -305,7 +322,13 @@ impl App {
             });
         });
         QuickAccess::connect(&s.quick_access, open.clone());
-        FileSystemTree::connect(&s.file_tree, open);
+        let new_weak = weak.clone();
+        let new_project: Rc<dyn Fn(FilePath)> = Rc::new(move |fp| {
+            deferred(&new_weak, move |s| {
+                s.show_new_project_wizard(false, Some(fp));
+            });
+        });
+        FileSystemTree::connect(&s.file_tree, open, new_project);
         let tree = Rc::downgrade(&s.file_tree);
         s.quick_access
             .borrow_mut()
@@ -449,9 +472,10 @@ impl App {
         libraries_panel::bind(weak);
         dialog_host::bind(&self.window, weak);
         add_component_host::bind(&self.window, weak);
+        color_scheme_host::bind(&self.window, weak);
 
         // Pure helpers.
-        b.on_is_shortcut(|event, command| helpers::is_shortcut(&event, &command));
+        b.on_is_shortcut(|event, command| crate::shortcuts::is_shortcut(&event, &command));
         b.on_format_length(helpers::format_length);
         b.on_parse_length_input(|text, unit, minimum| {
             helpers::parse_length_input(&text, unit, minimum)
@@ -657,6 +681,21 @@ impl State {
         connect!(package_category, PackageCategory);
         connect!(organization, Organization);
         let w = self.this.clone();
+        derived
+            .project_library
+            .set_handler(move |row, data: ui::ProjectLibraryTabData| {
+                deferred(&w, move |s| {
+                    let local = s.workspace.lock().local_libraries_path().clone();
+                    if let Some(i) = find(s)
+                        && let Some(crate::tabs::Tab::ProjectLibrary(t)) =
+                            s.sections[i].tab_mut(row)
+                    {
+                        let update = t.set_derived_ui_data(&data, &local);
+                        s.apply_update(i, row, update);
+                    }
+                });
+            });
+        let w = self.this.clone();
         schematic.set_handler(move |row, data: ui::SchematicTabData| {
             deferred(&w, move |s| {
                 if let Some(i) = find(s)
@@ -733,7 +772,8 @@ impl State {
     }
 
     /// Adds a tab to the current section and makes it current.
-    pub(crate) fn add_tab(&mut self, tab: Tab) {
+    pub(crate) fn add_tab(&mut self, mut tab: Tab) {
+        tab.set_color_schemes(&self.color_schemes.0, &self.color_schemes.1);
         let section = self
             .window()
             .map_or(0, |w| w.global::<ui::Data>().get_current_section_index())
@@ -833,60 +873,6 @@ impl State {
         }
     }
 
-    /// Opens a project and its first schematic and board (upstream
-    /// `GuiApplication::openProject()`); returns its index.
-    pub(crate) fn open_project(&mut self, fp: &FilePath) -> Option<usize> {
-        if let Some(i) = self.projects.iter().position(|p| p.path() == fp) {
-            self.switch_to_project(i);
-            return Some(i);
-        }
-        if fp.suffix() == "lppz" {
-            self.not_implemented("*.lppz");
-            return None;
-        }
-        let source = self.workspace.lock().shared_library_db();
-        let project = match AppProject::open(fp, source) {
-            Ok(p) => Rc::new(p),
-            Err(e) => {
-                self.notifications.borrow_mut().push(Notification {
-                    auto_popup: true,
-                    ..Notification::new(
-                        ui::NotificationType::Critical,
-                        tr!("GuiApplication", "Error"),
-                        e.to_string(),
-                    )
-                });
-                return None;
-            }
-        };
-        if !project.is_writable() {
-            self.notifications.borrow_mut().push(Notification::new(
-                ui::NotificationType::Warning,
-                tr!("GuiApplication", "Read-Only Mode"),
-                fp.to_native(),
-            ));
-        }
-        let index = self.projects.len();
-        self.projects_model.push(project.ui_data());
-        self.projects.push(project);
-        self.switch_to_project(index);
-        let (has_schematic, has_board) = {
-            let p = self.projects[index].shared().lock();
-            (
-                !p.project().schematics().is_empty(),
-                !p.project().boards().is_empty(),
-            )
-        };
-        if has_schematic {
-            self.open_schematic_tab(index as i32, 0, true);
-        }
-        if has_board {
-            self.open_board_tab(index as i32, 0, !has_schematic);
-        }
-        self.quick_access.borrow_mut().push_recent(fp);
-        Some(index)
-    }
-
     pub(crate) fn switch_to_project(&self, index: usize) {
         if let Some(w) = self.window() {
             let d = w.global::<ui::Data>();
@@ -950,7 +936,8 @@ impl State {
         self.add_tab_maybe_current(tab, switch_to);
     }
 
-    pub(crate) fn add_tab_maybe_current(&mut self, tab: Tab, switch_to: bool) {
+    pub(crate) fn add_tab_maybe_current(&mut self, mut tab: Tab, switch_to: bool) {
+        tab.set_color_schemes(&self.color_schemes.0, &self.color_schemes.1);
         if switch_to {
             self.add_tab(tab);
         } else {
@@ -985,6 +972,10 @@ impl State {
                 }
             }
             ui::Action::ProjectOpen => self.open_project_dialog(),
+            ui::Action::ProjectNew => self.show_new_project_wizard(false, None),
+            ui::Action::ProjectImportEagle => self.show_new_project_wizard(true, None),
+            ui::Action::WorkspaceSettings => self.show_workspace_settings(),
+            ui::Action::WorkspaceSwitch => self.show_switch_workspace_wizard(),
             ui::Action::WorkspaceLibrariesRescan => self.start_library_scan(),
             ui::Action::LibraryPanelEnsurePopulated
             | ui::Action::LibraryPanelCheckForUpdates
@@ -1000,9 +991,13 @@ impl State {
 
     pub(crate) fn open_project_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
-            .set_title(tr!("GuiApplication", "Open Project"))
+            .set_title(tr!("librepcb::editor::GuiApplication", "Open Project"))
             .add_filter(
-                tr!("GuiApplication", "LibrePCB project files ({0})", "*.lpp"),
+                tr!(
+                    "librepcb::editor::GuiApplication",
+                    "LibrePCB project files ({0})",
+                    "*.lpp"
+                ),
                 &["lpp"],
             )
             .set_directory(self.workspace.lock().projects_path().as_path());
@@ -1080,16 +1075,27 @@ impl State {
             ui::ProjectAction::Close => self.close_project(&project),
             ui::ProjectAction::Save => {
                 self.abort_project_tools(&project);
-                let result = project.shared().lock().save();
+                let result = project.save();
                 match result {
-                    Ok(()) => self.show_status(&tr!("ProjectEditor", "Project saved"), 2000),
+                    Ok(()) => {
+                        self.project_saved(&project);
+                        self.show_status(
+                            &tr!("librepcb::editor::ProjectEditor", "Project saved"),
+                            2000,
+                        );
+                    }
                     Err(e) => self.notifications.borrow_mut().push(Notification::new(
                         ui::NotificationType::Critical,
-                        tr!("ProjectEditor", "Error"),
+                        tr!("librepcb::editor::ProjectEditor", "Error"),
                         e.to_string(),
                     )),
                 }
                 self.refresh_project(&project);
+            }
+            ui::ProjectAction::OpenLibraryManager => {
+                if let Ok(index) = usize::try_from(index) {
+                    self.open_project_library_tab(index);
+                }
             }
             ui::ProjectAction::OpenSetupDialog => {
                 let dialog = crate::dialogs::setup::ProjectSetupDialog::new(&project);
@@ -1121,7 +1127,7 @@ impl State {
 
     /// Closes a project and its tabs (upstream `ProjectEditor::requestClose()`;
     /// unsaved changes are discarded, the viewer does not modify projects).
-    pub(crate) fn close_project(&mut self, project: &Rc<AppProject>) {
+    pub fn close_project(&mut self, project: &Rc<AppProject>) {
         for si in 0..self.sections.len() {
             while let Some(ti) = self.sections[si]
                 .tabs()
@@ -1216,6 +1222,7 @@ impl State {
             }
         }
         self.schedule_rule_checks();
+        self.refresh_project_library_tabs(false);
     }
 
     pub(crate) fn set_theme(&mut self, theme: UiTheme) {
@@ -1247,6 +1254,7 @@ impl State {
                 if ok {
                     s.refresh_libraries();
                     s.refresh_library_tabs();
+                    s.refresh_project_library_tabs(true);
                 }
             });
         });
@@ -1315,7 +1323,11 @@ impl State {
     pub(crate) fn not_implemented(&self, what: &str) {
         log::info!("Not implemented yet: {what}");
         self.show_status(
-            &tr!("MainWindow", "Not available yet in this version: {0}", what),
+            &tr!(
+                "librepcb::editor::MainWindow",
+                "Not available yet in this version: {0}",
+                what
+            ),
             4000,
         );
     }

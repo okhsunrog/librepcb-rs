@@ -38,13 +38,19 @@ pub mod board;
 pub mod chooser;
 pub mod form;
 pub mod geometry;
+pub mod initialize_workspace;
 pub mod library;
+pub mod library_import;
 pub mod library_items;
 pub mod move_align;
+pub mod new_project;
+pub mod open_prompts;
 pub mod output;
+pub mod project_library_updater;
 pub mod review;
 pub mod schematic;
 pub mod setup;
+pub mod workspace_settings;
 
 use std::rc::Rc;
 
@@ -136,6 +142,48 @@ pub enum Applied {
         /// The jobs.
         jobs: Vec<librepcb_core::job::OutputJob>,
     },
+    /// A request to the application (dialogs of the project lifecycle and
+    /// the workspace).
+    App(AppRequest),
+}
+
+/// Requests of application level dialogs (wizards, prompts, settings) to
+/// the application.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppRequest {
+    /// Open a project (e.g. created by the new project wizard) and show
+    /// the messages of an import (if any).
+    OpenProject {
+        /// The project file.
+        path: librepcb_core::fileio::FilePath,
+        /// Messages of the EAGLE project import.
+        import_messages: Vec<String>,
+    },
+    /// Continue opening a project with the answers of a prompt (directory
+    /// lock, autosave restore).
+    ContinueOpening(crate::project::OpenRequest),
+    /// The workspace settings were modified (apply them to the UI).
+    WorkspaceSettingsChanged,
+    /// Show another dialog.
+    ShowDialog(DialogKind),
+    /// Rescan the workspace libraries.
+    RescanLibraries,
+    /// Update the library of a project (project library updater).
+    UpdateProjectLibrary(librepcb_core::fileio::FilePath),
+    /// A workspace was chosen (and initialized) in the initialize
+    /// workspace wizard.
+    WorkspaceChosen(librepcb_core::fileio::FilePath),
+    /// Run the import of the open library import wizard in a worker
+    /// thread.
+    RunLibraryImport,
+}
+
+/// Dialogs which a dialog can open (see [`AppRequest::ShowDialog`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DialogKind {
+    /// The color scheme editor of the workspace settings dialog (for its
+    /// active scheme of the kind).
+    ColorScheme(crate::color_schemes::SchemeKind),
 }
 
 /// Results of dialogs which answer a request of a tab's FSM.
@@ -219,6 +267,8 @@ pub enum ButtonResult {
         /// The jobs.
         jobs: Vec<librepcb_core::job::OutputJob>,
     },
+    /// Close the dialog with a request to the application.
+    App(AppRequest),
 }
 
 /// A dialog described by a form.
@@ -249,6 +299,21 @@ pub trait FormDialog {
     /// [`DialogOptions::extra_buttons`]).
     fn button(&mut self, _ctx: &DialogContext<'_>, _index: usize) -> Result<ButtonResult, String> {
         Ok(ButtonResult::Keep)
+    }
+
+    /// A request to the application after a field event or a button (e.g.
+    /// to open another dialog), polled by the application.
+    fn take_request(&mut self) -> Option<AppRequest> {
+        None
+    }
+
+    /// The dialog is closed (e.g. canceled); stop running operations.
+    fn closing(&mut self) {}
+
+    /// The dialog as `Any` (to access its type from the application, e.g.
+    /// the workspace settings dialog from the color scheme editor).
+    fn as_any_mut(&mut self) -> Option<&mut dyn std::any::Any> {
+        None
     }
 
     /// The preview image shown next to the fields (if any).

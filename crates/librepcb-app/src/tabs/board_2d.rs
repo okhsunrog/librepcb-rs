@@ -395,13 +395,35 @@ impl Board2dTab {
         settings.grid_interval = interval;
         settings.grid_unit = unit;
         if let Err(e) = p.editor.execute(ApplyMutations {
-            text: Some(tr!("Board2dTab", "Change Grid Properties")),
+            text: Some(tr!(
+                "librepcb::editor::Board2dTab",
+                "Change Grid Properties"
+            )),
             mutations: vec![Mutation::Board(BoardMutation::SetSettings {
                 board: self.board,
                 settings: Box::new(settings),
             })],
         }) {
             log::error!("Failed to change the grid: {e}");
+        }
+    }
+
+    /// Changes the color scheme (workspace settings) and rebuilds the scene.
+    pub fn set_color_scheme(&mut self, scheme: &ColorScheme) -> TabUpdate {
+        if self.scheme == *scheme {
+            return TabUpdate::default();
+        }
+        self.scheme = scheme.clone();
+        self.rebuild();
+        let background = self
+            .scene
+            .as_ref()
+            .map_or(Color::BLACK, BoardScene::background);
+        self.canvas.set_background(background);
+        TabUpdate {
+            repaint: true,
+            data_changed: true,
+            ..TabUpdate::default()
         }
     }
 
@@ -1002,7 +1024,7 @@ impl Board2dTab {
                         auto: true,
                         net: None,
                     },
-                    format!("[{}]", tr!("Board2dTab", "Auto")),
+                    format!("[{}]", tr!("librepcb::editor::Board2dTab", "Auto")),
                 ));
             }
             BoardTool::DrawPlane | BoardTool::AddThtPad => {}
@@ -1011,7 +1033,7 @@ impl Board2dTab {
         }
         nets.push((
             ToolNet::default(),
-            format!("[{}]", tr!("Board2dTab", "None")),
+            format!("[{}]", tr!("librepcb::editor::Board2dTab", "None")),
         ));
         for (id, name) in &data.nets {
             nets.push((
@@ -1520,9 +1542,11 @@ impl Board2dTab {
             }
             A::Save => {
                 self.abort_blocking_tool();
-                let result = self.project.shared().lock().save();
+                let result = self.project.save();
                 match result {
-                    Ok(()) => extra.status = Some(tr!("ProjectEditor", "Project saved")),
+                    Ok(()) => {
+                        extra.status = Some(tr!("librepcb::editor::ProjectEditor", "Project saved"))
+                    }
                     Err(e) => extra.requests.push(error_notification(e.to_string())),
                 }
                 extra.project_modified = true;

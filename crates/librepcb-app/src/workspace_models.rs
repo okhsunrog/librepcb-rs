@@ -241,16 +241,19 @@ impl FileSystemTree {
         Rc::new(RefCell::new(tree))
     }
 
-    /// Connects the model's UI actions (expand/collapse, pin, open).
-    pub fn connect(this: &Rc<RefCell<Self>>, open: OpenFileFn) {
+    /// Connects the model's UI actions (expand/collapse, pin, open, new
+    /// project in a folder).
+    pub fn connect(this: &Rc<RefCell<Self>>, open: OpenFileFn, new_project: OpenFileFn) {
         let weak = Rc::downgrade(this);
         this.borrow()
             .model
             .set_handler(move |row, data: ui::TreeViewItemData| {
                 if let Some(tree) = weak.upgrade() {
                     let action = tree.borrow_mut().row_written(row, data);
-                    if let Some(fp) = action {
-                        open(fp);
+                    match action {
+                        Some((fp, false)) => open(fp),
+                        Some((fp, true)) => new_project(fp),
+                        None => {}
                     }
                 }
             });
@@ -270,8 +273,9 @@ impl FileSystemTree {
         }
     }
 
-    /// Handles a row written by the UI; returns a file to open.
-    fn row_written(&mut self, row: usize, data: ui::TreeViewItemData) -> Option<FilePath> {
+    /// Handles a row written by the UI; returns a file to open (`false`)
+    /// or a folder to create a new project in (`true`).
+    fn row_written(&mut self, row: usize, data: ui::TreeViewItemData) -> Option<(FilePath, bool)> {
         let fp = FilePath::new(data.user_data.as_str())?;
         // The row already contains the UI's data; compare with the state
         // before by looking at the following rows.
@@ -293,7 +297,8 @@ impl FileSystemTree {
         self.model
             .update(row, |item| item.action = ui::TreeViewItemAction::None);
         match data.action {
-            ui::TreeViewItemAction::Open => Some(fp),
+            ui::TreeViewItemAction::Open => Some((fp, false)),
+            ui::TreeViewItemAction::NewProject => Some((fp, true)),
             ui::TreeViewItemAction::None => None,
             other => {
                 log::warn!("Unhandled action in workspace folder tree: {other:?}");

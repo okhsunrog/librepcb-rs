@@ -14,8 +14,12 @@
 //! 4. the default `~/LibrePCB-Workspace` (upstream's suggestion in the
 //!    workspace wizard), created if it does not exist.
 //!
-//! Upstream shows a wizard for the last case; here the workspace is created
-//! without asking (the wizard is not ported yet).
+//! Like upstream, the initialize workspace wizard
+//! ([`crate::dialogs::initialize_workspace`]) is shown by `main.rs` if the
+//! workspace does not exist yet, needs an upgrade or an initialization
+//! (not for `--workspace`, which creates the workspace without asking, e.g.
+//! for scripts and tests). The chosen workspace is stored as upstream's
+//! most recently used workspace ([`set_most_recently_used_workspace()`]).
 
 use std::path::{Path, PathBuf};
 
@@ -62,6 +66,68 @@ pub fn most_recently_used_workspace(ini: &str) -> Option<PathBuf> {
         }
     }
     None
+}
+
+/// Returns `ini` with `workspaces/most_recently_used` set to `path` (Qt INI
+/// format, other entries unchanged).
+pub fn with_most_recently_used_workspace(ini: &str, path: &str) -> String {
+    let entry = format!("most_recently_used={path}");
+    let mut lines: Vec<String> = ini.lines().map(str::to_owned).collect();
+    let section = lines.iter().position(|l| l.trim() == "[workspaces]");
+    match section {
+        Some(start) => {
+            let end = lines[start + 1..]
+                .iter()
+                .position(|l| l.trim().starts_with('['))
+                .map_or(lines.len(), |i| start + 1 + i);
+            match lines[start + 1..end]
+                .iter()
+                .position(|l| l.trim().starts_with("most_recently_used="))
+            {
+                Some(i) => lines[start + 1 + i] = entry,
+                None => lines.insert(start + 1, entry),
+            }
+        }
+        None => {
+            if lines.last().is_some_and(|l| !l.trim().is_empty()) {
+                lines.push(String::new());
+            }
+            lines.push("[workspaces]".to_owned());
+            lines.push(entry);
+        }
+    }
+    let mut out = lines.join("\n");
+    out.push('\n');
+    out
+}
+
+/// Stores the most recently used workspace in upstream's client settings
+/// (upstream `Workspace::setMostRecentlyUsedWorkspacePath()`), so the next
+/// start (of both applications) opens it.
+pub fn set_most_recently_used_workspace(path: &FilePath) -> std::io::Result<()> {
+    let Some(file) = client_settings_file() else {
+        return Ok(());
+    };
+    let ini = std::fs::read_to_string(&file).unwrap_or_default();
+    if let Some(dir) = file.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(
+        &file,
+        with_most_recently_used_workspace(&ini, &path.to_native()),
+    )
+}
+
+/// The workspace path of the environment or upstream's client settings
+/// (`None`: none chosen yet, the initialize workspace wizard asks).
+pub fn remembered_workspace_path() -> Option<PathBuf> {
+    if let Some(p) = std::env::var_os("LIBREPCB_WORKSPACE").filter(|p| !p.is_empty()) {
+        log::info!("Workspace path overridden by LIBREPCB_WORKSPACE.");
+        return Some(PathBuf::from(p));
+    }
+    client_settings_file()
+        .and_then(|f| std::fs::read_to_string(f).ok())
+        .and_then(|ini| most_recently_used_workspace(&ini))
 }
 
 /// Determines the workspace path (see the module documentation).
@@ -133,6 +199,26 @@ mod tests {
         assert_eq!(
             most_recently_used_workspace("[other]\nmost_recently_used=/x\n"),
             None
+        );
+    }
+
+    #[test]
+    fn write_client_settings() {
+        assert_eq!(
+            with_most_recently_used_workspace("", "/ws"),
+            "[workspaces]\nmost_recently_used=/ws\n"
+        );
+        assert_eq!(
+            with_most_recently_used_workspace(
+                "[General]\na=1\n\n[workspaces]\nmost_recently_used=/old\n[x]\ny=2\n",
+                "/new"
+            ),
+            "[General]\na=1\n\n[workspaces]\nmost_recently_used=/new\n[x]\ny=2\n"
+        );
+        let ini = with_most_recently_used_workspace("[General]\na=1\n", "/n");
+        assert_eq!(
+            most_recently_used_workspace(&ini),
+            Some(PathBuf::from("/n"))
         );
     }
 

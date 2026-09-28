@@ -88,6 +88,39 @@ fn main() -> ExitCode {
     }
 }
 
+/// Runs the initialize workspace wizard as often as needed until the
+/// workspace is ready (upstream `openWorkspace()` of `main.cpp`); `None` if
+/// the user canceled.
+fn run_workspace_wizard(
+    window: &ui::AppWindow,
+    path: Option<PathBuf>,
+) -> Result<Option<PathBuf>, Box<dyn std::error::Error>> {
+    use librepcb_app::dialogs::initialize_workspace::InitializeWorkspaceWizard;
+    use librepcb_app::modal_dialog::{ModalDialog, ModalResult};
+    let mut path = path.and_then(|p| librepcb_app::app::absolute_file_path(&p));
+    loop {
+        let wizard = InitializeWorkspaceWizard::new(path.clone(), false);
+        if !wizard.needs_to_be_shown() {
+            return Ok(path.map(|p| p.as_path().to_path_buf()));
+        }
+        let dialog = ModalDialog::show(window, Box::new(wizard), || {
+            let _ = slint::quit_event_loop();
+        });
+        window.run()?;
+        match dialog.result() {
+            ModalResult::Accepted(Some(librepcb_app::dialogs::AppRequest::WorkspaceChosen(
+                chosen,
+            ))) => {
+                if let Err(e) = startup::set_most_recently_used_workspace(&chosen) {
+                    log::warn!("Failed to store the workspace path: {e}");
+                }
+                path = Some(chosen);
+            }
+            _ => return Ok(None),
+        }
+    }
+}
+
 fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
     let headless = match &args.screenshot {
         Some(_) => {
@@ -97,13 +130,27 @@ fn run(args: &Args) -> Result<(), Box<dyn std::error::Error>> {
         None => None,
     };
 
-    let ws_path = startup::workspace_path(args.workspace.as_deref())
-        .ok_or("could not determine the workspace directory, pass --workspace")?;
+    let window = ui::AppWindow::new()?;
+    let ws_path = match (&args.workspace, headless.is_some()) {
+        // Explicit workspace (created without asking) or headless mode.
+        (Some(_), _) | (None, true) => startup::workspace_path(args.workspace.as_deref())
+            .ok_or("could not determine the workspace directory, pass --workspace")?,
+        (None, false) => {
+            if let Some(lang) = args.language.as_deref() {
+                let _ = librepcb_i18n::set_language(lang);
+            } else {
+                librepcb_i18n::set_language_from_system();
+            }
+            match run_workspace_wizard(&window, startup::remembered_workspace_path())? {
+                Some(path) => path,
+                None => return Ok(()), // Canceled.
+            }
+        }
+    };
     log::info!("Workspace: {}", ws_path.display());
     let workspace = startup::open_workspace(&ws_path)?;
     let language = startup::select_language(args.language.as_deref(), &workspace);
 
-    let window = ui::AppWindow::new()?;
     // Slint requires a component to exist before selecting the language.
     if let Err(e) = slint::select_bundled_translation(language) {
         log::warn!("Failed to select the UI language {language}: {e}");

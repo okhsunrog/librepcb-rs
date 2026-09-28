@@ -377,6 +377,28 @@ impl SchematicTab {
         update
     }
 
+    /// Changes the color scheme (workspace settings) and rebuilds the scene.
+    pub fn set_color_scheme(&mut self, scheme: &ColorScheme) -> TabUpdate {
+        if self.scheme == *scheme {
+            return TabUpdate::default();
+        }
+        self.scheme = scheme.clone();
+        self.scene = None;
+        // Outdated: the scene is built again by the next sync.
+        self.sync = SceneSync::at(u64::MAX);
+        self.sync_scene();
+        let background = self
+            .scene
+            .as_ref()
+            .map_or(Color::WHITE, SchematicScene::background);
+        self.canvas.set_background(background);
+        TabUpdate {
+            repaint: true,
+            data_changed: true,
+            ..TabUpdate::default()
+        }
+    }
+
     /// Syncs the scene with the project's change journal (incrementally
     /// where possible).
     fn sync_scene(&mut self) {
@@ -549,7 +571,7 @@ impl SchematicTab {
                     auto_popup: true,
                     ..Notification::new(
                         ui::NotificationType::Critical,
-                        tr!("SchematicTab", "Error"),
+                        tr!("librepcb::editor::SchematicTab", "Error"),
                         msg,
                     )
                 }));
@@ -1189,7 +1211,10 @@ impl SchematicTab {
             ..props
         };
         if let Err(e) = p.editor.execute(ApplyMutations {
-            text: Some(tr!("SchematicTab", "Change Grid Properties")),
+            text: Some(tr!(
+                "librepcb::editor::SchematicTab",
+                "Change Grid Properties"
+            )),
             mutations: vec![Mutation::UpdateSchematic(props)],
         }) {
             log::error!("Failed to change the grid: {e}");
@@ -1303,9 +1328,11 @@ impl SchematicTab {
             }
             A::Save => {
                 self.abort_blocking_tool();
-                let result = self.project.shared().lock().save();
+                let result = self.project.save();
                 match result {
-                    Ok(()) => extra.status = Some(tr!("ProjectEditor", "Project saved")),
+                    Ok(()) => {
+                        extra.status = Some(tr!("librepcb::editor::ProjectEditor", "Project saved"))
+                    }
                     Err(e) => extra.requests.push(error_notification(e.to_string())),
                 }
                 extra.project_modified = true;

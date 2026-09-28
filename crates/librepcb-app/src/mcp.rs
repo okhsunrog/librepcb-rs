@@ -253,7 +253,14 @@ impl State {
         });
         self.mcp.announced = false;
         self.update_mcp_ui();
-        self.show_status(&tr!("MainWindow", "MCP server running at {0}", url), 5000);
+        self.show_status(
+            &tr!(
+                "librepcb::editor::MainWindow",
+                "MCP server running at {0}",
+                url
+            ),
+            5000,
+        );
         Ok(url)
     }
 
@@ -277,7 +284,7 @@ impl State {
                 auto_popup: true,
                 ..Notification::new(
                     ui::NotificationType::Critical,
-                    tr!("MainWindow", "MCP Server"),
+                    tr!("librepcb::editor::MainWindow", "MCP Server"),
                     e.to_string(),
                 )
             });
@@ -503,7 +510,7 @@ impl State {
     /// Shows that the agent is editing (status bar indicator, status
     /// message, and once per server run a notification).
     fn show_agent_activity(&mut self, project: &Rc<AppProject>, tool: &str) {
-        let status = tr!("MainWindow", "AI agent: {0}", tool);
+        let status = tr!("librepcb::editor::MainWindow", "AI agent: {0}", tool);
         if let Some(w) = self.window() {
             let d = w.global::<ui::Data>();
             d.set_mcp_agent_active(true);
@@ -531,9 +538,9 @@ impl State {
                 .to_string();
             self.notifications.borrow_mut().push(Notification::new(
                 ui::NotificationType::Info,
-                tr!("MainWindow", "AI Agent Connected"),
+                tr!("librepcb::editor::MainWindow", "AI Agent Connected"),
                 tr!(
-                    "MainWindow",
+                    "librepcb::editor::MainWindow",
                     "An AI agent is editing the project \"{0}\" through the MCP server. Its \
                      changes can be undone like your own.",
                     name

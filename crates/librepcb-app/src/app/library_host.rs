@@ -51,7 +51,7 @@ impl State {
                     auto_popup: true,
                     ..Notification::new(
                         ui::NotificationType::Critical,
-                        tr!("GuiApplication", "Error"),
+                        tr!("librepcb::editor::GuiApplication", "Error"),
                         e.to_string(),
                     )
                 });
@@ -185,7 +185,12 @@ impl State {
                     log::warn!("Failed to open {}: {e}", fp.to_native());
                 }
             }
-            other => self.not_implemented(&format!("{other:?}")),
+            ui::LibraryElementAction::ImportEagleLibrary => {
+                self.show_library_import_wizard(&fp, false);
+            }
+            ui::LibraryElementAction::ImportKicadLibrary => {
+                self.show_library_import_wizard(&fp, true);
+            }
         }
     }
 

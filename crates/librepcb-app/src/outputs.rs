@@ -480,7 +480,12 @@ impl State {
                     "Success! Generated files:"
                 );
                 self.show_status(
-                    &tr!("MainWindow", "{0}: {1} file(s) written", title, files.len()),
+                    &tr!(
+                        "librepcb::editor::MainWindow",
+                        "{0}: {1} file(s) written",
+                        title,
+                        files.len()
+                    ),
                     4000,
                 );
                 Notification::new(

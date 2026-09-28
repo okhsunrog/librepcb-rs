@@ -312,7 +312,11 @@ impl ComponentTab {
             None,
             format!(
                 "({})",
-                tr!("ComponentSignalNameListModel", "unconnected").to_lowercase()
+                tr!(
+                    "librepcb::editor::ComponentSignalNameListModel",
+                    "unconnected"
+                )
+                .to_lowercase()
             ),
         ))
         .chain(sorted.iter().map(|s| (Some(s.0), s.1.clone())))

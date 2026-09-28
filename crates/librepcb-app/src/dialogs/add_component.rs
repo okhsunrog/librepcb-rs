@@ -212,7 +212,10 @@ impl AddComponentDialog {
         rows.push(None);
         items.push(tree_item(
             0,
-            tr!("librepcb::editor::CategoryTreeModel", "(Without Category)"),
+            tr!(
+                "librepcb::editor::CategoryTreeModelLegacy",
+                "(Without Category)"
+            ),
             false,
             false,
         ));
@@ -427,7 +430,7 @@ impl AddComponentDialog {
                 c.expanded,
             );
             item.hint = if c.deprecated {
-                tr!("librepcb::editor::AddComponentDialog", "Deprecated").into()
+                tr!("LibraryTreeView", "Deprecated").into()
             } else {
                 SharedString::new()
             };
@@ -444,7 +447,7 @@ impl AddComponentDialog {
                 };
                 let mut item = tree_item(1, text, !d.parts.is_empty(), d.expanded);
                 if d.deprecated {
-                    item.hint = tr!("librepcb::editor::AddComponentDialog", "Deprecated").into();
+                    item.hint = tr!("LibraryTreeView", "Deprecated").into();
                 }
                 items.push(item);
                 if !d.expanded {

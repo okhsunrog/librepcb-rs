@@ -11,9 +11,11 @@
 
 use std::sync::Arc;
 
+use librepcb_core::fileio::LockHandler;
 use librepcb_core::fileio::{
     FilePath, LockStatus, RestoreMode, TransactionalDirectory, TransactionalFileSystem,
 };
+use librepcb_core::project::loader::MigrationLog;
 use librepcb_core::project::{Project, ProjectLoader};
 
 use crate::{LibraryElementSource, ProjectEditor, Result};
@@ -45,6 +47,9 @@ pub struct OpenProject {
     /// Whether the project was modified by the loader (file format
     /// upgrade) and not saved yet.
     pub upgraded: bool,
+    /// The log of the file format upgrade (if [`upgraded`](Self::upgraded)
+    /// by [`open_with()`](Self::open_with)).
+    pub migration_log: Option<MigrationLog>,
 }
 
 static_assertions::assert_impl_all!(OpenProject: Send, Sync);
@@ -62,6 +67,7 @@ impl OpenProject {
             editor: ProjectEditor::with_source(project, source),
             file_system,
             upgraded,
+            migration_log: None,
         }
     }
 
@@ -75,16 +81,33 @@ impl OpenProject {
         source: Arc<dyn LibraryElementSource>,
     ) -> Result<Self> {
         let mut handler = override_stale_locks;
+        Self::open_with(dir, file_name, source, RestoreMode::No, Some(&mut handler))
+    }
+
+    /// Like [`open()`](Self::open), with the decisions about an autosave
+    /// backup (`restore`) and an existing directory lock (`lock_handler`)
+    /// left to the caller (upstream `GuiApplication::openProject()` asks
+    /// the user). The file format migration log is kept in
+    /// [`migration_log`](Self::migration_log).
+    pub fn open_with(
+        dir: &FilePath,
+        file_name: &str,
+        source: Arc<dyn LibraryElementSource>,
+        restore: RestoreMode<'_>,
+        lock_handler: Option<LockHandler<'_>>,
+    ) -> Result<Self> {
         let fs = Arc::new(TransactionalFileSystem::open(
             dir,
             true,
-            RestoreMode::No,
-            Some(&mut handler),
+            restore,
+            lock_handler,
         )?);
         let mut loader = ProjectLoader::new();
         let project = loader.open(TransactionalDirectory::new(Arc::clone(&fs), ""), file_name)?;
-        let upgraded = loader.migration_log().is_some();
-        Ok(Self::new(project, fs, upgraded, source))
+        let migration_log = loader.migration_log().cloned();
+        let mut open = Self::new(project, fs, migration_log.is_some(), source);
+        open.migration_log = migration_log;
+        Ok(open)
     }
 
     /// Moves the project behind a shared mutex.
@@ -118,6 +141,7 @@ impl OpenProject {
         self.editor.save()?;
         self.saved_revision = self.project().revision();
         self.upgraded = false;
+        self.migration_log = None;
         Ok(())
     }
 }

@@ -166,7 +166,7 @@ impl OrganizationTab {
                 TabUpdate {
                     data_changed: true,
                     status: Some(tr!(
-                        "MainWindow",
+                        "librepcb::editor::MainWindow",
                         "Not available yet in this version: {0}",
                         "PCB design rules"
                     )),
@@ -335,7 +335,7 @@ impl OrganizationTab {
             }
             A::OrganizationEditPcbOutputJobs | A::OrganizationEditAssemblyOutputJobs => {
                 update.status = Some(tr!(
-                    "MainWindow",
+                    "librepcb::editor::MainWindow",
                     "Not available yet in this version: {0}",
                     format!("{action:?}")
                 ));

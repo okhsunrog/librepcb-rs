@@ -457,6 +457,18 @@ impl ProjectEditor {
         Ok(())
     }
 
+    /// Writes an autosave backup: all project files into the file system,
+    /// which writes its modifications to `.autosave/` (upstream
+    /// `ProjectEditor::autosaveProject()`). The undo stack stays unclean.
+    pub fn autosave(&mut self) -> Result<()> {
+        if self.undo_stack.is_group_active() {
+            return Err(Error::GroupActive);
+        }
+        self.project.save()?;
+        self.project.directory().file_system().autosave()?;
+        Ok(())
+    }
+
     fn transaction(&mut self) -> Transaction<'_> {
         Transaction {
             project: &mut self.project,
