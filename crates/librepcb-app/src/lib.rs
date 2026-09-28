@@ -128,6 +128,7 @@ pub mod length_edit;
 pub mod libraries;
 pub mod library_manager;
 pub mod mcp;
+pub mod modal_dialog;
 pub mod models;
 pub mod network;
 pub mod notifications;

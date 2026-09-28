@@ -234,6 +234,8 @@ impl State {
                 }
             }
             Err(message) => {
+                // The dialog may have changed its page (wizards).
+                self.refresh_form_dialog(true);
                 if let Some(w) = self.window() {
                     w.global::<ui::Dialogs>().set_form_error(message.into());
                 }

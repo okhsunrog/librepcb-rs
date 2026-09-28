@@ -15,3 +15,4 @@ mod output_dialogs;
 mod screenshot;
 mod setup_dialogs;
 mod workspace_settings;
+mod workspace_wizard;

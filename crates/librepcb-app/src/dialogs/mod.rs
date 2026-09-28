@@ -38,6 +38,7 @@ pub mod board;
 pub mod chooser;
 pub mod form;
 pub mod geometry;
+pub mod initialize_workspace;
 pub mod library;
 pub mod library_items;
 pub mod move_align;
@@ -168,6 +169,9 @@ pub enum AppRequest {
     RescanLibraries,
     /// Update the library of a project (project library updater).
     UpdateProjectLibrary(librepcb_core::fileio::FilePath),
+    /// A workspace was chosen (and initialized) in the initialize
+    /// workspace wizard.
+    WorkspaceChosen(librepcb_core::fileio::FilePath),
 }
 
 /// Dialogs which a dialog can open (see [`AppRequest::ShowDialog`]).

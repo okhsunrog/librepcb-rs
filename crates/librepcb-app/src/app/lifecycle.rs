@@ -18,6 +18,7 @@ use slint::ComponentHandle;
 
 use super::State;
 use crate::color_schemes::{ColorSchemes, SchemeKind};
+use crate::dialogs::initialize_workspace::InitializeWorkspaceWizard;
 use crate::dialogs::new_project::{NewProjectMode, NewProjectWizard};
 use crate::dialogs::open_prompts::{DirectoryLockDialog, RestoreAutosaveDialog};
 use crate::dialogs::project_library_updater::ProjectLibraryUpdaterDialog;
@@ -65,6 +66,7 @@ impl State {
             AppRequest::ShowDialog(kind) => self.show_dialog_kind(kind),
             AppRequest::RescanLibraries => self.start_library_scan(),
             AppRequest::UpdateProjectLibrary(fp) => self.update_project_library(&fp),
+            AppRequest::WorkspaceChosen(fp) => self.workspace_chosen(&fp),
         }
     }
 
@@ -281,6 +283,35 @@ impl State {
                 Ok(false) => {}
                 Err(e) => log::warn!("Project autosave failed: {e}"),
             }
+        }
+    }
+
+    /// Opens the initialize workspace wizard to choose another workspace
+    /// (upstream `GuiApplication::switchWorkspace()`).
+    pub fn show_switch_workspace_wizard(&mut self) {
+        let path = self.workspace.lock().path().clone();
+        let wizard = InitializeWorkspaceWizard::new(Some(path), true);
+        self.show_app_dialog(Box::new(wizard));
+    }
+
+    /// Upstream `switchWorkspace()` after the wizard: the chosen workspace
+    /// is used after restarting the application.
+    fn workspace_chosen(&mut self, fp: &FilePath) {
+        if let Err(e) = crate::startup::set_most_recently_used_workspace(fp) {
+            log::warn!("Failed to store the workspace path: {e}");
+        }
+        if fp != self.workspace.lock().path() {
+            self.notifications.borrow_mut().push(Notification {
+                auto_popup: true,
+                ..Notification::new(
+                    ui::NotificationType::Info,
+                    tr!("GuiApplication", "Workspace changed"),
+                    tr!(
+                        "GuiApplication",
+                        "The chosen workspace will be used after restarting the application."
+                    ),
+                )
+            });
         }
     }
 

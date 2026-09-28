@@ -974,6 +974,7 @@ impl State {
             ui::Action::ProjectNew => self.show_new_project_wizard(false, None),
             ui::Action::ProjectImportEagle => self.show_new_project_wizard(true, None),
             ui::Action::WorkspaceSettings => self.show_workspace_settings(),
+            ui::Action::WorkspaceSwitch => self.show_switch_workspace_wizard(),
             ui::Action::WorkspaceLibrariesRescan => self.start_library_scan(),
             ui::Action::LibraryPanelEnsurePopulated
             | ui::Action::LibraryPanelCheckForUpdates
