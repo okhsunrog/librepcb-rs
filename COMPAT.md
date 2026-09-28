@@ -1162,7 +1162,11 @@ upstream `librepcb-cli` 2.1.1 except for:
   switches by the agent are refused.
 - **Rule checks:** approving or unapproving an ERC/DRC message is an
   undoable command (`SetErcApproval`/`SetDrcApproval` mutations; upstream
-  modifies the project outside the undo stack).
+  modifies the project outside the undo stack). Approvals of messages
+  which disappeared are removed after each run like upstream (no undo
+  step, the project becomes modified), but not while an undo group is
+  active (e.g. a tool is drawing; the next run removes them) or the
+  project is read-only.
 - **DRC** runs in a worker thread which locks the project only to rebuild
   the planes and air wires and to extract the check data.
 - **Outputs from the menus:** PDF and image export, pick&place, the BOM
@@ -1314,11 +1318,7 @@ upstream `librepcb-cli` 2.1.1 except for:
   C++ command set has some); the shortcut editor takes text key sequences
   instead of recording key presses and has no command categories.
 - **Zooming** is not animated.
-- **Rule checks:** approvals of messages which disappeared are not
-  cleaned up yet by the tabs (upstream removes them after a check run; the
-  editor provides `ProjectEditor::update_erc_approvals()`/
-  `update_drc_approvals()`, used by the MCP server). Selecting a message
-  zooms to its location, but no location marker is drawn; automatic fixes
-  are not available yet.
+- **Rule checks:** selecting a message zooms to its location, but no
+  location marker is drawn; automatic fixes are not available yet.
 - **Outputs from the menus:** printing and Specctra export are not
   available yet.

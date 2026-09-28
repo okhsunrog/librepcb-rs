@@ -26,8 +26,10 @@
 //!   (`SetErcApproval`/`SetDrcApproval`, undoable) instead of a direct
 //!   project modification; approving a DRC message keeps the DRC results
 //!   "up to date".
-//! - Approvals of messages which disappeared are not removed
-//!   (`mDisappearedErcApprovals`, `Board::updateDrcMessageApprovals()`).
+//! - Approvals of messages which disappeared are removed after each run
+//!   like upstream (`ProjectEditor::update_erc_approvals()`,
+//!   `update_drc_approvals()`: not undoable, marks the project modified),
+//!   except while an undo group is active or the project is read-only.
 //! - Selecting a message zooms to its location but does not draw the
 //!   location marker yet; automatic fixes are not supported yet.
 
@@ -471,18 +473,36 @@ impl State {
 
     /// Runs the ERC of a project now (upstream `ProjectEditor::runErc()`).
     pub fn run_erc(&mut self, project: &Rc<AppProject>) {
-        let Some((entries, approvals, revision)) = project.shared().try_lock().map(|p| {
-            let proj = p.project();
-            let entries: Vec<CheckMessage> = run_erc(proj)
-                .into_iter()
-                .map(|m| CheckMessage {
-                    schematic: m.schematic(),
-                    message: m.into(),
-                    autofix: false,
-                })
-                .collect();
-            (entries, proj.erc_approvals().clone(), proj.revision())
-        }) else {
+        let Some((entries, approvals, revision, approvals_changed)) =
+            project.shared().try_lock().map(|mut p| {
+                let messages = run_erc(p.project());
+                // Remove approvals of disappeared messages (upstream
+                // `ProjectEditor::runErc()`, not undoable). An active undo
+                // group keeps them until the next run; read-only projects
+                // are not modified.
+                let approvals_changed = !p.editor.undo_stack().is_group_active()
+                    && p.file_system.is_writable()
+                    && p.editor
+                        .update_erc_approvals(&messages)
+                        .inspect_err(|e| log::error!("Failed to update the ERC approvals: {e}"))
+                        .unwrap_or(false);
+                let proj = p.project();
+                let entries: Vec<CheckMessage> = messages
+                    .into_iter()
+                    .map(|m| CheckMessage {
+                        schematic: m.schematic(),
+                        message: m.into(),
+                        autofix: false,
+                    })
+                    .collect();
+                (
+                    entries,
+                    proj.erc_approvals().clone(),
+                    proj.revision(),
+                    approvals_changed,
+                )
+            })
+        else {
             // Busy: the next poll schedules it again.
             return;
         };
@@ -495,6 +515,10 @@ impl State {
                 .set_messages(entries, approvals);
             erc.revision = Some(revision);
             erc.execution_error.clear();
+        }
+        if approvals_changed {
+            // Unsaved changes indicator of the tabs.
+            self.sync_project_tabs(project);
         }
         self.refresh_project_row(project);
     }
@@ -775,12 +799,22 @@ impl State {
         else {
             return;
         };
-        let approvals = shared
-            .lock()
-            .project()
-            .board(board)
-            .map(|b| b.drc_approvals().clone())
-            .unwrap_or_default();
+        let approvals = {
+            let mut p = shared.lock();
+            // Remove approvals of disappeared messages (upstream
+            // `BoardEditor::setDrcResult()`, not undoable).
+            if let Ok(result) = &result
+                && !p.editor.undo_stack().is_group_active()
+                && p.file_system.is_writable()
+                && let Err(e) = p.editor.update_drc_approvals(board, result)
+            {
+                log::error!("Failed to update the DRC approvals: {e}");
+            }
+            p.project()
+                .board(board)
+                .map(|b| b.drc_approvals().clone())
+                .unwrap_or_default()
+        };
         let handler = self.rule_check_handler(&project, CheckKind::Drc(board));
         let notification = {
             let mut checks = project.checks().borrow_mut();
