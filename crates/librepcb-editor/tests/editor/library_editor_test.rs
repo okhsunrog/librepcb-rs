@@ -1104,3 +1104,281 @@ fn package_flip_and_move_align() {
     undo_all(&mut editor);
     assert_eq!(editor.element().content(), original);
 }
+
+/// DXF import settings with a 10 × 5 mm rectangle and a circle (Ø 1 mm at
+/// 5/2.5 mm).
+fn dxf_settings(
+    dir: &Path,
+    layer: librepcb_core::types::Layer,
+    placement: Option<Point>,
+) -> librepcb_editor::fsm::board::DxfImportSettings {
+    let file = dir.join("import.dxf");
+    std::fs::write(
+        &file,
+        "0\nSECTION\n2\nHEADER\n9\n$INSUNITS\n70\n4\n0\nENDSEC\n\
+         0\nSECTION\n2\nENTITIES\n\
+         0\nLWPOLYLINE\n90\n4\n70\n1\n10\n0.0\n20\n0.0\n10\n10.0\n20\n0.0\n\
+         10\n10.0\n20\n5.0\n10\n0.0\n20\n5.0\n\
+         0\nCIRCLE\n10\n5.0\n20\n2.5\n40\n0.5\n\
+         0\nENDSEC\n0\nEOF\n",
+    )
+    .expect("write DXF");
+    librepcb_editor::fsm::board::DxfImportSettings {
+        file: FilePath::new(&file).expect("absolute path"),
+        layer,
+        line_width: librepcb_core::types::UnsignedLength::default(),
+        scale_factor: 1.0,
+        join_tangent_polylines: true,
+        circles_as_drills: true,
+        placement,
+    }
+}
+
+#[test]
+fn import_dxf_into_symbol_and_footprint() {
+    use librepcb_core::types::Layer;
+    let tmp = tempfile::tempdir().expect("temp dir");
+
+    // Symbol, fixed placement: circles become polygons, one undo step.
+    let (_sym_tmp, dir) = copy_element("sym", DIODE_SYMBOL);
+    let mut editor: SymbolEditor = open(&dir);
+    let polygons = editor.element().polygons().len();
+    let mut fsm = SymbolEditorFsm::new(LibraryEditorSettings::default());
+    let mut clip = MemoryClipboard::new();
+    let settings = dxf_settings(tmp.path(), Layer::SYMBOL_OUTLINES, Some(mm(20.0, 5.0)));
+    run_sym(&mut editor, &mut fsm, &mut clip, |fsm, ctx| {
+        assert!(fsm.import_dxf(ctx, &settings));
+    });
+    assert!(!editor.is_group_active());
+    assert_eq!(editor.element().polygons().len(), polygons + 2);
+    assert!(editor.element().polygons().iter().any(|p| {
+        p.layer() == Layer::SYMBOL_OUTLINES && p.path().vertices()[0].pos == mm(20.0, 5.0)
+    }));
+    assert_eq!(editor.history().len(), 1);
+
+    // Footprint, interactive placement: circles become holes.
+    let (_pkg_tmp, dir) = copy_element("pkg", RESC2012_PKG);
+    let mut editor: PackageEditor = open(&dir);
+    let fpt = editor
+        .element()
+        .footprints()
+        .first()
+        .expect("footprint")
+        .uuid();
+    let footprint = |e: &PackageEditor| {
+        e.element()
+            .footprints()
+            .by_uuid(&fpt)
+            .expect("footprint")
+            .clone()
+    };
+    let (polygons, holes) = {
+        let f = footprint(&editor);
+        (f.polygons().len(), f.holes().len())
+    };
+    let mut fsm = PackageEditorFsm::new(LibraryEditorSettings::default());
+    let mut clip = MemoryClipboard::new();
+    let settings = dxf_settings(tmp.path(), Layer::TOP_DOCUMENTATION, None);
+    run_pkg(&mut editor, &mut fsm, &mut clip, |fsm, ctx| {
+        assert!(fsm.set_footprint(ctx, Some(fpt)));
+        fsm.pointer_moved(ctx, ev(0.0, 0.0));
+        assert!(fsm.import_dxf(ctx, &settings));
+        fsm.pointer_moved(ctx, ev(1.0, 1.0));
+        fsm.left_pressed(ctx, ev(1.0, 1.0));
+        fsm.left_released(ctx, ev(1.0, 1.0));
+    });
+    assert!(!editor.is_group_active());
+    let f = footprint(&editor);
+    assert_eq!(f.polygons().len(), polygons + 1);
+    assert_eq!(f.holes().len(), holes + 1);
+    let hole = f.holes().iter().last().expect("hole");
+    assert_eq!(hole.diameter().to_mm(), 1.0);
+
+    // A file without objects is an error.
+    let empty = tmp.path().join("empty.dxf");
+    std::fs::write(&empty, "").expect("write DXF");
+    let mut settings = dxf_settings(tmp.path(), Layer::TOP_DOCUMENTATION, None);
+    settings.file = FilePath::new(&empty).expect("absolute path");
+    let view = ModelHitTester::for_footprint(&footprint(&editor));
+    let mut ctx = LibraryContext::new(&mut editor, &view, &mut clip);
+    assert!(!fsm.import_dxf(&mut ctx, &settings));
+    assert!(
+        fsm.take_requests()
+            .iter()
+            .any(|r| matches!(r, LibraryRequest::ShowError(_)))
+    );
+}
+
+/// Pasting a single copied pad onto selected pads applies its geometry
+/// (upstream `pasteGeometryFromClipboard()`).
+#[test]
+fn paste_geometry_onto_selected_pads() {
+    let (_tmp, dir) = copy_element("pkg", RESC2012_PKG);
+    let mut editor: PackageEditor = open(&dir);
+    let fpt = editor
+        .element()
+        .footprints()
+        .first()
+        .expect("footprint")
+        .uuid();
+    let pads = |e: &PackageEditor| -> Vec<librepcb_core::geometry::Pad> {
+        e.element()
+            .footprints()
+            .by_uuid(&fpt)
+            .expect("footprint")
+            .pads()
+            .iter()
+            .map(|p| p.pad().clone())
+            .collect()
+    };
+    let original = pads(&editor);
+    assert_eq!(original.len(), 2);
+    let positions: Vec<Point> = original.iter().map(|p| p.position()).collect();
+
+    // The copied pad: another UUID and size.
+    let source = editor
+        .element()
+        .footprints()
+        .by_uuid(&fpt)
+        .expect("footprint")
+        .pads()
+        .iter()
+        .next()
+        .expect("pad")
+        .with_uuid(Uuid::new_random());
+    let mut source = source;
+    let width =
+        librepcb_core::types::PositiveLength::new(Length::new(3_000_000)).expect("positive");
+    source.pad_mut().set_width(width);
+    let mut data = FootprintClipboardData::new(
+        Uuid::new_random(),
+        editor.element().pads().clone(),
+        Point::ORIGIN,
+    );
+    data.pads.push(source);
+    let mut clip = MemoryClipboard::new();
+    let settings = LibraryEditorSettings::default();
+    clip.set(
+        &footprint_clipboard_mime_type(&settings.app_version),
+        data.to_bytes().expect("serialize"),
+    );
+    let mut fsm = PackageEditorFsm::new(settings);
+    run_pkg(&mut editor, &mut fsm, &mut clip, |fsm, ctx| {
+        assert!(fsm.set_footprint(ctx, Some(fpt)));
+        // Nothing selected: a normal paste would insert the pad.
+        assert!(!fsm.can_paste_geometry(ctx));
+        fsm.set_selection(original.iter().map(|p| FootprintItem::Pad(p.uuid())));
+        assert!(fsm.can_paste_geometry(ctx));
+        assert!(fsm.paste(ctx));
+    });
+    assert!(!editor.is_group_active());
+    let after = pads(&editor);
+    assert_eq!(after.len(), 2);
+    assert!(after.iter().all(|p| p.width() == width));
+    // Positions and UUIDs are kept.
+    assert_eq!(
+        after.iter().map(|p| p.position()).collect::<Vec<_>>(),
+        positions
+    );
+    assert_eq!(editor.history().len(), 1);
+    assert_eq!(editor.history()[0].text, "Paste Geometry");
+    undo_all(&mut editor);
+    assert_eq!(pads(&editor), original);
+}
+
+/// Adding an image to a symbol (upstream `SymbolEditorState_AddImage`):
+/// placed with a click, sized with the next one; afterwards resized with
+/// its handle (upstream `RESIZING_IMAGE`).
+#[test]
+fn add_and_resize_symbol_image() {
+    use librepcb_editor::fsm::schematic::ImageData;
+    let (_tmp, dir) = copy_element("sym", DIODE_SYMBOL);
+    let mut editor: SymbolEditor = open(&dir);
+    let mut fsm = SymbolEditorFsm::new(LibraryEditorSettings::default());
+    let mut clip = MemoryClipboard::new();
+    let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"/>"#.to_vec();
+    let data = |svg: &[u8]| ImageData {
+        data: svg.to_vec(),
+        format: "svg".into(),
+        basename: "Logo".into(),
+    };
+    run_sym(&mut editor, &mut fsm, &mut clip, |fsm, ctx| {
+        fsm.pointer_moved(ctx, ev(0.0, 0.0));
+        assert!(fsm.add_image(ctx, data(&svg)));
+        fsm.pointer_moved(ctx, ev(5.08, 5.08));
+        fsm.left_pressed(ctx, ev(5.08, 5.08));
+        fsm.left_released(ctx, ev(5.08, 5.08));
+        // The size follows the cursor (aspect ratio 2:1).
+        fsm.pointer_moved(ctx, ev(15.24, 7.62));
+        fsm.left_pressed(ctx, ev(15.24, 7.62));
+    });
+    assert!(!editor.is_group_active());
+    let image = editor
+        .element()
+        .images()
+        .iter()
+        .next()
+        .expect("image")
+        .clone();
+    assert_eq!(image.position(), mm(5.08, 5.08));
+    assert_eq!(image.width().to_mm(), 10.16);
+    assert_eq!(image.height().to_mm(), 5.08);
+    assert_eq!(image.file_name().as_str(), "Logo.svg");
+    assert_eq!(
+        editor
+            .element()
+            .directory()
+            .read_if_exists("Logo.svg")
+            .expect("read"),
+        Some(svg.clone())
+    );
+    assert_eq!(editor.history().len(), 1);
+    assert_eq!(editor.history()[0].text, "Add Symbol Image");
+
+    // Resize with the handle at the top right corner.
+    run_sym(&mut editor, &mut fsm, &mut clip, |fsm, ctx| {
+        fsm.set_selection([SymbolItem::Image(image.uuid())]);
+        fsm.left_pressed(ctx, ev(15.24, 10.16));
+        fsm.pointer_moved(ctx, ev(25.4, 10.16));
+        fsm.left_released(ctx, ev(25.4, 10.16));
+    });
+    let resized = editor
+        .element()
+        .images()
+        .iter()
+        .next()
+        .expect("image")
+        .clone();
+    assert_eq!(resized.position(), mm(5.08, 5.08));
+    assert_eq!(resized.width().to_mm(), 20.32);
+    assert_eq!(resized.height().to_mm(), 10.16);
+    assert_eq!(editor.history().len(), 2);
+    assert_eq!(editor.history()[1].text, "Edit Image");
+
+    // The same image again reuses the file; a click at the placed position
+    // aborts adding it.
+    run_sym(&mut editor, &mut fsm, &mut clip, |fsm, ctx| {
+        fsm.pointer_moved(ctx, ev(0.0, 0.0));
+        assert!(fsm.add_image(ctx, data(&svg)));
+        fsm.left_pressed(ctx, ev(0.0, 0.0));
+        fsm.left_released(ctx, ev(0.0, 0.0));
+        fsm.left_pressed(ctx, ev(0.0, 0.0));
+    });
+    assert!(!editor.is_group_active());
+    assert_eq!(editor.element().images().len(), 1);
+    assert_eq!(editor.history().len(), 2);
+    run_sym(&mut editor, &mut fsm, &mut clip, |fsm, ctx| {
+        fsm.pointer_moved(ctx, ev(0.0, 0.0));
+        assert!(fsm.add_image(ctx, data(&svg)));
+        fsm.left_pressed(ctx, ev(0.0, 0.0));
+        fsm.pointer_moved(ctx, ev(2.54, 0.0));
+        fsm.left_pressed(ctx, ev(2.54, 0.0));
+    });
+    let names: Vec<String> = editor
+        .element()
+        .images()
+        .iter()
+        .map(|i| i.file_name().to_string())
+        .collect();
+    assert_eq!(names, ["Logo.svg", "Logo.svg"]);
+}

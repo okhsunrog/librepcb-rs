@@ -808,9 +808,9 @@ Rendering only; no file is affected.
 - **Cross-probing** is an output of the FSM (`cross_probe()`,
   `highlighted_nets()`); the application highlights the objects in the
   other editors.
-- Not ported: plane visibility from the context menu (a view setting of
-  the application) and aborting blocking tools of other editors (the
-  application must abort them).
+- Plane visibility (context menu "Visible") and aborting blocking tools
+  of other editors are handled by the application (the FSM reports the
+  context menu action).
 
 ### DXF reader (`import::dxf_reader`)
 
@@ -842,8 +842,10 @@ Rendering only; no file is affected.
 - **Dialogs** (pin/pad/polygon properties, import pins, courtyard excess,
   fix parameters) are requests to the application; check fixes take their
   answers as `FixParams`.
-- Not ported: adding images and resizing them, DXF import, "paste
-  geometry" into pads; the clipboard data has no pixmap.
+- **Images** (symbol editor): the file name of an added image is derived
+  from the base name passed by the application (upstream asks for it in
+  an input dialog); an existing file with the same content is reused
+  like upstream. The clipboard data has no pixmap.
 
 ## project (output job runner)
 
@@ -1087,8 +1089,9 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *No file system watcher:* the "files modified" banner of the tabs is
     never shown; elements changed on disk are not reloaded.
 - **Library element editors (M4b):**
-  - *Symbol and package editors:* images and DXF import are not
-    available in the symbol and package editors, nor graphics export,
+  - *Symbol and package editors:* images, DXF import and "Paste
+    Geometry" are not available in the tabs yet (the editor FSMs provide
+    them: `add_image()`, `import_dxf()`, `paste_geometry()`), nor graphics export,
     printing and the background image. There is no 3D view in the
     package editor: the 3D models can be added (the STEP file is stored
     as-is, not minified and not validated since there is no

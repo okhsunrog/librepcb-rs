@@ -7,7 +7,7 @@
 
 use std::collections::BTreeSet;
 
-use librepcb_core::types::{Angle, Orientation, Point};
+use librepcb_core::types::{Angle, Length, Orientation, Point, PositiveLength};
 use librepcb_i18n::tr;
 
 use super::hit_test::{segment_index_at, vertex_indices_at};
@@ -24,7 +24,24 @@ enum SubState {
     Moving,
     MovingVertex,
     Pasting,
+    /// Resizing a selected image with its handle (upstream
+    /// `RESIZING_IMAGE`).
+    ResizingImage,
+    /// Setting the size of an image being added, after it was placed
+    /// (upstream `SymbolEditorState_AddImage` in `State::Resizing`).
+    AddingImage,
 }
+
+/// The image being resized, with its aspect ratio.
+#[derive(Debug, Clone)]
+struct ImageResize {
+    image: librepcb_core::geometry::Image,
+    aspect_ratio: f64,
+}
+
+/// The vertex handle radius of images: 20 pixels (upstream
+/// `ImageGraphicsItem`), i.e. four times the hit tolerance.
+const IMAGE_HANDLE_TOLERANCE_FACTOR: i64 = 4;
 
 /// The select state.
 #[derive(Debug)]
@@ -36,6 +53,11 @@ pub(crate) struct SelectState<H: ElementHost> {
     drag: Option<DragSelectedItems<H::Item>>,
     /// The polygon/zone and its vertices being moved.
     vertices: Option<(H::Item, Vec<usize>)>,
+    /// The image being resized.
+    image_resize: Option<ImageResize>,
+    /// Whether the items being pasted are an image being added (its size is
+    /// set after placing it).
+    adding_image: bool,
 }
 
 impl<H: ElementHost> Default for SelectState<H> {
@@ -45,6 +67,8 @@ impl<H: ElementHost> Default for SelectState<H> {
             start_pos: Point::ORIGIN,
             drag: None,
             vertices: None,
+            image_resize: None,
+            adding_image: false,
         }
     }
 }
@@ -87,6 +111,52 @@ impl<H: ElementHost> SelectState<H> {
             let v = vertex_indices_at(&path, pos, tol);
             (!v.is_empty()).then_some((*item, v))
         })
+    }
+
+    /// Finds the resize handle of a selected image at `pos` (upstream
+    /// `findImageHandleAtPosition()`).
+    fn find_image_handle(&self, cx: &Cx<'_, '_, H>, pos: Point) -> Option<ImageResize> {
+        let tolerance = cx.ctx.view.tolerance() * IMAGE_HANDLE_TOLERANCE_FACTOR;
+        cx.out.selection.iter().find_map(|item| {
+            let image = H::image(cx.element(), cx.fpt(), *item)?;
+            let rel = pos.rotated(-image.rotation(), image.position()) - image.position();
+            let corner = Point::new(image.width().get(), image.height().get());
+            ((corner - rel).length().get() <= tolerance).then(|| ImageResize {
+                aspect_ratio: image.width().to_mm() / image.height().to_mm(),
+                image,
+            })
+        })
+    }
+
+    /// Resizes the image being resized or added so that its corner is at
+    /// `pos` (upstream `updateSize()`; the aspect ratio is kept).
+    fn resize_image(&mut self, cx: &mut Cx<'_, '_, H>, pos: Point) {
+        let Some(resize) = &self.image_resize else {
+            return;
+        };
+        let image = &resize.image;
+        let rel = pos.rotated(-image.rotation(), image.position()) - image.position();
+        let width = rel.x;
+        let Ok(height) = Length::from_mm(width.to_mm() / resize.aspect_ratio) else {
+            return;
+        };
+        let (Ok(width), Ok(height)) = (PositiveLength::new(width), PositiveLength::new(height))
+        else {
+            return;
+        };
+        let mut image = image.clone();
+        image.set_width(width);
+        image.set_height(height);
+        cx.modify(|e, fpt| H::set_image(e, fpt, image));
+    }
+
+    /// The pointer position mapped to the grid unless Shift is pressed.
+    fn image_pos(cx: &Cx<'_, '_, H>, e: PointerEvent) -> Point {
+        if e.modifiers.shift {
+            e.pos
+        } else {
+            e.pos.mapped_to_grid(cx.grid())
+        }
     }
 
     /// Applies `f` to a new or the active transformation and the
@@ -187,7 +257,13 @@ impl<H: ElementHost> SelectState<H> {
     /// Upstream `processPaste()` with data from the clipboard.
     fn start_paste(&mut self, cx: &mut Cx<'_, '_, H>) -> bool {
         match H::clipboard_data(&*cx.ctx.clipboard, &cx.settings.app_version) {
-            Ok(Some(d)) => self.start_paste_data(cx, d),
+            Ok(Some(d))
+                if H::can_paste_geometry(cx.element(), cx.fpt(), &d.0, &cx.out.selection) =>
+            {
+                // Only the geometry is applied to the selected objects.
+                self.paste_geometry_data(cx, &d.0)
+            }
+            Ok(Some(d)) => self.start_paste_data(cx, d, None),
             Ok(None) => false,
             Err(e) => {
                 cx.error(e);
@@ -196,24 +272,98 @@ impl<H: ElementHost> SelectState<H> {
         }
     }
 
+    /// Whether the clipboard content can be pasted as geometry onto the
+    /// selected objects (upstream `canPasteGeometry()`, for the "Paste
+    /// Geometry" context menu entry).
+    pub(crate) fn can_paste_geometry(&self, cx: &Cx<'_, '_, H>) -> bool {
+        self.sub == SubState::Idle
+            && matches!(
+                H::clipboard_data(&*cx.ctx.clipboard, &cx.settings.app_version),
+                Ok(Some(d)) if H::can_paste_geometry(cx.element(), cx.fpt(), &d.0, &cx.out.selection)
+            )
+    }
+
+    /// Pastes the geometry of the clipboard object onto the selected
+    /// objects (upstream `pasteGeometryFromClipboard()`).
+    pub(crate) fn paste_geometry(&mut self, cx: &mut Cx<'_, '_, H>) -> bool {
+        match H::clipboard_data(&*cx.ctx.clipboard, &cx.settings.app_version) {
+            Ok(Some(d))
+                if self.sub == SubState::Idle
+                    && H::can_paste_geometry(cx.element(), cx.fpt(), &d.0, &cx.out.selection) =>
+            {
+                self.paste_geometry_data(cx, &d.0)
+            }
+            Ok(_) => false,
+            Err(e) => {
+                cx.error(e);
+                false
+            }
+        }
+    }
+
+    fn paste_geometry_data(&mut self, cx: &mut Cx<'_, '_, H>, data: &H::ClipboardData) -> bool {
+        let selection = cx.out.selection.clone();
+        // Only the package editor supports it (see `can_paste_geometry()`).
+        let text = tr!(
+            "librepcb::editor::PackageEditorState_Select",
+            "Paste Geometry"
+        );
+        cx.exec_group(text, |e, fpt| {
+            H::paste_geometry(e, fpt, data, &selection);
+            Ok(())
+        })
+        .is_some()
+    }
+
     /// Upstream `startPaste()`: pastes `data` (with its cursor position)
-    /// and lets the items follow the cursor.
+    /// and lets the items follow the cursor, or pastes them with the fixed
+    /// offset `fixed` and finishes.
     pub(crate) fn start_paste_data(
         &mut self,
         cx: &mut Cx<'_, '_, H>,
         data: (H::ClipboardData, Point),
+        fixed: Option<Point>,
+    ) -> bool {
+        self.start_paste_with_text(cx, H::paste_text(), data, fixed)
+    }
+
+    /// Starts adding an image (upstream `SymbolEditorState_AddImage`):
+    /// `data` holds the image, which follows the cursor until a click
+    /// places it; then its size follows the cursor (keeping the aspect
+    /// ratio) until the next click. One undo group with `text`.
+    pub(crate) fn start_adding_image(
+        &mut self,
+        cx: &mut Cx<'_, '_, H>,
+        text: String,
+        data: (H::ClipboardData, Point),
+    ) -> bool {
+        let ok = self.start_paste_with_text(cx, text, data, None);
+        self.adding_image = ok;
+        ok
+    }
+
+    fn start_paste_with_text(
+        &mut self,
+        cx: &mut Cx<'_, '_, H>,
+        text: String,
+        data: (H::ClipboardData, Point),
+        fixed: Option<Point>,
     ) -> bool {
         if self.sub != SubState::Idle {
             return false;
         }
         cx.out.selection.clear();
-        if !cx.begin(H::paste_text()) {
+        if !cx.begin(text) {
             return false;
         }
         self.start_pos = cx.cursor_pos();
-        let offset = (self.start_pos - data.1).mapped_to_grid(cx.grid());
+        let offset = fixed.unwrap_or_else(|| (self.start_pos - data.1).mapped_to_grid(cx.grid()));
         let pasted = cx.modify(|e, fpt| H::paste(e, fpt, data.0, offset));
         match pasted {
+            Some(Ok(items)) if !items.is_empty() && fixed.is_some() => {
+                // Fixed position (no interactive placement): finish.
+                cx.commit()
+            }
             Some(Ok(items)) if !items.is_empty() => {
                 let grid = cx.grid();
                 self.drag = H::container(cx.element(), cx.fpt())
@@ -463,6 +613,28 @@ impl<H: ElementHost> State<H> for SelectState<H> {
                 cx.modify(|e, fpt| H::set_item_path(e, fpt, item, path));
                 true
             }
+            SubState::ResizingImage => {
+                // Start the undo group on the first move.
+                if !cx.ctx.editor.is_group_active()
+                    && !cx.begin(tr!("librepcb::editor::CmdImageEdit", "Edit Image"))
+                {
+                    return false;
+                }
+                let pos = Self::image_pos(cx, e);
+                self.resize_image(cx, pos);
+                true
+            }
+            SubState::AddingImage => {
+                let pos = Self::image_pos(cx, e);
+                if self
+                    .image_resize
+                    .as_ref()
+                    .is_some_and(|r| r.image.position() != pos)
+                {
+                    self.resize_image(cx, pos);
+                }
+                true
+            }
             SubState::Idle => {
                 cx.out.hovered = cx
                     .ctx
@@ -484,6 +656,13 @@ impl<H: ElementHost> State<H> for SelectState<H> {
                 {
                     self.vertices = Some(v);
                     self.sub = SubState::MovingVertex;
+                    return true;
+                }
+                if cx.writable()
+                    && let Some(resize) = self.find_image_handle(cx, e.pos)
+                {
+                    self.image_resize = Some(resize);
+                    self.sub = SubState::ResizingImage;
                     return true;
                 }
                 let items = cx.ctx.view.items_at(e.pos, cx.ctx.view.tolerance());
@@ -516,9 +695,52 @@ impl<H: ElementHost> State<H> for SelectState<H> {
                 }
                 true
             }
+            SubState::Pasting if self.adding_image => {
+                // The image is placed, now its size follows the cursor.
+                self.drag = None;
+                let image = cx
+                    .out
+                    .selection
+                    .iter()
+                    .find_map(|item| H::image(cx.element(), cx.fpt(), *item));
+                match image {
+                    Some(image) => {
+                        self.image_resize = Some(ImageResize {
+                            aspect_ratio: image.width().to_mm() / image.height().to_mm(),
+                            image,
+                        });
+                        self.sub = SubState::AddingImage;
+                    }
+                    None => {
+                        cx.commit();
+                        self.adding_image = false;
+                        self.sub = SubState::Idle;
+                    }
+                }
+                true
+            }
             SubState::Pasting => {
                 self.drag = None;
                 cx.commit();
+                self.sub = SubState::Idle;
+                cx.out.selection.clear();
+                true
+            }
+            SubState::AddingImage => {
+                // Upstream `finish()`: a click at the image position aborts.
+                let pos = Self::image_pos(cx, e);
+                if self
+                    .image_resize
+                    .as_ref()
+                    .is_some_and(|r| r.image.position() == pos)
+                {
+                    cx.abort_group();
+                } else {
+                    self.resize_image(cx, pos);
+                    cx.commit();
+                }
+                self.image_resize = None;
+                self.adding_image = false;
                 self.sub = SubState::Idle;
                 cx.out.selection.clear();
                 true
@@ -546,6 +768,14 @@ impl<H: ElementHost> State<H> for SelectState<H> {
                     cx.commit();
                 }
                 self.vertices = None;
+                self.sub = SubState::Idle;
+                true
+            }
+            SubState::ResizingImage => {
+                if cx.ctx.editor.is_group_active() {
+                    cx.commit();
+                }
+                self.image_resize = None;
                 self.sub = SubState::Idle;
                 true
             }
@@ -663,6 +893,18 @@ impl<H: ElementHost> State<H> for SelectState<H> {
                 if self.sub == SubState::Pasting {
                     cx.out.selection.clear();
                 }
+                self.adding_image = false;
+                self.sub = SubState::Idle;
+            }
+            SubState::ResizingImage | SubState::AddingImage => {
+                if cx.ctx.editor.is_group_active() {
+                    cx.abort_group();
+                }
+                if self.sub == SubState::AddingImage {
+                    cx.out.selection.clear();
+                }
+                self.image_resize = None;
+                self.adding_image = false;
                 self.sub = SubState::Idle;
             }
             SubState::MovingVertex => {

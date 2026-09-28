@@ -336,3 +336,35 @@ impl Clipboard for MemoryClipboard {
 pub fn tolerance_for_pixel_size(pixel_size: Length) -> Length {
     pixel_size * 5
 }
+
+/// Reads the DXF file of an import (upstream `processImportDxf()` of the
+/// board, symbol and package editors): the polygon paths (joined if
+/// requested) and the circles. Fails if the file contains nothing to
+/// import.
+pub(crate) fn read_dxf_import(
+    settings: &board::DxfImportSettings,
+) -> crate::Result<(
+    Vec<librepcb_core::geometry::Path>,
+    Vec<librepcb_core::import::DxfCircle>,
+)> {
+    let mut reader = librepcb_core::import::DxfReader::new();
+    reader.set_scale_factor(settings.scale_factor);
+    reader
+        .parse_file(&settings.file)
+        .map_err(|e| crate::Error::InvalidArgument(e.to_string()))?;
+    let mut paths = reader.polygons().to_vec();
+    if settings.join_tangent_polylines {
+        paths = librepcb_core::utils::tangent_path_joiner::join(
+            paths,
+            Some(std::time::Duration::from_secs(2)),
+        )
+        .paths;
+    }
+    if paths.is_empty() && reader.circles().is_empty() {
+        return Err(crate::Error::InvalidArgument(librepcb_i18n::tr!(
+            "librepcb::editor::DxfImportDialog",
+            "The selected file does not contain any objects to import."
+        )));
+    }
+    Ok((paths, reader.circles().to_vec()))
+}

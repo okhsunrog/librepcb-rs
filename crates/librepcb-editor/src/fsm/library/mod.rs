@@ -423,6 +423,45 @@ pub trait ElementHost: Sized + Send + Sync + Debug + 'static {
         offset: Point,
     ) -> Result<BTreeSet<Self::Item>>;
 
+    /// The image of an item (symbol images; `None` for other items).
+    fn image(
+        _e: &Self::Element,
+        _fpt: Option<Uuid>,
+        _item: Self::Item,
+    ) -> Option<librepcb_core::geometry::Image> {
+        None
+    }
+    /// Replaces the image with the UUID of `image` (see
+    /// [`image()`](Self::image)).
+    fn set_image(
+        _e: &mut Self::Element,
+        _fpt: Option<Uuid>,
+        _image: librepcb_core::geometry::Image,
+    ) {
+    }
+
+    /// Whether pasting `data` applies its geometry to the selected items
+    /// instead of inserting it (upstream `canPasteGeometry()` of the package
+    /// editor): `data` holds exactly one object, and objects of its kind
+    /// other than it are selected. Only footprints support it.
+    fn can_paste_geometry(
+        _e: &Self::Element,
+        _fpt: Option<Uuid>,
+        _data: &Self::ClipboardData,
+        _selection: &BTreeSet<Self::Item>,
+    ) -> bool {
+        false
+    }
+    /// Applies the geometry of the object in `data` to the selected objects
+    /// of its kind (upstream `pasteGeometryFromClipboard()`).
+    fn paste_geometry(
+        _e: &mut Self::Element,
+        _fpt: Option<Uuid>,
+        _data: &Self::ClipboardData,
+        _selection: &BTreeSet<Self::Item>,
+    ) {
+    }
+
     /// The object of an item.
     fn object(e: &Self::Element, fpt: Option<Uuid>, item: Self::Item) -> Option<Self::Object>;
     /// Adds an object.

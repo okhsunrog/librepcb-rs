@@ -159,6 +159,23 @@ impl ElementHost for SymbolHost {
         PasteSymbolItems { data, offset }.execute(e)
     }
 
+    fn image(
+        e: &Symbol,
+        _fpt: Option<Uuid>,
+        item: SymbolItem,
+    ) -> Option<librepcb_core::geometry::Image> {
+        match item {
+            SymbolItem::Image(u) => e.images().by_uuid(&u).cloned(),
+            _ => None,
+        }
+    }
+
+    fn set_image(e: &mut Symbol, _fpt: Option<Uuid>, image: librepcb_core::geometry::Image) {
+        if let Some(i) = e.images_mut().by_uuid_mut(&image.uuid()) {
+            *i = image;
+        }
+    }
+
     fn object(e: &Symbol, _fpt: Option<Uuid>, item: SymbolItem) -> Option<SymbolObject> {
         SymbolObject::from_symbol(e, item)
     }
@@ -556,9 +573,136 @@ impl LibraryEditorFsm<SymbolHost> {
         if !self.select_tool(ctx) {
             return false;
         }
-        self.with_select_state(ctx, |s, cx| s.start_paste_data(cx, (data, Point::ORIGIN)))
-            .unwrap_or(false)
+        self.with_select_state(ctx, |s, cx| {
+            s.start_paste_data(cx, (data, Point::ORIGIN), None)
+        })
+        .unwrap_or(false)
     }
+
+    /// Adds an image (upstream `SymbolEditorState_AddImage` with the data
+    /// of the image chooser dialog or the clipboard): it follows the cursor
+    /// (10 mm on its longer side) until a click places it, then its size
+    /// follows the cursor until the next click. The file is stored in the
+    /// symbol directory, reusing an existing file with the same content;
+    /// its name is derived from `data.basename` (upstream asks for it).
+    pub fn add_image(
+        &mut self,
+        ctx: &mut SymbolContext<'_>,
+        data: crate::fsm::schematic::ImageData,
+    ) -> bool {
+        if !self.select_tool(ctx) {
+            return false;
+        }
+        self.with_select_state(ctx, |s, cx| {
+            match image_clipboard_data(cx.element().metadata_uuid(), data) {
+                Ok(data) => s.start_adding_image(
+                    cx,
+                    tr!(
+                        "librepcb::editor::SymbolEditorState_AddImage",
+                        "Add Symbol Image"
+                    ),
+                    (data, Point::ORIGIN),
+                ),
+                Err(e) => {
+                    cx.error(e);
+                    false
+                }
+            }
+        })
+        .unwrap_or(false)
+    }
+
+    /// Imports a DXF file (upstream `processImportDxf()`, select tool
+    /// only): its polygons and circles become polygons on the chosen layer
+    /// (`circles_as_drills` does not apply to symbols), which are pasted
+    /// like clipboard data (following the cursor unless a placement
+    /// position is given).
+    pub fn import_dxf(
+        &mut self,
+        ctx: &mut SymbolContext<'_>,
+        settings: &crate::fsm::board::DxfImportSettings,
+    ) -> bool {
+        self.with_select_state(ctx, |s, cx| {
+            let result = crate::fsm::read_dxf_import(settings).map(|(paths, circles)| {
+                let mut data =
+                    SymbolClipboardData::new(cx.element().metadata_uuid(), Point::ORIGIN);
+                let polygon = |path| {
+                    librepcb_core::geometry::Polygon::new(
+                        Uuid::new_random(),
+                        settings.layer,
+                        settings.line_width,
+                        false,
+                        false,
+                        path,
+                    )
+                };
+                for path in paths {
+                    data.polygons.push(polygon(path));
+                }
+                for circle in &circles {
+                    data.polygons.push(polygon(
+                        Path::circle(circle.diameter).translated(circle.position),
+                    ));
+                }
+                data
+            });
+            match result {
+                Ok(data) => s.start_paste_data(cx, (data, Point::ORIGIN), settings.placement),
+                Err(e) => {
+                    cx.error(e);
+                    false
+                }
+            }
+        })
+        .unwrap_or(false)
+    }
+}
+
+/// Clipboard data with one image of `data`, 10 mm on its longer side, at
+/// the origin (upstream `SymbolEditorState_AddImage::start()`).
+fn image_clipboard_data(
+    symbol: Uuid,
+    data: crate::fsm::schematic::ImageData,
+) -> Result<SymbolClipboardData> {
+    use librepcb_core::geometry::Image;
+    use librepcb_core::types::{FileProofName, PositiveLength};
+    let format = data.format.to_lowercase();
+    let (px_w, px_h) =
+        Image::try_load(&data.data, &format).map_err(crate::Error::InvalidArgument)?;
+    let range = |e: librepcb_core::types::Error| crate::Error::InvalidArgument(e.to_string());
+    let mut width = Length::from_px(px_w).map_err(range)?;
+    let mut height = Length::from_px(px_h).map_err(range)?;
+    let initial = Length::new(10_000_000);
+    if width > height {
+        height =
+            Length::from_mm(height.to_mm() * initial.to_mm() / width.to_mm()).map_err(range)?;
+        width = initial;
+    } else {
+        width = Length::from_mm(width.to_mm() * initial.to_mm() / height.to_mm()).map_err(range)?;
+        height = initial;
+    }
+    // The final file name is determined when pasting (existing file with
+    // the same content, or an unused name).
+    let mut base = FileProofName::clean(data.basename.trim());
+    if base.is_empty() {
+        base = "image".to_owned();
+    }
+    let file_name = FileProofName::new(format!("{base}.{format}"))
+        .or_else(|_| FileProofName::new(format!("image.{format}")))
+        .map_err(|e| crate::Error::InvalidArgument(e.to_string()))?;
+    let image = Image::new(
+        Uuid::new_random(),
+        file_name.clone(),
+        Point::ORIGIN,
+        Angle::DEG0,
+        PositiveLength::new(width).map_err(range)?,
+        PositiveLength::new(height).map_err(range)?,
+        None,
+    );
+    let mut clipboard = SymbolClipboardData::new(symbol, Point::ORIGIN);
+    clipboard.images.push(image);
+    clipboard.files.insert(file_name.to_string(), data.data);
+    Ok(clipboard)
 }
 
 /// UUID access without importing the element traits.

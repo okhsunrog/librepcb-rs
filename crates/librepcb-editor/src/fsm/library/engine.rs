@@ -345,6 +345,23 @@ impl<H: ElementHost> LibraryEditorFsm<H> {
         lib_dispatch!(self, ctx, |s, cx| s.paste(&mut cx))
     }
 
+    /// Whether the clipboard holds one object whose geometry can be pasted
+    /// onto the selected objects (upstream `canPasteGeometry()`, package
+    /// editor; for the "Paste Geometry" context menu entry). [`paste()`](Self::paste)
+    /// then applies the geometry instead of inserting the object.
+    pub fn can_paste_geometry(&mut self, ctx: &mut LibraryContext<'_, H>) -> bool {
+        self.with_select_state(ctx, |s, cx| s.can_paste_geometry(cx))
+            .unwrap_or(false)
+    }
+
+    /// Applies the geometry of the clipboard object to the selected objects
+    /// of its kind (upstream `pasteGeometryFromClipboard()`, "Paste
+    /// Geometry" in the context menu).
+    pub fn paste_geometry(&mut self, ctx: &mut LibraryContext<'_, H>) -> bool {
+        self.with_select_state(ctx, |s, cx| s.paste_geometry(cx))
+            .unwrap_or(false)
+    }
+
     /// Moves the selected items (arrow keys).
     pub fn move_by(&mut self, ctx: &mut LibraryContext<'_, H>, delta: Point) -> bool {
         lib_dispatch!(self, ctx, |s, cx| s.move_by(&mut cx, delta))

@@ -55,7 +55,7 @@ Done, in `crates/librepcb-core` unless noted:
   groundwork: `library_editor` (element editor with snapshot undo stack,
   dirty state, interface check, save; commands for symbols, packages,
   components and devices; check fixes) and `fsm::library` (symbol and
-  package editor FSMs with all upstream tools except images/DXF),
+  package editor FSMs with all upstream tools),
   headless scenarios in `tests/editor/library_editor_test.rs`; the Slint
   element tabs are wired (see `librepcb-app` below).
 - **`crates/librepcb-import`:** EAGLE import (parseagle model, type and

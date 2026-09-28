@@ -7,14 +7,12 @@
 use std::collections::BTreeSet;
 
 use librepcb_core::geometry::{NonEmptyPath, Path, TraceAnchor, Vertex};
-use librepcb_core::import::DxfReader;
 use librepcb_core::library::LibraryBaseElement;
 use librepcb_core::project::board::{BoardHoleData, BoardPolygonData};
 use librepcb_core::project::board::{BoardItem, BoardNetSegment};
 use librepcb_core::project::{BoardMutation, Mutation, NetSegmentId, NetSignalId};
 use librepcb_core::types::MaskConfig;
 use librepcb_core::types::{Angle, Length, Orientation, Point, UnsignedLength, Uuid};
-use librepcb_core::utils::tangent_path_joiner;
 use librepcb_core::utils::toolbox;
 use librepcb_i18n::{tr, trn};
 
@@ -379,16 +377,7 @@ impl SelectState {
             return false;
         }
         let result = (|| -> crate::error::Result<BoardClipboardData> {
-            let mut reader = DxfReader::new();
-            reader.set_scale_factor(settings.scale_factor);
-            reader
-                .parse_file(&settings.file)
-                .map_err(|e| crate::Error::InvalidArgument(e.to_string()))?;
-            let mut paths = reader.polygons().to_vec();
-            if settings.join_tangent_polylines {
-                paths =
-                    tangent_path_joiner::join(paths, Some(std::time::Duration::from_secs(2))).paths;
-            }
+            let (paths, circles) = crate::fsm::read_dxf_import(settings)?;
             let board_uuid = cx.board()?.uuid();
             let mut data = BoardClipboardData::new(board_uuid, Point::ORIGIN)?;
             for path in paths {
@@ -402,7 +391,7 @@ impl SelectState {
                     false,
                 ));
             }
-            for circle in reader.circles() {
+            for circle in &circles {
                 if settings.circles_as_drills {
                     data.holes.push(BoardHoleData::new(
                         Uuid::new_random(),
@@ -422,12 +411,6 @@ impl SelectState {
                         false,
                     ));
                 }
-            }
-            if data.is_empty() {
-                return Err(crate::Error::InvalidArgument(tr!(
-                    "librepcb::editor::DxfImportDialog",
-                    "The selected file does not contain any objects to import."
-                )));
             }
             Ok(data)
         })();
