@@ -4,6 +4,7 @@
 
 pub mod board_edit;
 pub mod circuit;
+pub mod import;
 pub mod layout;
 pub mod library;
 pub mod mutation;

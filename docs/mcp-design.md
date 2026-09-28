@@ -162,7 +162,15 @@ blocked by a proxy, and the library list entry has a repository URL and
 `git` is available, the repository is cloned shallowly at the commit of
 the ZIP URL into a temporary directory, `.git` is removed and the result
 renamed into place; the result reports `method: zip|git`),
-`library_rescan`.
+`library_rescan`, `library_import` (EAGLE `*.lbr` or KiCad libraries
+into a local workspace library or a library directory, like upstream's
+import wizards: `dry_run` lists the elements with selection and
+"already imported" state, `elements` selects some with their
+dependencies, options name prefix, "EAGLE/KiCad Import" categories and
+additional categories; rescans the index; implementation in
+`librepcb-import`). `project_create` imports an EAGLE project with
+`eagle_schematic`/`eagle_board` (upstream new project wizard with EAGLE
+import; a delegating host gets both paths in `ProjectCreateRequest`).
 
 Circuit & schematic:
 `component_add` (component or device uuid, optional designator/value,

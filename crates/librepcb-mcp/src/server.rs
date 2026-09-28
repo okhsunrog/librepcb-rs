@@ -32,6 +32,7 @@ use crate::tools::board_edit::{
     TraceAddArgs, TraceRemoveArgs, ViaAddArgs,
 };
 use crate::tools::circuit::{ComponentGetArgs, NetListArgs};
+use crate::tools::import::LibraryImportArgs;
 use crate::tools::layout::{BoardGetArgs, SchematicGetArgs};
 use crate::tools::library::{LibraryElementArgs, LibraryInstallArgs, LibrarySearchArgs};
 use crate::tools::mutation::{MutationApplyArgs, MutationSchemaArgs};
@@ -48,7 +49,7 @@ use crate::tools::schematic_edit::{
 };
 use crate::tools::write::UndoArgs;
 use crate::tools::{
-    board_edit, circuit, layout, library, mutation, output, project, schematic_edit, write,
+    board_edit, circuit, import, layout, library, mutation, output, project, schematic_edit, write,
 };
 
 /// Instructions sent to the client on initialization (the agent's
@@ -297,7 +298,8 @@ impl LibrePcbMcp {
         description = "Create a new project (like upstream's new project wizard: default \
                        assembly variant and net class, stroke fonts, optional first schematic \
                        page \"Main\" and board \"default\" with a 100x80 mm outline), save it \
-                       and open it."
+                       and open it. With eagle_schematic (and eagle_board), an EAGLE project \
+                       is imported instead (pages, board, nets, library elements)."
     )]
     async fn project_create(
         &self,
@@ -309,6 +311,8 @@ impl LibrePcbMcp {
         let request = ProjectCreateRequest {
             name: args.name.clone(),
             directory: args.directory.clone(),
+            eagle_schematic: args.eagle_schematic.clone(),
+            eagle_board: args.eagle_board.clone(),
         };
         match self.ask_host(move |h| h.create_project(&request)).await {
             Ok(HostDecision::Allow) => self.run(move |s| project::project_create(s, args)).await,
@@ -455,6 +459,19 @@ impl LibrePcbMcp {
             }
             Err(e) => self.run(move |_| Err(e)).await,
         }
+    }
+
+    #[tool(
+        description = "Import an EAGLE library (*.lbr) or KiCad libraries (*.kicad_sym, \
+                       *.pretty) into a local LibrePCB library of the workspace (like \
+                       upstream's import wizards; the index is rescanned). dry_run=true lists \
+                       the elements; elements selects some (dependencies follow)."
+    )]
+    async fn library_import(
+        &self,
+        Parameters(args): Parameters<LibraryImportArgs>,
+    ) -> Result<CallToolResult, McpError> {
+        self.run(move |s| import::library_import(s, args)).await
     }
 
     #[tool(

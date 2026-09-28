@@ -110,6 +110,13 @@ pub struct EagleProjectImport {
     device_sets: HashMap<LibKey, model::DeviceSet>,
 }
 
+impl Default for EagleProjectImport {
+    /// Random UUIDs, the current time as creation date.
+    fn default() -> Self {
+        Self::new(UuidGenerator::random(), Utc::now())
+    }
+}
+
 impl EagleProjectImport {
     /// Creates an import creating UUIDs with `uuids` and using `created` as
     /// creation date of the library elements.

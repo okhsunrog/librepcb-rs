@@ -299,3 +299,17 @@ impl From<serde_json::Error> for ToolError {
         Self::invalid(e.to_string())
     }
 }
+
+impl From<librepcb_import::eagle::Error> for ToolError {
+    fn from(e: librepcb_import::eagle::Error) -> Self {
+        use librepcb_import::eagle::Error;
+        let kind = match &e {
+            Error::FileNotFound(..) => ErrorKind::NotFound,
+            Error::Io { .. } => ErrorKind::Io,
+            Error::FileIo(e) => file_io_kind(e),
+            Error::Project(e) => project_kind(e),
+            _ => ErrorKind::InvalidArgument,
+        };
+        Self::new(kind, e.to_string())
+    }
+}

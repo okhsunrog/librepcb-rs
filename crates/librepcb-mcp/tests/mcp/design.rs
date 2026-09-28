@@ -126,6 +126,8 @@ fn design_rc_circuit_with_populated_library() {
             schematic_name: None,
             create_board: true,
             board_name: None,
+            eagle_schematic: None,
+            eagle_board: None,
         },
     )
     .unwrap();

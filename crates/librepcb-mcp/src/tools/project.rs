@@ -13,6 +13,8 @@ use librepcb_core::project::board::{Board, BoardItem, BoardPolygonData};
 use librepcb_core::project::schematic::Schematic;
 use librepcb_core::project::{Mutation, Project};
 use librepcb_core::types::{ElementName, Layer, Length, Point, UnsignedLength, Uuid};
+use librepcb_core::utils::message_logger::{LogLevel, MessageLogger};
+use librepcb_import::eagle::EagleProjectImport;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
@@ -57,6 +59,15 @@ pub struct ProjectCreateArgs {
     /// Name of the board (default "default").
     #[serde(default)]
     pub board_name: Option<String>,
+    /// Import an EAGLE project: its schematic (`*.sch`). The schematic
+    /// pages, board, library elements and nets are imported into the new
+    /// project (upstream's new project wizard with EAGLE import);
+    /// `create_schematic` and `create_board` are then ignored.
+    #[serde(default)]
+    pub eagle_schematic: Option<String>,
+    /// With `eagle_schematic`: the EAGLE board (`*.brd`) to import too.
+    #[serde(default)]
+    pub eagle_board: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -204,13 +215,15 @@ pub fn project_create(session: &mut Session, args: ProjectCreateArgs) -> ToolRes
             ),
         ));
     }
+    let (eagle, parse_warnings) = open_eagle_project(&args)?;
     let dir_existed = dir.is_existing_dir();
-    let result = create_project_files(session, &args, &name, &dir, &file_name);
+    let result = create_project_files(session, &args, &name, &dir, &file_name, eagle.as_ref());
     if result.is_err() && !dir_existed {
         // Like upstream's wizard: remove the directory again on failure.
         let _ = std::fs::remove_dir_all(dir.as_path());
     }
-    let (project, fs, warnings) = result?;
+    let (project, fs, mut warnings) = result?;
+    warnings.extend(parse_warnings);
     let summary = format!(
         "Created project \"{}\" at {} ({} schematic page(s), {} board(s)).",
         name.as_str(),
@@ -228,14 +241,35 @@ pub fn project_create(session: &mut Session, args: ProjectCreateArgs) -> ToolRes
 
 type CreatedProject = (Project, Arc<TransactionalFileSystem>, Vec<String>);
 
+/// Opens the EAGLE project of `project_create` (if any), before anything
+/// is created.
+fn open_eagle_project(
+    args: &ProjectCreateArgs,
+) -> ToolResult<(Option<EagleProjectImport>, Vec<String>)> {
+    let Some(sch) = &args.eagle_schematic else {
+        if args.eagle_board.is_some() {
+            return Err(ToolError::invalid(
+                "eagle_board needs eagle_schematic as well.",
+            ));
+        }
+        return Ok((None, Vec::new()));
+    };
+    let sch = absolute_path(sch)?;
+    let brd = args.eagle_board.as_deref().map(absolute_path).transpose()?;
+    let mut import = EagleProjectImport::default();
+    let parse_warnings = import.open(&sch, brd.as_ref())?;
+    Ok((Some(import), parse_warnings))
+}
+
 fn create_project_files(
     session: &Session,
     args: &ProjectCreateArgs,
     name: &ElementName,
     dir: &FilePath,
     file_name: &str,
+    eagle: Option<&EagleProjectImport>,
 ) -> ToolResult<CreatedProject> {
-    let warnings = Vec::new();
+    let mut warnings = Vec::new();
     let mut handler = |_: &FilePath, _: librepcb_core::fileio::LockStatus, _: &str| Ok(false);
     let fs = Arc::new(TransactionalFileSystem::open(
         dir,
@@ -282,7 +316,19 @@ fn create_project_files(
             120,
         )
     };
-    if args.create_schematic {
+    if let Some(import) = eagle {
+        // Upstream `NewProjectWizard::createProject()` with EAGLE import:
+        // no initial schematic and board.
+        let log = MessageLogger::new();
+        let result = import.import(&mut project, &log);
+        warnings.extend(
+            log.messages()
+                .into_iter()
+                .filter(|m| m.level >= LogLevel::Warning)
+                .map(|m| format!("{}: {}", m.level, m.message)),
+        );
+        result?;
+    } else if args.create_schematic {
         let name = ElementName::new(args.schematic_name.as_deref().unwrap_or("Main").trim())?;
         let dir = dir_name(name.as_str());
         if dir.is_empty() {
@@ -290,7 +336,7 @@ fn create_project_files(
         }
         project.add_schematic(Schematic::new(Uuid::new_random(), name, dir), None)?;
     }
-    if args.create_board {
+    if eagle.is_none() && args.create_board {
         let name = ElementName::new(args.board_name.as_deref().unwrap_or("default").trim())?;
         let dir = dir_name(name.as_str());
         if dir.is_empty() {

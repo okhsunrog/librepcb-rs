@@ -3674,6 +3674,7 @@ dependencies = [
  "env_logger",
  "librepcb-core",
  "librepcb-editor",
+ "librepcb-import",
  "librepcb-network",
  "librepcb-scene",
  "log",

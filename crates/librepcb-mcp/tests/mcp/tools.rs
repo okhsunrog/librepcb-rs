@@ -172,6 +172,8 @@ fn workspace_library_tools() {
             schematic_name: None,
             create_board: true,
             board_name: None,
+            eagle_schematic: None,
+            eagle_board: None,
         },
     )
     .unwrap();
@@ -213,6 +215,8 @@ fn workspace_library_tools() {
             schematic_name: None,
             create_board: false,
             board_name: None,
+            eagle_schematic: None,
+            eagle_board: None,
         },
     )
     .unwrap_err();
