@@ -470,46 +470,7 @@ impl DrawPlaneState {
 
 /// The automatic plane outline (upstream `determineAutoPlaneOutline()`).
 fn auto_plane_outline(cx: &Cx<'_, '_>) -> Result<Path> {
-    let board = cx.board()?;
-    let vertices: Vec<Point> = board
-        .polygons()
-        .values()
-        .filter(|p| p.layer() == Layer::BOARD_OUTLINES)
-        .flat_map(|p| p.path().vertices().iter().map(|v| v.pos))
-        .collect();
-    let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
-        vertices.iter().map(|v| v.x).min(),
-        vertices.iter().map(|v| v.x).max(),
-        vertices.iter().map(|v| v.y).min(),
-        vertices.iter().map(|v| v.y).max(),
-    ) else {
-        return Err(crate::error::Error::InvalidArgument(tr!(
-            "librepcb::editor::BoardEditorState_DrawPlane",
-            "Could not determine the bounding box of board. Make sure a valid board outline polygon is present."
-        )));
-    };
-    let used_left: BTreeSet<Length> = board
-        .planes()
-        .values()
-        .flat_map(|p| p.outline().vertices().iter().map(|v| v.pos.x))
-        .collect();
-    let mut grid = *cx.grid();
-    while grid < Length::new(2_000_000) {
-        grid *= 2;
-    }
-    let mut min_space = -(grid / 2);
-    let mut left;
-    loop {
-        min_space += grid;
-        left = (min_x - min_space).rounded_down_to(grid);
-        if !used_left.contains(&left) {
-            break;
-        }
-    }
-    let bottom = (min_y - min_space).rounded_down_to(grid);
-    let top = (max_y + min_space).rounded_up_to(grid);
-    let right = (max_x + min_space).rounded_up_to(grid);
-    Ok(Path::rect(Point::new(left, bottom), Point::new(right, top)))
+    crate::commands::board::auto_plane_outline(cx.project(), cx.board_id(), *cx.grid())
 }
 
 impl State for DrawPlaneState {

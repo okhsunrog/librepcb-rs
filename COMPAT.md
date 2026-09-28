@@ -727,10 +727,7 @@ Rendering only; no file is affected.
   `CmdRemoveBoardItems` does. The explicit `RemoveBoardItems` and all
   schematic removals do, like upstream.
 - **`AddBoard`** with `copy_settings_from` copies only the board settings;
-  upstream `Board::copyFrom()` also copies all items. The automatic plane
-  outline of `AddPlane` uses the vertices of the board outline polygons
-  (arc bulges are ignored); upstream uses the bounding rectangle including
-  arcs.
+  upstream `Board::copyFrom()` also copies all items.
 - **Adding a via** connects it to the traces and junctions of its net at
   its position like upstream's add-via tool (hit test: the trace width
   resp. the widest trace at a junction instead of the graphics items'
@@ -808,8 +805,6 @@ Rendering only; no file is affected.
 - **Change device:** the devices offered in the context menu come from the
   editor's library element source (upstream: the workspace library
   database).
-- **Plane tool:** the automatic outline uses the vertices of the board
-  outline polygons (upstream `Board::calculateBoundingRect()`).
 - **Cross-probing** is an output of the FSM (`cross_probe()`,
   `highlighted_nets()`); the application highlights the objects in the
   other editors.

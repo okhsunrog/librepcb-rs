@@ -22,7 +22,6 @@ use crate::project::circuit::AssemblyVariant;
 use crate::project::error::{EntityKind, Error};
 use crate::project::id::{AssemblyVariantId, BoardId};
 use crate::types::{Layer, Length, Point, PositiveLength, UnsignedLength};
-use crate::utils::painter_path;
 use crate::utils::toolbox::compare_numeric;
 
 /// A mounted part of the BOM (upstream `BomItem`).
@@ -96,7 +95,7 @@ impl<'a> BoardInteractiveHtmlBomGenerator<'a> {
         if project.circuit().assembly_variants().len() > 1 {
             name.push_str(&format!(" ({})", self.assembly_variant.name()));
         }
-        let bbox = calculate_bounding_rect(ctx);
+        let bbox = ctx.bounding_rect();
         let mut ibom = InteractiveHtmlBom::new(
             &name,
             &project.metadata().author,
@@ -420,41 +419,4 @@ impl<'a> BoardInteractiveHtmlBomGenerator<'a> {
             .min()
             .unwrap_or(self.component_order.len())
     }
-}
-
-/// Upstream `Board::calculateBoundingRect()`: the bounding rectangle
-/// `(bottom_left, top_right)` of the board outlines (of the board and of the
-/// footprints), or `None` if there are no outlines.
-fn calculate_bounding_rect(ctx: &BoardContext<'_>) -> Option<(Point, Point)> {
-    let mut outlines: Vec<Path> = ctx
-        .board
-        .polygons()
-        .values()
-        .filter(|p| p.layer() == Layer::BOARD_OUTLINES && !p.path().vertices().is_empty())
-        .map(|p| p.path().clone())
-        .collect();
-    for dev in &ctx.devices {
-        let transform = dev.transform();
-        for polygon in dev.footprint.polygons().iter() {
-            if polygon.layer() == Layer::BOARD_OUTLINES && !polygon.path().vertices().is_empty() {
-                outlines.push(transform.map(polygon.path()));
-            }
-        }
-        for circle in dev.footprint.circles().iter() {
-            if circle.layer() == Layer::BOARD_OUTLINES {
-                outlines.push(
-                    transform.map(&Path::circle(circle.diameter()).translated(circle.center())),
-                );
-            }
-        }
-    }
-    if outlines.is_empty() {
-        return None;
-    }
-    let rect = painter_path::bounding_rect_px(&outlines);
-    // The rectangle is built from coordinates of valid points, so the
-    // conversion back cannot overflow.
-    let bottom_left = Point::from_px(rect.left(), rect.bottom()).unwrap_or_default();
-    let top_right = Point::from_px(rect.right(), rect.top()).unwrap_or_default();
-    Some((bottom_left, top_right))
 }

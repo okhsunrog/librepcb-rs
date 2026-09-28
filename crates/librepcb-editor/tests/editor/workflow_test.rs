@@ -699,3 +699,76 @@ fn test_combine_segments_and_nets() {
     assert_eq!(pin_net(p, "R3", "1"), Some(net(p, "VCC")));
     assert!(p.is_ref_index_consistent());
 }
+
+/// The automatic plane outline encloses the bounding rectangle of the board
+/// outline including its arcs (upstream `Board::calculateBoundingRect()`).
+#[test]
+fn test_auto_plane_outline_includes_arcs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut editor = create_editor(&tmp.path().join("p"));
+    let board = editor
+        .execute(AddBoard {
+            name: name("default"),
+            copy_settings_from: None,
+            default_outline: false,
+        })
+        .unwrap()
+        .board;
+    let diameter = PositiveLength::new(Length::new(20_000_000)).unwrap();
+    editor
+        .execute(AddBoardPolygon {
+            board: Some(board),
+            layer: Layer::BOARD_OUTLINES,
+            path: librepcb_core::geometry::Path::circle(diameter).translated(mm(50.0, 50.0)),
+            line_width: None,
+            filled: false,
+            grab_area: false,
+        })
+        .unwrap();
+    let plane = editor
+        .execute(AddPlane {
+            board: Some(board),
+            net: None,
+            layer: None,
+            outline: None,
+            settings: PlaneSettings::default(),
+        })
+        .unwrap();
+    let outline = editor
+        .project()
+        .board(board)
+        .unwrap()
+        .planes()
+        .get(&plane)
+        .unwrap()
+        .outline()
+        .clone();
+    let ys: Vec<Length> = outline.vertices().iter().map(|v| v.pos.y).collect();
+    let xs: Vec<Length> = outline.vertices().iter().map(|v| v.pos.x).collect();
+    // The circle spans 40..60 mm in both directions.
+    assert!(*ys.iter().min().unwrap() < Length::new(40_000_000));
+    assert!(*ys.iter().max().unwrap() > Length::new(60_000_000));
+    assert!(*xs.iter().min().unwrap() < Length::new(40_000_000));
+    assert!(*xs.iter().max().unwrap() > Length::new(60_000_000));
+
+    // Without board outline, the automatic outline is refused.
+    let empty = editor
+        .execute(AddBoard {
+            name: name("empty"),
+            copy_settings_from: None,
+            default_outline: false,
+        })
+        .unwrap()
+        .board;
+    assert!(
+        editor
+            .execute(AddPlane {
+                board: Some(empty),
+                net: None,
+                layer: None,
+                outline: None,
+                settings: PlaneSettings::default(),
+            })
+            .is_err()
+    );
+}
