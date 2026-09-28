@@ -152,6 +152,8 @@ pub enum TabDialogResult {
     LibraryObject(library_items::LibraryObject),
     /// The pin names of the "import pins" dialog.
     ImportPins(Vec<librepcb_core::types::CircuitIdentifier>),
+    /// The excess of the "generate courtyard" dialog.
+    CourtyardOffset(librepcb_core::types::PositiveLength),
 }
 
 /// Buttons and size of a form dialog.

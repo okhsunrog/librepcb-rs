@@ -11,6 +11,7 @@ use std::rc::Rc;
 
 use librepcb_app_ui as ui;
 use librepcb_core::fileio::FilePath;
+use librepcb_core::library::pkg::Package;
 use librepcb_core::library::sym::Symbol;
 use librepcb_i18n::tr;
 use slint::ComponentHandle;
@@ -18,7 +19,7 @@ use slint::ComponentHandle;
 use super::{State, deferred};
 use crate::open_library::OpenLibrary;
 use crate::tabs::element_core::{ElementCore, ElementKindInfo, OpenMode};
-use crate::tabs::{LibraryItemRef, SymbolTab, Tab, TabId, TabUpdate};
+use crate::tabs::{LibraryItemRef, PackageRowEvent, PackageTab, SymbolTab, Tab, TabId, TabUpdate};
 
 impl State {
     /// Opens (or duplicates) a library element in its editor tab.
@@ -157,6 +158,19 @@ impl State {
                 let style = *self.workspace.lock().settings().schematic_grid_style.get();
                 Tab::Symbol(Box::new(SymbolTab::new(core, style).with_id(id)))
             }
+            ui::LibraryTreeViewItemType::Package => {
+                let Some(core) = self.element_core::<Package>(id, lib, relative, mode) else {
+                    return;
+                };
+                let style = *self.workspace.lock().settings().board_grid_style.get();
+                let w = self.this.clone();
+                let sink = Rc::new(move |event: PackageRowEvent| {
+                    deferred(&w, move |s| {
+                        s.element_tab_event(id, |t| t.package_row_written(event));
+                    });
+                });
+                Tab::Package(Box::new(PackageTab::new(core, style, sink).with_id(id)))
+            }
             other => {
                 self.not_implemented(&format!("{other:?}"));
                 return;
@@ -195,6 +209,14 @@ impl State {
                 (
                     Rc::clone(&t.core().library),
                     ui::LibraryTreeViewItemType::Symbol,
+                    t.core().directory_path(),
+                )
+            }
+            Tab::Package(t) => {
+                t.core_mut().element_duplicated = true;
+                (
+                    Rc::clone(&t.core().library),
+                    ui::LibraryTreeViewItemType::Package,
                     t.core().directory_path(),
                 )
             }
@@ -255,14 +277,117 @@ impl State {
         }
     }
 
-    /// The properties dialogs of package items (see the package tab).
+    /// The properties dialogs of package items.
     fn library_item_dialog(
         &self,
-        _si: usize,
-        _ti: usize,
-        _item: LibraryItemRef,
+        si: usize,
+        ti: usize,
+        item: LibraryItemRef,
     ) -> Option<Box<dyn crate::dialogs::FormDialog>> {
-        None
+        use crate::dialogs::library_items::{
+            FootprintHoleDialog, FootprintPadDialog, FootprintStrokeTextDialog,
+            FootprintZoneDialog, LibraryCircleDialog, LibraryPolygonDialog, ObjectOwner,
+        };
+        use librepcb_editor::fsm::library::{ElementHost, PackageHost};
+        use librepcb_editor::library_editor::commands::FootprintObject;
+        let (Tab::Package(t), LibraryItemRef::Footprint(fpt, item)) =
+            (&self.sections[si].tabs()[ti], item)
+        else {
+            return None;
+        };
+        let unit = t.length_unit();
+        let fpt = fpt.or(t.current_footprint());
+        let footprint = t.core().editor.element().footprints().by_uuid(&fpt?)?;
+        Some(match FootprintObject::from_footprint(footprint, item)? {
+            FootprintObject::Pad(pad) => {
+                Box::new(FootprintPadDialog::new(fpt, pad, &t.package_pads(), unit))
+            }
+            FootprintObject::Polygon(p) => Box::new(LibraryPolygonDialog::new(
+                ObjectOwner::Footprint(fpt),
+                p,
+                &PackageHost::polygon_layers(),
+                unit,
+            )),
+            FootprintObject::Circle(c) => Box::new(LibraryCircleDialog::new(
+                ObjectOwner::Footprint(fpt),
+                c,
+                &PackageHost::polygon_layers(),
+                unit,
+            )),
+            FootprintObject::StrokeText(text) => Box::new(FootprintStrokeTextDialog::new(
+                fpt,
+                text,
+                &PackageHost::text_layers(),
+                unit,
+            )),
+            FootprintObject::Hole(hole) => Box::new(FootprintHoleDialog::new(fpt, hole, unit)),
+            FootprintObject::Zone(zone) => Box::new(FootprintZoneDialog::new(fpt, zone, unit)),
+        })
+    }
+
+    /// Opens the "courtyard excess" dialog of a package tab.
+    pub(crate) fn open_courtyard_offset_dialog(&mut self, tab: TabId) {
+        let unit = self
+            .find_tab(tab)
+            .and_then(|(si, ti)| self.sections[si].tabs()[ti].length_unit())
+            .unwrap_or_default();
+        let dialog = crate::dialogs::library_items::CourtyardOffsetDialog::new(unit);
+        self.open_library_dialog(Some(tab), Box::new(dialog));
+    }
+
+    /// Opens the "move/align" dialog of a package tab.
+    pub(crate) fn open_move_align_dialog(
+        &mut self,
+        tab: TabId,
+        positions: Vec<librepcb_core::types::Point>,
+    ) {
+        let unit = self
+            .find_tab(tab)
+            .and_then(|(si, ti)| self.sections[si].tabs()[ti].length_unit())
+            .unwrap_or_default();
+        let dialog = crate::dialogs::move_align::MoveAlignDialog::new(positions, unit);
+        self.open_library_dialog(Some(tab), Box::new(dialog));
+    }
+
+    /// Lets the user choose a STEP file for a package tab (upstream
+    /// `PackageModelListModel::chooseStepFile()`).
+    pub(crate) fn choose_step_file(
+        &mut self,
+        tab: TabId,
+        model: Option<librepcb_core::types::Uuid>,
+    ) {
+        let title = tr!(
+            "librepcb::editor::PackageModelListModel",
+            "Choose STEP Model"
+        );
+        let filters = [crate::file_dialog::Filter {
+            name: "STEP Models (*.step *.stp *.STEP *.STP *.Step *.Stp)".to_owned(),
+            extensions: vec!["step", "stp", "STEP", "STP"],
+        }];
+        let Some(path) = crate::file_dialog::open_file(&title, &filters, None) else {
+            return;
+        };
+        let content = match std::fs::read(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                self.notifications
+                    .borrow_mut()
+                    .push(crate::notifications::Notification {
+                        auto_popup: true,
+                        ..crate::notifications::Notification::new(
+                            ui::NotificationType::Critical,
+                            tr!("librepcb::editor::PackageModelListModel", "Error"),
+                            format!("{}: {e}", path.display()),
+                        )
+                    });
+                return;
+            }
+        };
+        let stem = path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.element_tab_event(tab, |t| t.step_file_chosen(model, &stem, content));
     }
 
     /// Opens the "import pins" dialog of a symbol tab.

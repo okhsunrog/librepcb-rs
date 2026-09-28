@@ -108,7 +108,10 @@ export component PackageEditorTagsPanel inherits PackageEditorPanel {
 
             new-tag-edt := LineEdit {
                 width: activated ? max(self.preferred-width, suggestions-l.min-width) : 0;
-                border-radius: self.height / 2;
+                // librepcb-rs: half the preferred height instead of
+                // `self.height / 2` (a runtime binding recursion with Slint
+                // 1.18.1: the layout needs the border radius).
+                border-radius: 12.5px;
                 placeholder-text: @tr("Type to add a new tag...");
 
                 animate width { duration: 150ms; }

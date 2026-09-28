@@ -13,18 +13,19 @@
 //! editable (like the board pad dialog), vertices are edited in place.
 
 use librepcb_core::geometry::{
-    Circle, ComponentSide, Hole, PadFunction, PadShape, Polygon, StrokeText, Text,
+    Circle, ComponentSide, Hole, PadFunction, PadShape, Polygon, StrokeText, Text, Zone, ZoneLayers,
 };
 use librepcb_core::library::pkg::FootprintPad;
 use librepcb_core::library::sym::SymbolPin;
 use librepcb_core::types::{
-    CircuitIdentifier, Layer, Length, LengthUnit, UnsignedLimitedRatio, Uuid,
+    CircuitIdentifier, Layer, Length, LengthUnit, PositiveLength, UnsignedLimitedRatio, Uuid,
 };
 use librepcb_editor::library_editor::commands::{FootprintObject, SymbolObject};
 use librepcb_i18n::tr;
 
 use super::board::{
-    chosen_mask_config, mask_config_fields, positive, unsigned, update_mask_config_fields,
+    chosen_mask_config, chosen_zone_rules, mask_config_fields, positive, unsigned,
+    update_mask_config_fields, zone_rule_fields,
 };
 use super::geometry::{
     alignment_fields, chosen_alignment, chosen_layer, chosen_path, chosen_position, layer_field,
@@ -721,6 +722,125 @@ impl FormDialog for FootprintHoleDialog {
             self.footprint,
             FootprintObject::Hole(h),
         ))
+    }
+}
+
+// --- Zone ------------------------------------------------------------------------------------
+
+const ZONE: &str = "librepcb::editor::ZonePropertiesDialog";
+
+/// The properties dialog of a footprint keepout zone (upstream
+/// `ZonePropertiesDialog` for library zones): layers (top, inner,
+/// bottom), rules and vertices.
+pub struct FootprintZoneDialog {
+    form: Form,
+    footprint: Option<Uuid>,
+    zone: Zone,
+}
+
+const ZONE_LAYERS: [ZoneLayers; 3] = [ZoneLayers::TOP, ZoneLayers::INNER, ZoneLayers::BOTTOM];
+
+impl FootprintZoneDialog {
+    /// A dialog for a zone.
+    pub fn new(footprint: Option<Uuid>, zone: Zone, unit: LengthUnit) -> Self {
+        let mut form = Form::new(unit);
+        form.header(tr!(ZONE, "Layers"));
+        let texts = [
+            tr!(ZONE, "Top Side"),
+            tr!(ZONE, "Inner Layers"),
+            tr!(ZONE, "Bottom Side"),
+        ];
+        for (i, (layer, text)) in ZONE_LAYERS.iter().zip(texts).enumerate() {
+            form.checkbox(
+                &format!("layer_{i}"),
+                "",
+                text,
+                zone.layers().contains(*layer),
+            );
+        }
+        zone_rule_fields(&mut form, zone.rules());
+        path_fields(&mut form, zone.outline());
+        Self {
+            form,
+            footprint,
+            zone,
+        }
+    }
+}
+
+impl FormDialog for FootprintZoneDialog {
+    fn title(&self) -> String {
+        tr!(ZONE, "Zone Properties")
+    }
+
+    form_accessors!();
+
+    fn options(&self) -> DialogOptions {
+        opts(450.0)
+    }
+
+    fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
+        let f = &self.form;
+        let mut z = self.zone.clone();
+        let mut layers = ZoneLayers::empty();
+        for (i, layer) in ZONE_LAYERS.iter().enumerate() {
+            layers.set(*layer, f.get_checked(&format!("layer_{i}")));
+        }
+        z.set_layers(layers);
+        z.set_rules(chosen_zone_rules(f));
+        z.set_outline(chosen_path(f, self.zone.outline()));
+        self.zone = z.clone();
+        applied(LibraryObject::Footprint(
+            self.footprint,
+            FootprintObject::Zone(z),
+        ))
+    }
+}
+
+// --- Courtyard excess ------------------------------------------------------------------------
+
+const SELECT: &str = "librepcb::editor::PackageEditorState_Select";
+
+/// The "Courtyard Excess" dialog of "generate courtyard" (upstream
+/// `PackageEditorState_Select::processGenerateCourtyard()`), default
+/// 0.2mm (IPC-7351C draft).
+pub struct CourtyardOffsetDialog {
+    form: Form,
+}
+
+impl CourtyardOffsetDialog {
+    /// A dialog with the default excess.
+    pub fn new(unit: LengthUnit) -> Self {
+        let mut form = Form::new(unit);
+        form.length(
+            "offset",
+            String::new(),
+            Length::new(200_000),
+            Length::new(1),
+        );
+        Self { form }
+    }
+}
+
+impl FormDialog for CourtyardOffsetDialog {
+    fn title(&self) -> String {
+        tr!(SELECT, "Courtyard Excess")
+    }
+
+    form_accessors!();
+
+    fn options(&self) -> DialogOptions {
+        DialogOptions {
+            apply: false,
+            width: 300.0,
+            label_width: 0.0,
+            ..DialogOptions::default()
+        }
+    }
+
+    fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
+        let offset: PositiveLength = positive(&self.form, "offset")?;
+        Ok(Applied::Tab(TabDialogResult::CourtyardOffset(offset)))
     }
 }
 

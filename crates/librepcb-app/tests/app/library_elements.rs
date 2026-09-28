@@ -78,6 +78,369 @@ fn mm(x: f64, y: f64) -> Point {
     Point::from_mm(x, y).unwrap()
 }
 
+/// Opens the element in `dir` from the library tab (like double-clicking
+/// it, opens the library tab first).
+pub fn open_from_library_tab(app: &App, headless: &Headless, lib: &FilePath, dir: &FilePath) {
+    let backend = app.window().global::<ui::Backend>();
+    backend.invoke_trigger_library(lib.to_native().into(), ui::LibraryAction::Open);
+    headless.settle(10);
+    let lib_tab = find_tab(app, |t| matches!(t, Tab::Library(_))).unwrap();
+    let update = with_tab(app, lib_tab, |t| {
+        let Tab::Library(t) = t else { unreachable!() };
+        let rows = t.elements_model();
+        let row = (0..rows.len())
+            .find(|i| rows.get(*i).unwrap().user_data == dir.as_str())
+            .expect("element row");
+        let mut d = t.derived_ui_data();
+        d.filtered_elements_index = row as i32;
+        t.set_derived_ui_data(&d);
+        t.trigger(ui::TabAction::EditProperties)
+    });
+    assert!(update.requests.iter().any(|r| matches!(
+        r,
+        TabRequest::OpenLibraryElement { path, .. } if path == dir
+    )));
+    backend.invoke_trigger_tab(
+        lib_tab.0 as i32,
+        lib_tab.1 as i32,
+        ui::TabAction::EditProperties,
+    );
+    headless.settle(10);
+}
+
+/// Clicks at a position (world coordinates) of a scene tab.
+fn click_at(t: &mut Tab, p: Point) {
+    use librepcb_canvas::{Modifiers, PointerButton, PointerKind};
+    let _ = t.render_scene(1000.0, 800.0, 1.0);
+    let world = librepcb_app::tabs::editing::point_to_world(p);
+    let (sec_pos, update) = match t {
+        Tab::Package(t) => {
+            let s = t.canvas().view().world_to_screen(world);
+            let m = Modifiers::default();
+            t.pointer_event(PointerKind::Move, PointerButton::Other, s, m);
+            t.pointer_event(PointerKind::Down, PointerButton::Left, s, m);
+            (
+                s,
+                t.pointer_event(PointerKind::Up, PointerButton::Left, s, m),
+            )
+        }
+        _ => unreachable!(),
+    };
+    let _ = (sec_pos, update);
+    std::thread::sleep(std::time::Duration::from_millis(510));
+}
+
+/// The TO220AB package of the upstream test library (2 footprints, a 3D
+/// model).
+pub const TO220_PACKAGE: &str = "0eaf289c-166d-4bd9-a4ba-dbf6bbc76ef1";
+
+#[test]
+fn package_editor() {
+    use librepcb_app::tabs::LibraryItemRef;
+    use librepcb_editor::library_editor::commands::FootprintItem;
+    crate::common::with_headless(W, H, |headless| {
+        let tmp = tempfile::tempdir().unwrap();
+        let (app, lib) = app_with_library(headless, tmp.path());
+        let backend = app.window().global::<ui::Backend>();
+        let forms = app.window().global::<ui::Dialogs>();
+        let data = app.window().global::<ui::Data>();
+        let pkg_dir = lib.path_to(&format!("pkg/{TO220_PACKAGE}"));
+        open_from_library_tab(&app, headless, &lib, &pkg_dir);
+        let pkg = find_tab(&app, |t| matches!(t, Tab::Package(_))).expect("package tab");
+        // The data of the tab (the list models are shared with the UI).
+        let derived = || {
+            with_tab(&app, pkg, |t| {
+                let Tab::Package(p) = t else { unreachable!() };
+                p.derived_ui_data()
+            })
+        };
+        // What the UI shows.
+        let d = {
+            let sections = data.get_sections();
+            sections
+                .row_data(pkg.0)
+                .unwrap()
+                .package_tabs
+                .row_data(pkg.1)
+                .unwrap()
+        };
+        assert_eq!(d.name, "TO220AB");
+        assert_eq!(d.page_index, 2);
+        assert_eq!(d.footprints.row_count(), 2);
+        assert_eq!(d.footprint_index, 0);
+        assert_eq!(d.pads.row_count(), 4);
+        assert_eq!(d.models.row_count(), 1);
+        assert_eq!(d.model_index, 0, "model of the first footprint");
+        assert_eq!(
+            d.footprints.row_data(0).unwrap().models.row_count(),
+            1,
+            "one model flag per model"
+        );
+        with_tab(&app, pkg, |t| {
+            let Tab::Package(t) = t else { unreachable!() };
+            assert!(t.scene().is_some_and(|s| s.content_bounds().is_some()));
+            assert!(t.ui_data().features.select == ui::FeatureState::Enabled);
+        });
+        backend.invoke_trigger_tab(pkg.0 as i32, pkg.1 as i32, ui::TabAction::ZoomFit);
+        save(headless, "element_package.png");
+
+        let fpt_pads = |app: &App| {
+            with_tab(app, pkg, |t| {
+                let Tab::Package(t) = t else { unreachable!() };
+                let p = t.core().editor.element();
+                let fpt = t.current_footprint().unwrap();
+                p.footprints().by_uuid(&fpt).unwrap().pads().len()
+            })
+        };
+        let pads_before = fpt_pads(&app);
+
+        // Add an SMT pad with the tool: the tool bar shows the package pads.
+        with_tab(&app, pkg, |t| {
+            t.trigger(ui::TabAction::ToolPadSmt);
+            let Tab::Package(p) = t else { unreachable!() };
+            let d = p.derived_ui_data();
+            assert_eq!(d.tool, ui::EditorTool::PadSmt);
+            assert_eq!(d.tool_package_pad.items.row_count(), 5, "unconnected + 4");
+            assert!(!d.tool_fiducial);
+            // Bottom side and round shape via the tool bar.
+            let mut d = p.derived_ui_data();
+            d.tool_bottom = true;
+            d.tool_shape = ui::PadShape::Round;
+            p.set_derived_ui_data(&d);
+            let t2 = p.fsm().tool_data();
+            assert_eq!(
+                t2.component_side,
+                librepcb_core::geometry::ComponentSide::Bottom
+            );
+            assert_eq!(p.derived_ui_data().tool_shape, ui::PadShape::Round);
+            click_at(t, mm(20.0, 20.0));
+            t.trigger(ui::TabAction::Abort);
+            t.trigger(ui::TabAction::Abort);
+        });
+        assert_eq!(fpt_pads(&app), pads_before + 1);
+        save(headless, "element_package_pad.png");
+
+        // Pad properties dialog.
+        let (fpt, pad) = with_tab(&app, pkg, |t| {
+            let Tab::Package(t) = t else { unreachable!() };
+            let fpt = t.current_footprint().unwrap();
+            let pad = *t
+                .core()
+                .editor
+                .element()
+                .footprints()
+                .by_uuid(&fpt)
+                .unwrap()
+                .pads()
+                .uuids()
+                .first()
+                .unwrap();
+            (fpt, pad)
+        });
+        let id = {
+            let state = app.state().borrow();
+            state.sections()[pkg.0].tabs()[pkg.1].id()
+        };
+        app.state().borrow_mut().open_library_item_properties(
+            id,
+            LibraryItemRef::Footprint(Some(fpt), FootprintItem::Pad(pad)),
+        );
+        headless.settle(10);
+        assert!(forms.get_form_shown());
+        save(headless, "element_package_pad_dialog.png");
+        {
+            let mut state = app.state().borrow_mut();
+            let dialog = state.form_dialog().unwrap();
+            dialog.dialog.form_mut().edit("width", |f| {
+                f.length.value = librepcb_app::helpers::length_to_ui(
+                    librepcb_core::types::Length::new(3_000_000),
+                )
+            });
+        }
+        forms.invoke_form_button(-1);
+        headless.settle(10);
+        assert!(!forms.get_form_shown());
+        let width = with_tab(&app, pkg, |t| {
+            let Tab::Package(t) = t else { unreachable!() };
+            let p = t.core().editor.element();
+            let fp = p.footprints().by_uuid(&fpt).unwrap();
+            *fp.pads().by_uuid(&pad).unwrap().pad().width()
+        });
+        assert_eq!(width.to_nm(), 3_000_000);
+
+        // Package pads: add a range, rename one through the list.
+        with_tab(&app, pkg, |t| {
+            let Tab::Package(p) = t else { unreachable!() };
+            let mut d = p.derived_ui_data();
+            d.new_pad_name = "1".into();
+            p.set_derived_ui_data(&d);
+            assert_eq!(p.derived_ui_data().new_pad_name_error, "Duplicate");
+            let mut d = p.derived_ui_data();
+            d.new_pad_name = "10..11".into();
+            p.set_derived_ui_data(&d);
+            assert_eq!(p.derived_ui_data().new_pad_name_error, "");
+            t.trigger(ui::TabAction::PackageAddPads);
+            // Adding pads breaks the interface: read-only until unlocked.
+            let Tab::Package(p) = t else { unreachable!() };
+            assert!(p.derived_ui_data().interface_broken_msg);
+            assert!(!p.core().is_writable());
+            t.trigger(ui::TabAction::Unlock);
+        });
+        headless.settle(5);
+        let d = derived();
+        assert_eq!(d.pads.row_count(), 6);
+        assert_eq!(d.new_pad_name, "");
+        let row = (0..d.pads.row_count())
+            .find(|i| d.pads.row_data(*i).unwrap().name == "10")
+            .unwrap();
+        let mut r = d.pads.row_data(row).unwrap();
+        r.name = "GND".into();
+        d.pads.set_row_data(row, r);
+        headless.settle(5);
+        backend.invoke_trigger_tab(pkg.0 as i32, pkg.1 as i32, ui::TabAction::Apply);
+        headless.settle(5);
+        let names: Vec<String> = with_tab(&app, pkg, |t| {
+            let Tab::Package(t) = t else { unreachable!() };
+            t.core()
+                .editor
+                .element()
+                .pads()
+                .iter()
+                .map(|p| p.name().to_string())
+                .collect()
+        });
+        assert!(names.contains(&"GND".to_owned()), "{names:?}");
+        assert!(names.contains(&"11".to_owned()));
+
+        // Footprints: add one (becomes current), tag it, remove it again.
+        with_tab(&app, pkg, |t| {
+            let Tab::Package(p) = t else { unreachable!() };
+            let mut d = p.derived_ui_data();
+            d.new_footprint = "My Footprint".into();
+            p.set_derived_ui_data(&d);
+        });
+        headless.settle(5);
+        let d = derived();
+        assert_eq!(d.footprints.row_count(), 3);
+        assert_eq!(d.footprint_index, 2);
+        let mut r = d.footprints.row_data(2).unwrap();
+        r.new_tag = "reflow-soldering (recommended)".into();
+        d.footprints.set_row_data(2, r);
+        headless.settle(5);
+        let d = derived();
+        let tags = d.footprints.row_data(2).unwrap().tags;
+        assert_eq!(tags.row_count(), 1);
+        assert_eq!(tags.row_data(0).unwrap(), "reflow-soldering");
+        let mut r = d.footprints.row_data(2).unwrap();
+        r.action = ui::FootprintAction::Delete;
+        d.footprints.set_row_data(2, r);
+        headless.settle(5);
+        let d = derived();
+        assert_eq!(d.footprints.row_count(), 2);
+        assert_eq!(d.footprint_index, 0, "switched back to the first footprint");
+
+        // 3D model of the second footprint checked through the flags.
+        let flags = d.footprints.row_data(1).unwrap().models;
+        assert!(!flags.row_data(0).unwrap());
+        flags.set_row_data(0, true);
+        headless.settle(5);
+        let used = with_tab(&app, pkg, |t| {
+            let Tab::Package(t) = t else { unreachable!() };
+            let p = t.core().editor.element();
+            p.footprints().iter().nth(1).unwrap().models().len()
+        });
+        assert_eq!(used, 1);
+
+        // Generate the courtyard (asks for the excess).
+        backend.invoke_trigger_tab(
+            pkg.0 as i32,
+            pkg.1 as i32,
+            ui::TabAction::PackageGenerateCourtyard,
+        );
+        headless.settle(10);
+        assert!(forms.get_form_shown());
+        save(headless, "element_package_courtyard_dialog.png");
+        forms.invoke_form_button(-1);
+        headless.settle(10);
+
+        // Assembly type, then save.
+        with_tab(&app, pkg, |t| {
+            let Tab::Package(p) = t else { unreachable!() };
+            let mut d = p.derived_ui_data();
+            d.assembly_type = 0;
+            p.set_derived_ui_data(&d);
+            t.trigger(ui::TabAction::Save);
+            assert!(!t.ui_data().unsaved_changes);
+        });
+        headless.settle(10);
+        let content = std::fs::read_to_string(pkg_dir.path_to("package.lp").as_path()).unwrap();
+        assert!(content.contains("(assembly_type tht)"), "{content}");
+        assert!(content.contains("(name \"GND\")"));
+        assert!(content.contains("(shape roundrect)"));
+        save(headless, "element_package_saved.png");
+
+        // A new package: wizard pages metadata, pads, then the editor.
+        backend.invoke_trigger_library(lib.to_native().into(), ui::LibraryAction::NewPackage);
+        headless.settle(10);
+        let new = find_tab(
+            &app,
+            |t| matches!(t, Tab::Package(s) if s.core().wizard_mode),
+        )
+        .expect("new package tab");
+        with_tab(&app, new, |t| {
+            let Tab::Package(p) = t else { unreachable!() };
+            assert_eq!(
+                p.derived_ui_data().checks.messages.row_count(),
+                0,
+                "no checks in the wizard"
+            );
+            let mut d = p.derived_ui_data();
+            d.name = "My Package".into();
+            p.set_derived_ui_data(&d);
+        });
+        let trigger = |action| {
+            backend.invoke_trigger_tab(new.0 as i32, new.1 as i32, action);
+            headless.settle(5);
+        };
+        trigger(ui::TabAction::Next);
+        with_tab(&app, new, |t| {
+            let Tab::Package(p) = t else { unreachable!() };
+            assert_eq!(p.core().page_index, 1);
+            assert!(p.core().wizard_mode);
+            assert_eq!(p.ui_data().title.to_string(), "My Package");
+            let mut d = p.derived_ui_data();
+            d.new_pad_name = "1..3".into();
+            p.set_derived_ui_data(&d);
+        });
+        trigger(ui::TabAction::PackageAddPads);
+        save(headless, "element_package_new_pads.png");
+        trigger(ui::TabAction::Next);
+        let new_dir = with_tab(&app, new, |t| {
+            let Tab::Package(p) = t else { unreachable!() };
+            assert_eq!(p.core().page_index, 2);
+            assert!(!p.core().wizard_mode);
+            assert_eq!(p.core().editor.element().pads().len(), 3);
+            assert_eq!(p.core().editor.element().footprints().len(), 1);
+            assert!(p.current_footprint().is_some());
+            p.core().directory_path()
+        });
+        assert!(new_dir.path_to("package.lp").is_existing_file());
+        // Add a pad connected to the first package pad.
+        with_tab(&app, new, |t| {
+            t.trigger(ui::TabAction::ToolPadTht);
+            click_at(t, mm(0.0, 0.0));
+            t.trigger(ui::TabAction::Abort);
+            t.trigger(ui::TabAction::Abort);
+            let Tab::Package(p) = t else { unreachable!() };
+            let connected: Vec<_> = p.connected_pads().into_values().collect();
+            assert_eq!(connected.len(), 1);
+            assert!(connected[0].is_some(), "next free package pad");
+        });
+        trigger(ui::TabAction::ZoomFit);
+        save(headless, "element_package_new.png");
+    });
+}
+
 #[test]
 fn symbol_editor() {
     crate::common::with_headless(W, H, |headless| {

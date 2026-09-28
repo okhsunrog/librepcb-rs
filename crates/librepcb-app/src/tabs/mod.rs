@@ -20,6 +20,7 @@ pub mod element_core;
 pub mod element_metadata;
 pub mod home;
 pub mod library;
+pub mod package;
 pub mod schematic;
 pub mod schematic_view;
 pub mod symbol;
@@ -40,6 +41,7 @@ pub use board_2d::Board2dTab;
 pub use create_library::CreateLibraryTab;
 pub use download_library::DownloadLibraryTab;
 pub use library::LibraryTab;
+pub use package::{PackageRowEvent, PackageRowSink, PackageTab};
 pub use schematic::SchematicTab;
 pub use symbol::{LibraryItemRef, SymbolTab};
 
@@ -80,10 +82,14 @@ pub enum Tab {
     Library(Box<LibraryTab>),
     /// A symbol editor.
     Symbol(Box<SymbolTab>),
+    /// A package editor.
+    Package(Box<PackageTab>),
 }
 
-/// Per-kind tab data written by the UI.
+/// Per-kind tab data written by the UI (short-lived, moved once: the size
+/// difference of the variants does not matter).
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum DerivedWrite {
     /// `CreateLibraryTabData`.
     CreateLibrary(ui::CreateLibraryTabData),
@@ -93,6 +99,8 @@ pub enum DerivedWrite {
     Library(ui::LibraryTabData),
     /// `SymbolTabData`.
     Symbol(ui::SymbolTabData),
+    /// `PackageTabData`.
+    Package(ui::PackageTabData),
 }
 
 /// What an event or action changed in a tab.
@@ -238,6 +246,22 @@ pub enum TabRequest {
     ImportPinsDialog,
     /// Open a copy of the tab's element as new element ("save as").
     DuplicateLibraryElement,
+    /// Choose a STEP file for a new 3D model (`None`) or to replace the
+    /// file of a model (package editor); the application calls
+    /// [`Tab::step_file_chosen()`].
+    ChooseStepFile {
+        /// The model to replace.
+        model: Option<Uuid>,
+    },
+    /// Ask for the courtyard excess (package editor); the application calls
+    /// [`Tab::generate_courtyard()`].
+    CourtyardOffsetDialog,
+    /// Open the "move/align" dialog for these positions; the application
+    /// calls [`Tab::move_align()`].
+    MoveAlign {
+        /// Positions of the selected items.
+        positions: Vec<librepcb_core::types::Point>,
+    },
 }
 
 /// The item of a properties dialog request.
@@ -285,6 +309,7 @@ impl Tab {
             Self::DownloadLibrary(t) => t.id(),
             Self::Library(t) => t.id(),
             Self::Symbol(t) => t.id(),
+            Self::Package(t) => t.id(),
         }
     }
 
@@ -292,6 +317,7 @@ impl Tab {
     pub fn element_check_row(&mut self, row: usize, data: &ui::RuleCheckMessageData) -> TabUpdate {
         match self {
             Self::Symbol(t) => t.check_row_written(row, data),
+            Self::Package(t) => t.check_row_written(row, data),
             _ => TabUpdate::default(),
         }
     }
@@ -304,6 +330,7 @@ impl Tab {
     ) -> TabUpdate {
         match self {
             Self::Symbol(t) => t.category_row_written(row, data),
+            Self::Package(t) => t.category_row_written(row, data),
             _ => TabUpdate::default(),
         }
     }
@@ -316,6 +343,7 @@ impl Tab {
         use crate::dialogs::library_items::LibraryObject;
         match (self, object) {
             (Self::Symbol(t), LibraryObject::Symbol(o)) => t.update_object(o),
+            (Self::Package(t), LibraryObject::Footprint(fpt, o)) => t.update_object(fpt, o),
             _ => TabUpdate::default(),
         }
     }
@@ -325,6 +353,7 @@ impl Tab {
         match self {
             Self::Library(t) => t.set_library_index(index),
             Self::Symbol(t) => t.set_library_index(index),
+            Self::Package(t) => t.set_library_index(index),
             _ => {}
         }
     }
@@ -335,6 +364,7 @@ impl Tab {
         match self {
             Self::Library(t) => Some(t.library().path().clone()),
             Self::Symbol(t) => Some(t.core().directory_path()),
+            Self::Package(t) => Some(t.core().directory_path()),
             _ => None,
         }
     }
@@ -344,6 +374,7 @@ impl Tab {
         match self {
             Self::Library(t) => Some(t.library()),
             Self::Symbol(t) => Some(&t.core().library),
+            Self::Package(t) => Some(&t.core().library),
             _ => None,
         }
     }
@@ -357,6 +388,7 @@ impl Tab {
             }
             (Self::Library(t), DerivedWrite::Library(d)) => t.set_derived_ui_data(&d),
             (Self::Symbol(t), DerivedWrite::Symbol(d)) => t.set_derived_ui_data(&d),
+            (Self::Package(t), DerivedWrite::Package(d)) => t.set_derived_ui_data(&d),
             _ => TabUpdate::default(),
         }
     }
@@ -380,6 +412,7 @@ impl Tab {
             Self::DownloadLibrary(t) => return t.ui_data(),
             Self::Library(t) => return t.ui_data(),
             Self::Symbol(t) => return t.ui_data(),
+            Self::Package(t) => return t.ui_data(),
         };
         // The graphics export (PDF) is handled by the application (see
         // `outputs.rs`).
@@ -424,6 +457,7 @@ impl Tab {
             Self::DownloadLibrary(t) => t.trigger(action),
             Self::Library(t) => t.trigger(action),
             Self::Symbol(t) => t.trigger(action),
+            Self::Package(t) => t.trigger(action),
         };
         if action == ui::TabAction::Close && !matches!(self, Self::Home(_)) {
             return TabUpdate {
@@ -443,6 +477,7 @@ impl Tab {
             | Self::Library(_) => slint::Image::default(),
             Self::Schematic(t) => t.render_scene(width, height, scale_factor),
             Self::Symbol(t) => t.render_scene(width, height, scale_factor),
+            Self::Package(t) => t.render_scene(width, height, scale_factor),
             Self::Board2d(t) => t.render_scene(width, height, scale_factor),
         }
     }
@@ -454,6 +489,7 @@ impl Tab {
             Self::Schematic(t) => t.pointer_event(kind, button, pos, modifiers),
             Self::Board2d(t) => t.pointer_event(kind, button, pos, modifiers),
             Self::Symbol(t) => t.pointer_event(kind, button, pos, modifiers),
+            Self::Package(t) => t.pointer_event(kind, button, pos, modifiers),
             _ => TabUpdate::default(),
         }
     }
@@ -469,6 +505,7 @@ impl Tab {
             Self::Schematic(t) => t.key_event(event, true),
             Self::Board2d(t) => t.key_event(event, true),
             Self::Symbol(t) => t.key_event(event, true),
+            Self::Package(t) => t.key_event(event, true),
         }
     }
 
@@ -483,6 +520,7 @@ impl Tab {
             Self::Schematic(t) => t.key_event(event, false),
             Self::Board2d(t) => t.key_event(event, false),
             Self::Symbol(t) => t.key_event(event, false),
+            Self::Package(t) => t.key_event(event, false),
         }
     }
 
@@ -496,6 +534,7 @@ impl Tab {
             Self::Schematic(t) => t.context_menu_action(index),
             Self::Board2d(t) => t.context_menu_action(index),
             Self::Symbol(t) => t.context_menu_action(index),
+            Self::Package(t) => t.context_menu_action(index),
         }
     }
 
@@ -522,6 +561,46 @@ impl Tab {
     pub fn add_image(&mut self, data: librepcb_editor::fsm::schematic::ImageData) -> TabUpdate {
         match self {
             Self::Schematic(t) => t.add_image(data),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// The answer of [`TabRequest::ChooseStepFile`].
+    pub fn step_file_chosen(
+        &mut self,
+        model: Option<Uuid>,
+        file_stem: &str,
+        content: Vec<u8>,
+    ) -> TabUpdate {
+        match self {
+            Self::Package(t) => t.step_file_chosen(model, file_stem, content),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// The answer of [`TabRequest::CourtyardOffsetDialog`].
+    pub fn generate_courtyard(
+        &mut self,
+        offset: librepcb_core::types::PositiveLength,
+    ) -> TabUpdate {
+        match self {
+            Self::Package(t) => t.generate_courtyard(offset),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// The answer of [`TabRequest::MoveAlign`].
+    pub fn move_align(&mut self, positions: &[librepcb_core::types::Point]) -> TabUpdate {
+        match self {
+            Self::Package(t) => t.move_align(positions),
+            _ => TabUpdate::default(),
+        }
+    }
+
+    /// A row of a package tab's list models was written by the UI.
+    pub fn package_row_written(&mut self, event: PackageRowEvent) -> TabUpdate {
+        match self {
+            Self::Package(t) => t.row_written(event),
             _ => TabUpdate::default(),
         }
     }
@@ -555,6 +634,7 @@ impl Tab {
             Self::Schematic(t) => Some(t.length_unit()),
             Self::Board2d(t) => Some(t.length_unit()),
             Self::Symbol(t) => Some(t.length_unit()),
+            Self::Package(t) => Some(t.length_unit()),
         }
     }
 
@@ -570,6 +650,7 @@ impl Tab {
             Self::Schematic(t) => t.abort_blocking_tool(),
             Self::Board2d(t) => t.abort_blocking_tool(),
             Self::Symbol(t) => t.abort_tool(),
+            Self::Package(t) => t.abort_tool(),
         }
     }
 
@@ -580,7 +661,8 @@ impl Tab {
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
             | Self::Library(_)
-            | Self::Symbol(_) => None,
+            | Self::Symbol(_)
+            | Self::Package(_) => None,
             Self::Schematic(t) => Some(t.cross_probe()),
             Self::Board2d(t) => Some(t.cross_probe()),
         }
@@ -593,7 +675,8 @@ impl Tab {
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
             | Self::Library(_)
-            | Self::Symbol(_) => TabUpdate::default(),
+            | Self::Symbol(_)
+            | Self::Package(_) => TabUpdate::default(),
             Self::Schematic(t) => t.set_cross_probe(probe),
             Self::Board2d(t) => t.set_cross_probe(probe),
         }
@@ -609,6 +692,7 @@ impl Tab {
             Self::Schematic(t) => t.scrolled(pos, delta.into(), modifiers),
             Self::Board2d(t) => t.scrolled(pos, delta.into(), modifiers),
             Self::Symbol(t) => t.scrolled(pos, delta.into(), modifiers),
+            Self::Package(t) => t.scrolled(pos, delta.into(), modifiers),
         }
     }
 
@@ -647,6 +731,7 @@ impl Tab {
             Self::Schematic(t) => t.bump_frame(),
             Self::Board2d(t) => t.bump_frame(),
             Self::Symbol(t) => t.bump_frame(),
+            Self::Package(t) => t.bump_frame(),
         }
     }
 
@@ -660,6 +745,7 @@ impl Tab {
             Self::Schematic(t) => t.set_grid_style(schematic),
             Self::Board2d(t) => t.set_grid_style(board),
             Self::Symbol(t) => t.set_grid_style(schematic),
+            Self::Package(t) => t.set_grid_style(board),
         }
     }
 
@@ -670,7 +756,8 @@ impl Tab {
             | Self::CreateLibrary(_)
             | Self::DownloadLibrary(_)
             | Self::Library(_)
-            | Self::Symbol(_) => TabUpdate::default(),
+            | Self::Symbol(_)
+            | Self::Package(_) => TabUpdate::default(),
             Self::Schematic(t) => t.rebuild_if_modified(),
             Self::Board2d(t) => t.rebuild_if_modified(),
         }

@@ -14,9 +14,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use librepcb_app_ui as ui;
-use librepcb_core::library::cmp::Component;
+use librepcb_core::library::cmp::{Component, ComponentSymbolVariant};
 use librepcb_core::library::dev::Device;
-use librepcb_core::library::pkg::{AssemblyType, Package};
+use librepcb_core::library::pkg::{AssemblyType, Footprint, Package};
 use librepcb_core::library::sym::Symbol;
 use librepcb_core::library::{BaseMetadata, LibraryCheckMessage};
 use librepcb_core::types::{ElementName, Uuid, Version};
@@ -56,11 +56,18 @@ pub trait ElementKindInfo: EditableElement + Sized {
     ) -> librepcb_editor::Result<FixOutcome>;
     /// The "save changes?" text (upstream per tab).
     fn save_title() -> String;
+    /// The page of the editor (after the wizard pages).
+    const EDITOR_PAGE: i32;
+    /// The name of new elements (upstream `MainWindow::openNew*Tab()`, not
+    /// translated).
+    const NEW_NAME: &'static str;
 }
 
 macro_rules! kind_info {
-    ($ty:ty, $kind:ident, $cat:ident, $tab:ident, $check:ident, $new:expr) => {
+    ($ty:ty, $kind:ident, $cat:ident, $tab:ident, $check:ident, $page:expr, $ctx:literal, $name:literal, $new:expr) => {
         impl ElementKindInfo for $ty {
+            const EDITOR_PAGE: i32 = $page;
+            const NEW_NAME: &'static str = $name;
             const KIND: ElementKind = ElementKind::$kind;
             const CATEGORY_KIND: ElementKind = ElementKind::$cat;
             const TAB_TYPE: ui::TabType = ui::TabType::$tab;
@@ -88,7 +95,7 @@ macro_rules! kind_info {
             }
 
             fn save_title() -> String {
-                tr!("SymbolTab", "Save Changes?")
+                tr!($ctx, "Save Changes?")
             }
         }
     };
@@ -100,6 +107,9 @@ kind_info!(
     ComponentCategory,
     Symbol,
     SymbolCheck,
+    1,
+    "librepcb::editor::SymbolTab",
+    "New Symbol",
     Symbol::new
 );
 kind_info!(
@@ -108,7 +118,18 @@ kind_info!(
     PackageCategory,
     Package,
     PackageCheck,
-    |m| Package::new(m, AssemblyType::Auto)
+    2,
+    "librepcb::editor::PackageTab",
+    "New Package",
+    |m| {
+        let mut p = Package::new(m, AssemblyType::Auto)?;
+        p.footprints_mut().push(Footprint::new(
+            Uuid::new_random(),
+            default_name(),
+            String::new(),
+        ));
+        Ok(p)
+    }
 );
 kind_info!(
     Component,
@@ -116,7 +137,19 @@ kind_info!(
     ComponentCategory,
     Component,
     ComponentCheck,
-    Component::new
+    2,
+    "librepcb::editor::ComponentTab",
+    "New Component",
+    |m| {
+        let mut c = Component::new(m)?;
+        c.symbol_variants_mut().push(ComponentSymbolVariant::new(
+            Uuid::new_random(),
+            "",
+            default_name(),
+            "",
+        ));
+        Ok(c)
+    }
 );
 kind_info!(
     Device,
@@ -124,8 +157,18 @@ kind_info!(
     ComponentCategory,
     Device,
     DeviceCheck,
+    1,
+    "librepcb::editor::DeviceTab",
+    "New Device",
     |m| Device::new(m, Uuid::new_random(), Uuid::new_random())
 );
+
+/// The name "default" of the first footprint or symbol variant of new
+/// packages and components.
+fn default_name() -> ElementName {
+    // A valid constant name.
+    ElementName::new("default").expect("valid element name")
+}
 
 /// How an element tab was opened (upstream `Mode`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,6 +203,9 @@ pub struct ElementCore<E: ElementKindInfo> {
     pub element_duplicated: bool,
     /// The user allowed breaking the interface (upstream "unlock").
     pub allow_breaking_changes: bool,
+    /// Opened as a new (or duplicated) element: its interface can't be
+    /// broken while the tab is open (upstream `mIsNewElement`).
+    is_new: bool,
     user_name: String,
     /// The database (for new elements' categories etc.).
     pub db: Arc<LibraryDb>,
@@ -185,9 +231,7 @@ impl<E: ElementKindInfo> ElementCore<E> {
                 LibraryElementEditor::open(library.directory(dir)).map_err(|e| e.to_string())?
             }
             (mode, dir) => {
-                let name = ElementName::new(tr!("NewElementWizard", "New Element"))
-                    .or_else(|_| ElementName::new("New Element"))
-                    .map_err(|e| e.to_string())?;
+                let name = ElementName::new(E::NEW_NAME).map_err(|e| e.to_string())?;
                 let metadata = BaseMetadata::new(
                     Uuid::new_random(),
                     "0.1".parse::<Version>().map_err(|e| e.to_string())?,
@@ -217,9 +261,14 @@ impl<E: ElementKindInfo> ElementCore<E> {
             check_messages: Vec::new(),
             checked_state: None,
             wizard_mode: mode != OpenMode::Open,
-            page_index: if mode == OpenMode::Open { 1 } else { 0 },
+            page_index: if mode == OpenMode::Open {
+                E::EDITOR_PAGE
+            } else {
+                0
+            },
             element_duplicated: false,
             allow_breaking_changes: false,
+            is_new: mode != OpenMode::Open,
             user_name,
             db,
         };
@@ -247,9 +296,15 @@ impl<E: ElementKindInfo> ElementCore<E> {
 
     /// Whether the element can be modified (upstream `fsmIsWritable()`).
     pub fn is_writable(&self) -> bool {
-        self.editor.is_new_element()
+        self.is_new
             || (self.library.is_writable()
-                && (!self.editor.is_interface_broken() || self.allow_breaking_changes))
+                && (!self.is_interface_broken() || self.allow_breaking_changes))
+    }
+
+    /// Whether the interface was broken (the "not backward-compatible"
+    /// message; never for new elements).
+    pub fn is_interface_broken(&self) -> bool {
+        !self.is_new && self.editor.is_interface_broken()
     }
 
     /// Updates the metadata UI data from the element.
@@ -315,6 +370,10 @@ impl<E: ElementKindInfo> ElementCore<E> {
 
     /// Runs the checks if the element changed since the last run.
     pub fn run_checks_if_modified(&mut self) {
+        // Upstream schedules the checks only after the wizard.
+        if self.wizard_mode {
+            return;
+        }
         let state = self.editor.state_id();
         if self.checked_state == Some(state) {
             return;
@@ -407,7 +466,9 @@ impl<E: ElementKindInfo> ElementCore<E> {
         }
         if self.wizard_mode && self.page_index == 0 {
             self.page_index += 1;
-            self.wizard_mode = false;
+            if E::EDITOR_PAGE == 1 {
+                self.wizard_mode = false;
+            }
         }
         self.invalidate_checks();
         self.refresh();
@@ -436,12 +497,31 @@ impl<E: ElementKindInfo> ElementCore<E> {
             ..TabUpdate::default()
         };
         match action {
-            A::Next => {
+            A::Next if E::EDITOR_PAGE == 1 => {
+                // Symbols: the metadata page only.
                 if self.wizard_mode {
                     self.wizard_mode = false;
                     self.page_index = 1;
                     self.invalidate_checks();
                     self.run_checks_if_modified();
+                }
+            }
+            A::Next => {
+                // Packages and components: every page is saved (upstream
+                // `PackageTab`/`ComponentTab::trigger(Next)`).
+                update.requests.extend(self.commit_metadata());
+                if self.wizard_mode {
+                    if self.page_index + 1 < E::EDITOR_PAGE {
+                        self.page_index += 1;
+                    } else {
+                        self.wizard_mode = false;
+                        self.page_index = E::EDITOR_PAGE;
+                        self.invalidate_checks();
+                    }
+                    match self.save() {
+                        Ok(()) => update.requests.push(TabRequest::RescanLibraries),
+                        Err(e) => update.requests.push(error_notification(e)),
+                    }
                 }
             }
             A::Apply => {

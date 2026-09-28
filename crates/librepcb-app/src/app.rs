@@ -650,6 +650,7 @@ impl State {
         connect!(download_library, DownloadLibrary);
         connect!(library, Library);
         connect!(symbol, Symbol);
+        connect!(package, Package);
         let w = self.this.clone();
         schematic.set_handler(move |row, data: ui::SchematicTabData| {
             deferred(&w, move |s| {

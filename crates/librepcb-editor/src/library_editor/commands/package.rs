@@ -752,6 +752,33 @@ impl ElementCommand<Package> for RemovePackageModel {
     }
 }
 
+/// Moves a 3D model one position up (upstream `CmdPackageModelsSwap` of
+/// `PackageModelListModel::trigger(MoveUp)`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovePackageModelUp {
+    /// The model.
+    pub model: Uuid,
+}
+
+impl ElementCommand<Package> for MovePackageModelUp {
+    type Output = ();
+
+    fn text(&self) -> String {
+        tr!("CmdListElementsSwap", "Move {0}", "3D model")
+    }
+
+    fn execute(self, package: &mut Package) -> Result<()> {
+        let index = package
+            .models()
+            .index_of_uuid(&self.model)
+            .ok_or_else(|| not_found("3D model", self.model))?;
+        if index > 0 {
+            package.models_mut().swap(index, index - 1);
+        }
+        Ok(())
+    }
+}
+
 // --- Footprint objects ---
 
 /// Adds an object to a footprint (upstream `CmdFootprintPadInsert`,

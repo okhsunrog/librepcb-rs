@@ -112,9 +112,11 @@ impl<E: EditableElement> LibraryElementEditor<E> {
     }
 
     /// Whether the element's directory is writable (upstream
-    /// `isWritable()`: read-only libraries can only be viewed).
+    /// `isWritable()`: read-only libraries can only be viewed). New
+    /// elements (in a temporary directory until saved into a library) are
+    /// always writable.
     pub fn is_writable(&self) -> bool {
-        self.element.directory().is_writable()
+        self.is_new || self.element.directory().is_writable()
     }
 
     // --- Undo stack ---

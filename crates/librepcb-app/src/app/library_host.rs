@@ -309,6 +309,9 @@ impl State {
             TabRequest::DuplicateLibraryElement => self.duplicate_element_tab(tab),
             TabRequest::LibraryItemProperties(item) => self.open_library_item_properties(tab, item),
             TabRequest::ImportPinsDialog => self.open_import_pins_dialog(tab),
+            TabRequest::ChooseStepFile { model } => self.choose_step_file(tab, model),
+            TabRequest::CourtyardOffsetDialog => self.open_courtyard_offset_dialog(tab),
+            TabRequest::MoveAlign { positions } => self.open_move_align_dialog(tab, positions),
             _ => {}
         }
     }

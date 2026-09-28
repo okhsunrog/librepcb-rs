@@ -1566,6 +1566,58 @@ const ZONE_RULES: [ZoneRules; 4] = [
     ZoneRules::NO_DEVICES,
 ];
 
+/// The "Rules" check boxes of the zone properties dialogs.
+pub(crate) fn zone_rule_fields(form: &mut Form, rules: ZoneRules) {
+    form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Rules"));
+    let texts = [
+        (
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "No copper (except planes)"
+            ),
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "Raise a DRC error if there are any copper objects (e.g. traces or vias) in this zone. Only planes are allowed to flood this zone without raising an error."
+            ),
+        ),
+        (
+            tr!("librepcb::editor::ZonePropertiesDialog", "No planes"),
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "Prevent copper planes from flooding this zone."
+            ),
+        ),
+        (
+            tr!("librepcb::editor::ZonePropertiesDialog", "No exposure"),
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "Raise a DRC error if there is any solder resist opening (possibly exposing copper) in this zone."
+            ),
+        ),
+        (
+            tr!("librepcb::editor::ZonePropertiesDialog", "No devices"),
+            tr!(
+                "librepcb::editor::ZonePropertiesDialog",
+                "Raise a DRC error if there are any devices placed in this zone."
+            ),
+        ),
+    ];
+    for (i, (rule, (text, hint))) in ZONE_RULES.iter().zip(texts).enumerate() {
+        let id = format!("rule_{i}");
+        form.checkbox(&id, "", text, rules.contains(*rule));
+        form.set_hint(&id, hint);
+    }
+}
+
+/// The rules chosen with [`zone_rule_fields()`].
+pub(crate) fn chosen_zone_rules(form: &Form) -> ZoneRules {
+    let mut rules = ZoneRules::empty();
+    for (i, rule) in ZONE_RULES.iter().enumerate() {
+        rules.set(*rule, form.get_checked(&format!("rule_{i}")));
+    }
+    rules
+}
+
 impl ZoneDialog {
     /// Opens the dialog; `None` if the zone does not exist.
     pub fn new(project: &AppProject, board: BoardId, uuid: Uuid, unit: LengthUnit) -> Option<Self> {
@@ -1583,45 +1635,7 @@ impl ZoneDialog {
             .map(|l| ListItem::check(l.name_tr(), zone.layers().contains(l)))
             .collect();
         form.list("layers", "", &[], &items, 4, ListButtons::default());
-        form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Rules"));
-        let texts = [
-            (
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "No copper (except planes)"
-                ),
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "Raise a DRC error if there are any copper objects (e.g. traces or vias) in this zone. Only planes are allowed to flood this zone without raising an error."
-                ),
-            ),
-            (
-                tr!("librepcb::editor::ZonePropertiesDialog", "No planes"),
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "Prevent copper planes from flooding this zone."
-                ),
-            ),
-            (
-                tr!("librepcb::editor::ZonePropertiesDialog", "No exposure"),
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "Raise a DRC error if there is any solder resist opening (possibly exposing copper) in this zone."
-                ),
-            ),
-            (
-                tr!("librepcb::editor::ZonePropertiesDialog", "No devices"),
-                tr!(
-                    "librepcb::editor::ZonePropertiesDialog",
-                    "Raise a DRC error if there are any devices placed in this zone."
-                ),
-            ),
-        ];
-        for (i, (rule, (text, hint))) in ZONE_RULES.iter().zip(texts).enumerate() {
-            let id = format!("rule_{i}");
-            form.checkbox(&id, "", text, zone.rules().contains(*rule));
-            form.set_hint(&id, hint);
-        }
+        zone_rule_fields(&mut form, zone.rules());
         form.header(tr!("librepcb::editor::ZonePropertiesDialog", "Options"));
         form.checkbox(
             "lock",
@@ -1673,11 +1687,7 @@ impl FormDialog for ZoneDialog {
             .map(|(l, _)| *l)
             .collect();
         zone.set_layers(layers).map_err(|e| e.to_string())?;
-        let mut rules = ZoneRules::empty();
-        for (i, rule) in ZONE_RULES.iter().enumerate() {
-            rules.set(*rule, form.get_checked(&format!("rule_{i}")));
-        }
-        zone.set_rules(rules);
+        zone.set_rules(chosen_zone_rules(form));
         zone.set_locked(form.get_checked("lock"));
         zone.set_outline(chosen_path(form, self.zone.outline()));
         let board = self.board;

@@ -81,3 +81,7 @@ same style.
    show `project/sceneeditor.slint`'s `SceneContextMenu` like the
    schematic and board tabs (upstream opens `QMenu`s from the editor
    states).
+9. `library/pkg/packageeditortagspanel.slint`: the "new tag" line edit has
+   a fixed `border-radius` (half its preferred height) instead of
+   `self.height / 2`, which is a runtime binding recursion with Slint 1.18.1
+   (the layout of the panel needs the border radius).

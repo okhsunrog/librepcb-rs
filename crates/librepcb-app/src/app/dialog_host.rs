@@ -302,10 +302,11 @@ impl State {
                 crate::tabs::Tab::Symbol(t) => t.import_pins(names),
                 _ => return,
             },
-            TabDialogResult::Positions(_) => {
-                // Only the package editor uses the move/align dialog (M4).
-                log::debug!("Move/align result without a library editor tab.");
-                return;
+            TabDialogResult::CourtyardOffset(offset) => {
+                self.sections[si].tabs_mut()[ti].generate_courtyard(offset)
+            }
+            TabDialogResult::Positions(positions) => {
+                self.sections[si].tabs_mut()[ti].move_align(&positions)
             }
         };
         self.apply_update(si, ti, update);

@@ -205,6 +205,9 @@ impl State {
                 | TabRequest::ChooseLibraryIcon
                 | TabRequest::LibraryItemProperties(_)
                 | TabRequest::ImportPinsDialog
+                | TabRequest::ChooseStepFile { .. }
+                | TabRequest::CourtyardOffsetDialog
+                | TabRequest::MoveAlign { .. }
                 | TabRequest::DuplicateLibraryElement => self.apply_library_request(id, request),
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {

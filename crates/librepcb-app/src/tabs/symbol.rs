@@ -767,7 +767,7 @@ impl SymbolTab {
             grid_interval: length_to_ui(self.core.editor.element().grid_interval().get()),
             unit: unit_to_ui(self.unit),
             files_modified: false,
-            interface_broken_msg: self.core.editor.is_interface_broken(),
+            interface_broken_msg: self.core.is_interface_broken(),
             element_duplicated_msg: self.core.element_duplicated && !m.deprecated,
             import_pins_msg: ui::DismissableMessageData {
                 visible: is_empty && !self.import_pins_dismissed && self.core.is_writable(),

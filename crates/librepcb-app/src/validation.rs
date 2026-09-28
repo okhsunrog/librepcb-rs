@@ -7,7 +7,7 @@
 //! upstream's `SlintHelpers` context).
 
 use librepcb_core::fileio::{CleanFileNameOptions, FileNameCase, FilePath};
-use librepcb_core::types::{ElementName, Version};
+use librepcb_core::types::{CircuitIdentifier, ElementName, Version};
 use librepcb_i18n::tr;
 use librepcb_network::Url;
 
@@ -31,6 +31,23 @@ pub fn element_name(input: &str, error: &mut String) -> Option<ElementName> {
             None
         }
     }
+}
+
+/// Upstream `validateCircuitIdentifier()`: "Duplicate" if `duplicate`.
+pub fn circuit_identifier(
+    input: &str,
+    error: &mut String,
+    duplicate: bool,
+) -> Option<CircuitIdentifier> {
+    let value = CircuitIdentifier::new(CircuitIdentifier::clean(input)).ok();
+    if duplicate {
+        *error = tr!("SlintHelpers", "Duplicate");
+    } else if value.is_some() {
+        error.clear();
+    } else {
+        *error = input_error(input);
+    }
+    value
 }
 
 /// Upstream `validateVersion()`.
