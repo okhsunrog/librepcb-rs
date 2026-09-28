@@ -979,7 +979,8 @@ upstream `librepcb-cli` 2.1.1 except for:
   crash) is restored after upstream's question (Yes/No/Cancel). Opening
   works in steps (the file system reports the lock or the backup, the
   prompt is shown, opening continues with the answer) instead of blocking
-  callbacks. `*.lppz` archives cannot be opened yet.
+  callbacks. `*.lppz` archives are extracted into a new temporary
+  directory and opened read-only, like upstream.
 - **File format upgrade notification:** like upstream; the migration log
   is written to `logs/migration_preview.html` of the project and opened
   with the default application (not the configured external web
@@ -1096,10 +1097,13 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *Bus member menu:* the "Add New Bus Member" / nets / "Cancel" menu is
     the scene's Slint popup; closing it by clicking into the scene counts
     as "Cancel" (upstream's `QMenu::exec()` is modal).
-  - *Images:* PNG, JPEG and SVG files only (upstream converts other
-    formats supported by Qt's image readers to PNG); the image file name
-    is not asked for (the file's base name is used).
-  - *DXF import dialog:* a form dialog; the scale factor is a text field.
+  - *Images* (schematic and symbol editor): PNG, JPEG and SVG files only
+    (upstream converts other formats supported by Qt's image readers to
+    PNG); the image file name is not asked for (the file's base name is
+    used). In the symbol editor, images are hit tested by their rectangle
+    in the tab (the scene draws only their borders).
+  - *DXF import dialog* (board, symbol and package editors): a form
+    dialog; the scale factor is a text field.
   - *Find:* the zoom rectangle is the bounding box of the highlighted
     scene items (upstream: graphics items of the found objects), with
     upstream's margin.
@@ -1162,7 +1166,15 @@ upstream `librepcb-cli` 2.1.1 except for:
   switches by the agent are refused.
 - **Rule checks:** approving or unapproving an ERC/DRC message is an
   undoable command (`SetErcApproval`/`SetDrcApproval` mutations; upstream
-  modifies the project outside the undo stack).
+  modifies the project outside the undo stack). Approvals of messages
+  which disappeared are removed after each run like upstream (no undo
+  step, the project becomes modified), but not while an undo group is
+  active (e.g. a tool is drawing; the next run removes them) or the
+  project is read-only.
+- **Plane rebuilds:** the outdated planes on the visible copper layers of
+  the boards shown in board tabs are rebuilt in a worker thread, at most
+  once per second, checked by the project poll timer (250 ms; upstream: a
+  100 ms timer); "Rebuild All Planes" rebuilds all planes of the board.
 - **DRC** runs in a worker thread which locks the project only to rebuild
   the planes and air wires and to extract the check data.
 - **Outputs from the menus:** PDF and image export, pick&place, the BOM
@@ -1230,7 +1242,6 @@ upstream `librepcb-cli` 2.1.1 except for:
 
 ## app (crate librepcb-app)
 
-- **Opening `*.lppz` archives** is not supported yet.
 - **Project lifecycle (M3c):** example projects are not downloaded when a
   workspace is created; wizard locations, EAGLE/KiCad import paths and
   options are not remembered in the client settings; the project library
@@ -1277,8 +1288,8 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *DXF import dialog:* its choices are remembered only while the
     application runs (upstream: in the client settings).
   - *Find:* the suggestions have no icons.
-- **Not available yet in the tabs:** the unplaced components panel and
-  plane rebuilds (board).
+- **Not available yet in the tabs:** the unplaced components panel;
+  "Show All Planes"/"Hide All Planes" (board).
 - **Library management (M4a):**
   - *Libraries panel:* no automatic update check or installation timer;
     the online list is fetched when the panel is shown or "check for
@@ -1290,10 +1301,10 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *No file system watcher:* the "files modified" banner of the tabs is
     never shown; elements changed on disk are not reloaded.
 - **Library element editors (M4b):**
-  - *Symbol and package editors:* images, DXF import and "Paste
-    Geometry" are not available in the tabs yet (the editor FSMs provide
-    them: `add_image()`, `import_dxf()`, `paste_geometry()`), nor graphics
-    export, printing and the background image. There is no 3D view in the
+  - *Symbol and package editors:* graphics export, printing and the
+    background image are not available in the tabs yet; images in the
+    symbol editor are invisible unless they have a border (the scenes do
+    not draw images yet, see "scene"). There is no 3D view in the
     package editor: the 3D models can be added (the STEP file is stored
     as-is, not minified and not validated since there is no
     OpenCascade), renamed, replaced, reordered, removed and assigned to
@@ -1314,11 +1325,7 @@ upstream `librepcb-cli` 2.1.1 except for:
   C++ command set has some); the shortcut editor takes text key sequences
   instead of recording key presses and has no command categories.
 - **Zooming** is not animated.
-- **Rule checks:** approvals of messages which disappeared are not
-  cleaned up yet by the tabs (upstream removes them after a check run; the
-  editor provides `ProjectEditor::update_erc_approvals()`/
-  `update_drc_approvals()`, used by the MCP server). Selecting a message
-  zooms to its location, but no location marker is drawn; automatic fixes
-  are not available yet.
+- **Rule checks:** selecting a message zooms to its location, but no
+  location marker is drawn; automatic fixes are not available yet.
 - **Outputs from the menus:** printing and Specctra export are not
   available yet.

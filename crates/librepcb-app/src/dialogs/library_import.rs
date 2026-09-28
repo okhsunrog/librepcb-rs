@@ -360,12 +360,18 @@ impl LibraryImportWizard {
                         librepcb_import::eagle::CATEGORY_NAME,
                     )
                 };
-                let cmp_names: Vec<String> = std::iter::once(tr!(EAGLE_OPTIONS, "None"))
-                    .chain(self.categories.0.iter().map(|(_, n)| n.clone()))
-                    .collect();
-                let pkg_names: Vec<String> = std::iter::once(tr!(EAGLE_OPTIONS, "None"))
-                    .chain(self.categories.1.iter().map(|(_, n)| n.clone()))
-                    .collect();
+                let cmp_names: Vec<String> = std::iter::once(tr!(
+                    "librepcb::editor::InitializeWorkspaceWizard_ChooseSettings",
+                    "None"
+                ))
+                .chain(self.categories.0.iter().map(|(_, n)| n.clone()))
+                .collect();
+                let pkg_names: Vec<String> = std::iter::once(tr!(
+                    "librepcb::editor::InitializeWorkspaceWizard_ChooseSettings",
+                    "None"
+                ))
+                .chain(self.categories.1.iter().map(|(_, n)| n.clone()))
+                .collect();
                 let index = |list: &[(Uuid, String)], uuid: Option<Uuid>| {
                     uuid.and_then(|u| list.iter().position(|(c, _)| *c == u))
                         .map_or(0, |i| i + 1)
@@ -541,7 +547,6 @@ impl LibraryImportWizard {
         let elements = self.elements();
         self.rows.clear();
         let lists = self.lists();
-        let ctx = self.ctx(EAGLE_SELECT, KICAD_SELECT);
         for (id, title) in lists {
             let mut items = Vec::new();
             let mut checked = 0;
@@ -553,7 +558,13 @@ impl LibraryImportWizard {
                     format!("{}: {}", row.library, row.name)
                 };
                 if *already {
-                    text = format!("{text} ({})", tr!(ctx, "Already imported"));
+                    text = format!(
+                        "{text} ({})",
+                        tr!(
+                            "librepcb::editor::KiCadLibraryImportWizardPage_SelectElements",
+                            "Already imported"
+                        )
+                    );
                 }
                 let mut item = ListItem::check(text, state.is_imported());
                 if *state == CheckState::PartiallyChecked {
@@ -641,8 +652,9 @@ impl LibraryImportWizard {
                         let count = i.total_elements_count();
                         log.info(&trn!(
                             EAGLE_CONTEXT,
-                            "Found {n} element(s) in the selected library.",
-                            "Found {n} element(s) in the selected library.",
+                            "Found {0} element(s) in the selected library.",
+                            "Found {0} element(s) in the selected library.",
+                            count,
                             count
                         ));
                         count > 0

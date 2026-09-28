@@ -278,7 +278,10 @@ fn board_dxf_import_dialog() {
         .requests
         .iter()
         .find_map(|r| match r {
-            TabRequest::ImportDxf { layers } => Some(layers.clone()),
+            TabRequest::ImportDxf { layers, kind } => {
+                assert_eq!(*kind, librepcb_app::tabs::DxfImportKind::Board);
+                Some(layers.clone())
+            }
             _ => None,
         })
         .expect("DXF import request");
@@ -286,8 +289,12 @@ fn board_dxf_import_dialog() {
 
     let file = write_dxf(dir.path());
     let fp = librepcb_core::fileio::FilePath::new(&file).unwrap();
-    let mut dialog =
-        librepcb_app::dialogs::board::DxfImportDialog::new(fp, &layers, LengthUnit::Millimeters);
+    let mut dialog = librepcb_app::dialogs::board::DxfImportDialog::new(
+        fp,
+        &layers,
+        LengthUnit::Millimeters,
+        librepcb_app::tabs::DxfImportKind::Board,
+    );
     let ctx = DialogContext::new(&project);
     // Fixed position instead of interactive placement.
     assert!(!dialog.form().field("pos_x").unwrap().enabled);
@@ -493,6 +500,7 @@ fn m3d_tools_in_the_application() {
                 librepcb_core::types::Layer::BOARD_DOCUMENTATION,
             ],
             LengthUnit::Millimeters,
+            librepcb_app::tabs::DxfImportKind::Board,
         );
         app.state()
             .borrow_mut()

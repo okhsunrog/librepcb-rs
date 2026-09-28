@@ -54,15 +54,11 @@ impl ChooserPurpose {
             Self::DevicePackage => ElementKind::Package,
         }
     }
-
-    fn context(self) -> &'static str {
-        match self.kind() {
-            ElementKind::Component => "librepcb::editor::ComponentChooserDialog",
-            ElementKind::Package => "librepcb::editor::PackageChooserDialog",
-            _ => "librepcb::editor::SymbolChooserDialog",
-        }
-    }
 }
+
+const COMPONENT_CHOOSER: &str = "librepcb::editor::ComponentChooserDialog";
+const PACKAGE_CHOOSER: &str = "librepcb::editor::PackageChooserDialog";
+const SYMBOL_CHOOSER: &str = "librepcb::editor::SymbolChooserDialog";
 
 /// The chooser dialog.
 pub struct ElementChooserDialog {
@@ -77,7 +73,11 @@ pub struct ElementChooserDialog {
 impl ElementChooserDialog {
     /// A dialog listing the elements of the purpose's kind.
     pub fn new(purpose: ChooserPurpose, db: Arc<LibraryDb>, locales: Vec<String>) -> Self {
-        let ctx = purpose.context();
+        let ctx = match purpose.kind() {
+            ElementKind::Component => COMPONENT_CHOOSER,
+            ElementKind::Package => PACKAGE_CHOOSER,
+            _ => SYMBOL_CHOOSER,
+        };
         let mut form = Form::new(LengthUnit::Millimeters);
         form.text("filter", "", "");
         form.update("filter", |f| {
@@ -148,11 +148,10 @@ impl ElementChooserDialog {
 
 impl FormDialog for ElementChooserDialog {
     fn title(&self) -> String {
-        let ctx = self.purpose.context();
         match self.purpose.kind() {
-            ElementKind::Component => tr!(ctx, "Choose Component"),
-            ElementKind::Package => tr!(ctx, "Choose Package"),
-            _ => tr!(ctx, "Choose Symbol"),
+            ElementKind::Component => tr!(COMPONENT_CHOOSER, "Choose Component"),
+            ElementKind::Package => tr!(PACKAGE_CHOOSER, "Choose Package"),
+            _ => tr!(SYMBOL_CHOOSER, "Choose Symbol"),
         }
     }
 
@@ -179,16 +178,15 @@ impl FormDialog for ElementChooserDialog {
     }
 
     fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
-        let ctx = self.purpose.context();
         let Some((uuid, _, _)) = self
             .form
             .get_index("list")
             .and_then(|i| self.elements.get(i))
         else {
             return Err(match self.purpose.kind() {
-                ElementKind::Component => tr!(ctx, "Please select a component."),
-                ElementKind::Package => tr!(ctx, "Please select a package."),
-                _ => tr!(ctx, "Please select a symbol."),
+                ElementKind::Component => tr!(COMPONENT_CHOOSER, "Please select a component."),
+                ElementKind::Package => tr!(PACKAGE_CHOOSER, "Please select a package."),
+                _ => tr!(SYMBOL_CHOOSER, "Please select a symbol."),
             });
         };
         Ok(Applied::Tab(TabDialogResult::ElementChosen(

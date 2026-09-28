@@ -13,9 +13,11 @@
 //!
 //! Differences to upstream: there is no 3D view (the 3D model list, the
 //! footprint's model assignment and transform are editable, the STEP files
-//! are not rendered); DXF import, the background image and graphics export
-//! are not available in the package editor yet; the file system watcher
-//! ("files modified" banner) is not ported.
+//! are not rendered); the background image and graphics export are not
+//! available in the package editor yet; the file system watcher ("files
+//! modified" banner) is not ported. DXF files are chosen by the
+//! application (DXF import dialog) and passed to
+//! [`PackageTab::import_dxf()`].
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::rc::Rc;
@@ -33,7 +35,7 @@ use librepcb_core::types::{
 };
 use librepcb_core::utils::toolbox;
 use librepcb_editor::fsm::library::{
-    LibraryContext, LibraryEditorSettings, LibraryRequest, LibraryTool, LibraryView,
+    ElementHost, LibraryContext, LibraryEditorSettings, LibraryRequest, LibraryTool, LibraryView,
     PackageEditorFsm, PackageHost,
 };
 use librepcb_editor::fsm::{PointerEvent, ViewState};
@@ -55,7 +57,7 @@ use super::symbol::{
     LibraryItemRef, LibraryMenuAction, context_menu_entries, halign_from_ui, halign_to_ui,
     sorted_layers, tool_to_ui, valign_from_ui, valign_to_ui,
 };
-use super::{TabId, TabRequest, TabUpdate, feature};
+use super::{DxfImportKind, TabId, TabRequest, TabUpdate, feature};
 use crate::canvas_view::{CanvasView, DEFAULT_BOARD_RECT};
 use crate::clipboard::{ensure_opened, with_clipboard};
 use crate::helpers::{
@@ -753,8 +755,15 @@ impl PackageTab {
                 vertices,
                 segment,
             } => {
-                let (actions, entries) =
-                    context_menu_entries(true, !vertices.is_empty(), segment.is_some(), true);
+                with_clipboard(ensure_opened);
+                let paste_geometry = self.run(|f, c| f.can_paste_geometry(c));
+                let (actions, entries) = context_menu_entries(
+                    true,
+                    !vertices.is_empty(),
+                    segment.is_some(),
+                    true,
+                    paste_geometry,
+                );
                 self.menu = actions;
                 self.menu_item = Some(item);
                 self.menu_pos = (pos, vertices, segment);
@@ -768,6 +777,17 @@ impl PackageTab {
             }
             LibraryRequest::ImportPinsDialog => {}
         }
+    }
+
+    /// Imports a DXF file into the current footprint with the choices of
+    /// the import dialog (the answer of [`TabRequest::ImportDxf`], upstream
+    /// `PackageEditorFsm::processStartDxfImport()`: in the select tool).
+    pub fn import_dxf(
+        &mut self,
+        settings: librepcb_editor::fsm::board::DxfImportSettings,
+    ) -> TabUpdate {
+        self.run(|f, c| f.select_tool(c) && f.import_dxf(c, &settings));
+        self.after_fsm()
     }
 
     /// An entry of the last context menu was chosen.
@@ -799,6 +819,10 @@ impl PackageTab {
             }
             A::Copy => {
                 self.run(|f, c| f.copy(c));
+            }
+            A::PasteGeometry => {
+                with_clipboard(ensure_opened);
+                self.run(|f, c| f.paste_geometry(c));
             }
             A::Remove => {
                 self.run(|f, c| f.remove(c));
@@ -1240,6 +1264,7 @@ impl PackageTab {
             data.features.move_align = edit(f.rotate && !self.fsm.selection().is_empty());
             data.features.snap_to_grid = edit(f.snap_to_grid);
             data.features.edit_properties = feature(f.properties);
+            data.features.import_graphics = edit(f.import_graphics);
         }
         data
     }
@@ -1897,8 +1922,18 @@ impl PackageTab {
             A::SaveAs => {
                 extra.requests.push(TabRequest::DuplicateLibraryElement);
             }
-            A::ImportDxf
-            | A::ExportPdf
+            A::ImportDxf => {
+                // Upstream `processStartDxfImport()` opens the file chooser
+                // and the import dialog; here the application does and
+                // passes the choice to `import_dxf()`.
+                if self.core.is_writable() && self.fsm.footprint().is_some() {
+                    extra.requests.push(TabRequest::ImportDxf {
+                        layers: <PackageHost as ElementHost>::polygon_layers(),
+                        kind: DxfImportKind::Package,
+                    });
+                }
+            }
+            A::ExportPdf
             | A::ExportImage
             | A::Print
             | A::ToggleBackgroundImage

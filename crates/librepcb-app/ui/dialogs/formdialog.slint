@@ -317,7 +317,7 @@ component FormList inherits VerticalLayout {
         }
 
         if field.list-add: Button {
-            text: @tr("Add");
+            text: @tr("EditorCommandSet" => "Add");
             enabled: field.enabled;
 
             clicked => {
@@ -351,7 +351,7 @@ component FormList inherits VerticalLayout {
         }
 
         if field.list-duplicate: Button {
-            text: @tr("Duplicate");
+            text: @tr("EditorCommandSet" => "Duplicate");
             enabled: field.enabled && (field.index >= 0);
 
             clicked => {
@@ -360,7 +360,7 @@ component FormList inherits VerticalLayout {
         }
 
         if field.list-remove: Button {
-            text: @tr("Remove");
+            text: @tr("EditorCommandSet" => "Remove");
             enabled: field.enabled && (field.index >= 0);
 
             clicked => {
@@ -898,7 +898,7 @@ export component FormDialog inherits Rectangle {
 
                     if Dialogs.form-has-cancel: Button {
                         width: max(self.preferred-width, 90px);
-                        text: @tr("Cancel");
+                        text: @tr("MessagePopup" => "Cancel");
 
                         clicked => {
                             Dialogs.form-button(-2);
@@ -907,7 +907,7 @@ export component FormDialog inherits Rectangle {
 
                     if Dialogs.form-has-apply: Button {
                         width: max(self.preferred-width, 90px);
-                        text: @tr("Apply");
+                        text: @tr("RuleCheckPanel" => "Apply");
                         enabled: !Dialogs.form-busy;
 
                         clicked => {
@@ -917,7 +917,7 @@ export component FormDialog inherits Rectangle {
 
                     Button {
                         width: max(self.preferred-width, 90px);
-                        text: Dialogs.form-ok-text.is-empty ? @tr("OK") : Dialogs.form-ok-text;
+                        text: Dialogs.form-ok-text.is-empty ? @tr("MessagePopup" => "OK") : Dialogs.form-ok-text;
                         icon: @image-url("../resources/libs/font-awesome/svgs/solid/check.svg");
                         primary: true;
                         enabled: !Dialogs.form-busy;

@@ -36,6 +36,8 @@
 //! - **Outputs** ([`outputs`]): PDF, Gerber/Excellon, pick&place, netlist,
 //!   BOM, `*.lppz` and output jobs from the menus, in worker threads with
 //!   progress notifications.
+//! - **Planes** ([`planes`]): the plane fragments of the boards shown in
+//!   board tabs are rebuilt in worker threads when they are outdated.
 //! - **Editing (M3a):** each schematic and board tab owns an editor state
 //!   machine of `librepcb_editor::fsm` and adapts its scene as the FSM's
 //!   view ([`tabs::schematic_view`], [`tabs::board_view`]). Pointer, key and
@@ -143,6 +145,7 @@ pub mod network;
 pub mod notifications;
 pub mod open_library;
 pub mod outputs;
+pub mod planes;
 pub mod project;
 pub mod rule_check;
 pub mod screenshot;

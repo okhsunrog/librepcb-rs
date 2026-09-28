@@ -1331,7 +1331,8 @@ impl SchematicTab {
                 let result = self.project.save();
                 match result {
                     Ok(()) => {
-                        extra.status = Some(tr!("librepcb::editor::ProjectEditor", "Project saved"))
+                        extra.status =
+                            Some(tr!("librepcb::editor::ProjectEditor", "Project saved!"))
                     }
                     Err(e) => extra.requests.push(error_notification(e.to_string())),
                 }

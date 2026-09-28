@@ -204,8 +204,8 @@ impl AttributeEditor {
             }
             let key = AttributeKey::new(AttributeKey::clean(&r.key)).map_err(|_| {
                 tr!(
-                    "librepcb::editor::AttributeListModel",
-                    "Invalid attribute key: \"{0}\"",
+                    "AttributeKey",
+                    "Invalid attribute key: '{0}'",
                     r.key.as_str()
                 )
             })?;

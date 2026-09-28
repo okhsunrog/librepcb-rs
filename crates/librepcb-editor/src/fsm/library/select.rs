@@ -1,9 +1,11 @@
 //! Port of libs/librepcb/editor/library/sym/fsm/symboleditorstate_select.{h,cpp}
 //! and libs/librepcb/editor/library/pkg/fsm/packageeditorstate_select.{h,cpp}.
 //!
-//! Differences to upstream: images cannot be resized; DXF import, "move
-//! align" and pasting geometry into pads are not ported; the generation of
-//! outline and courtyard are FSM methods of the package editor.
+//! Differences to upstream: "move align" and pasting geometry into pads
+//! are not ported; the generation of outline and courtyard are FSM methods
+//! of the package editor. DXF import and adding images are FSM methods
+//! (`import_dxf()`, `add_image()`) which get the file and options from the
+//! application.
 
 use std::collections::BTreeSet;
 
@@ -534,6 +536,8 @@ impl<H: ElementHost> SelectState<H> {
             flip: H::IS_FOOTPRINT && (idle || placing) && has_selection && writable,
             snap_to_grid: (idle || placing) && has_selection && writable,
             properties: idle && has_selection,
+            // Upstream `ImportGraphics` (DXF import).
+            import_graphics: idle && writable,
             ..Features::default()
         };
     }

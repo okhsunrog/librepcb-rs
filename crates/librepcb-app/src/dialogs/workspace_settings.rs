@@ -244,7 +244,7 @@ impl WorkspaceSettingsDialog {
         self.form
             .list(
                 "locale_order",
-                tr!(CTX, "Preferred Languages:"),
+                tr!(CTX, "Preferred Languages:\n(Highest priority at top)"),
                 &[],
                 &locales,
                 5,
@@ -252,7 +252,7 @@ impl WorkspaceSettingsDialog {
             )
             .list(
                 "norm_order",
-                tr!(CTX, "Preferred Norms:"),
+                tr!(CTX, "Preferred Norms:\n(Highest priority at top)"),
                 &[],
                 &norms,
                 5,
@@ -307,7 +307,14 @@ impl WorkspaceSettingsDialog {
                 ListButtons::default(),
             )
             .multiline("shortcut_edit", tr!(CTX, "Shortcuts:"), "", 2)
-            .button("shortcut_default", "", tr!(CTX, "Restore Default"))
+            .button(
+                "shortcut_default",
+                "",
+                tr!(
+                    "librepcb::editor::KeySequencesEditorWidget",
+                    "Restore default shortcut(s)"
+                ),
+            )
             .button("shortcut_none", "", tr!(CTX, "No Shortcut"));
         self.form
             .set_hint("shortcut_filter", tr!(CTX, "Type to filter..."));
@@ -333,8 +340,8 @@ impl WorkspaceSettingsDialog {
                 &[
                     tr!("librepcb::editor::ApiEndpointListModelLegacy", "URL"),
                     tr!("librepcb::editor::ApiEndpointListModelLegacy", "Libraries"),
-                    tr!(CTX, "Parts"),
-                    tr!(CTX, "Order"),
+                    tr!("librepcb::editor::ApiEndpointListModelLegacy", "Parts Info"),
+                    tr!("librepcb::editor::ApiEndpointListModelLegacy", "Order PCB"),
                 ],
                 &[],
                 5,
@@ -384,8 +391,9 @@ impl WorkspaceSettingsDialog {
             "reset_dismissed",
             trn!(
                 CTX,
-                "Currently there are {n} dismissed message(s).",
-                "Currently there are {n} dismissed message(s).",
+                "Currently there are {0} dismissed message(s).",
+                "Currently there are {0} dismissed message(s).",
+                count,
                 count
             ),
         );
@@ -762,7 +770,7 @@ impl FormDialog for WorkspaceSettingsDialog {
 
     fn options(&self) -> DialogOptions {
         DialogOptions {
-            extra_buttons: vec![tr!(CTX, "Restore Defaults")],
+            extra_buttons: vec![tr!("QDialogButtonBox", "Restore Defaults")],
             width: 720.0,
             label_width: 190.0,
             ..DialogOptions::default()

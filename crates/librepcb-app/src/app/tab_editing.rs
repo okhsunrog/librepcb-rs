@@ -176,10 +176,7 @@ impl State {
                 TabRequest::ChooseImageFile => {
                     self.choose_image_file(id);
                 }
-                TabRequest::ImportDxf { layers } => {
-                    let Some(project) = project.clone() else {
-                        continue;
-                    };
+                TabRequest::ImportDxf { layers, kind } => {
                     let title = tr!("librepcb::editor::DxfImportDialog", "Choose file");
                     let filters = [crate::file_dialog::Filter {
                         name: "*.dxf".into(),
@@ -192,8 +189,12 @@ impl State {
                         continue;
                     };
                     let unit = t_unit.unwrap_or(librepcb_core::types::LengthUnit::Millimeters);
-                    let dialog = crate::dialogs::board::DxfImportDialog::new(fp, &layers, unit);
-                    self.open_form_dialog(project, Some(id), Box::new(dialog));
+                    let dialog =
+                        crate::dialogs::board::DxfImportDialog::new(fp, &layers, unit, kind);
+                    match project.clone() {
+                        Some(project) => self.open_form_dialog(project, Some(id), Box::new(dialog)),
+                        None => self.open_library_dialog(Some(id), Box::new(dialog)),
+                    }
                 }
                 TabRequest::OpenLibrary { .. }
                 | TabRequest::DownloadLibrary { .. }
@@ -216,6 +217,11 @@ impl State {
                 | TabRequest::DuplicateLibraryElement => self.apply_library_request(id, request),
                 TabRequest::ProjectLibraryUpdater(fp) => {
                     self.show_project_library_updater(fp, &[]);
+                }
+                TabRequest::RebuildPlanes(board) => {
+                    if let Some(project) = project.clone() {
+                        self.rebuild_all_planes(&project, board);
+                    }
                 }
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {
@@ -335,8 +341,8 @@ impl State {
         }
     }
 
-    /// Asks for an image file for the image tool of a schematic tab
-    /// (upstream `ImageHelpers::execImageChooserDialog()`) and passes it to
+    /// Asks for an image file for the image tool of a schematic or symbol
+    /// tab (upstream `ImageHelpers::execImageChooserDialog()`) and passes it to
     /// the tab.
     fn choose_image_file(&mut self, tab: TabId) {
         let title = tr!("ImageHelpers", "Choose Image File");
@@ -402,9 +408,9 @@ pub fn load_image_file(
         "jpg" | "jpeg" => "jpg",
         "svg" => "svg",
         _ => {
-            return Err(tr!(
-                "librepcb::editor::ImageHelpers",
-                "Failed to convert image '{0}' to a supported format. Please try a different image format.",
+            // Not translated upstream (`ImageHelpers::execImageChooserDialog()`).
+            return Err(format!(
+                "Failed to convert image '{}' to a supported format. Please try a different image format.",
                 path.display()
             ));
         }

@@ -130,6 +130,13 @@ Done, in `crates/librepcb-core` unless noted:
   (`tests/app/{lifecycle,workspace_settings,workspace_wizard}.rs`).
   M4c (EAGLE/KiCad library import wizards on `librepcb-import`) is done
   (`tests/app/library_import.rs`).
+  Also done: rule check runs remove approvals of disappeared messages
+  (`tests/app/rule_checks.rs`); images, DXF import and "Paste Geometry" in
+  the symbol and package tabs (`tests/app/element_graphics.rs`); automatic
+  and manual ("Rebuild All Planes") plane rebuilds in worker threads
+  (`tests/app/planes.rs`); opening `*.lppz` archives read-only; all
+  `tr!` contexts of the app are checked by `librepcb-i18n`'s
+  `context_check` (app-only strings in its `NEW_STRINGS`).
 
 ## Next steps
 
@@ -146,7 +153,7 @@ Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
 2. M2 viewer: finish M2b (library info on the home panel, grid/unit and
    layer visibility persisted in the user settings, keyboard handling) and
    the rest of M2d (rule check location markers and autofixes, print and
-   image export, opening `*.lppz`); M2c is done.
+   image export); M2c is done.
 3. MCP: stdio MCP mode for Freerouting, subcircuit templates, design
    intent file (see `mcp-research-konnect.md`), more end-to-end scenarios
    (ICs with multiple gates, multi-page schematics, 4-layer boards).
@@ -199,15 +206,10 @@ platforms, so it is not set.
 
 - Adding and removing project library elements are `Project` methods, not
   `Mutation`s; `librepcb-editor`'s undo stack makes them undoable.
-- The DRC approval cleanup (`Board::updateDrcMessageApprovals()`) is
-  `Project::drc_approvals_update()` / `ProjectEditor::update_drc_approvals()`
-  (used by MCP `drc_run`), the ERC one `ProjectEditor::update_erc_approvals()`;
-  the app's rule check panel does not call them yet.
-- Translation contexts of `tr!` calls in `crates/librepcb-app` are not
-  checked by `librepcb-i18n`'s `context_check` test yet; several use
-  unqualified contexts (e.g. `MainWindow`, `GuiApplication`,
-  `ProjectEditor`, `SchematicTab`, `Board2dTab` instead of
-  `librepcb::editor::...`) and are therefore not translated.
+- `@tr()` strings of our own `.slint` additions are not checked
+  automatically (only `tr!`/`trn!` in Rust are, by `context_check`); new
+  `.slint` strings should use `@tr("upstream::Context" => "text")` where an
+  upstream string exists.
 - Direct ZIP downloads from codeload.github.com are blocked in the cloud
   sandbox; official libraries can be cloned with git instead.
 - Upstream bugs found along the way, which could be reported upstream:

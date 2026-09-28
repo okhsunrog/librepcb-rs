@@ -132,11 +132,13 @@ impl OrganizationTab {
     }
 
     fn edit_rules(&mut self, f: impl FnOnce(&mut Vec<OrganizationPcbDesignRules>)) -> TabUpdate {
-        let result = self
-            .core
-            .edit(&tr!("CmdOrganizationEdit", "Edit Organization"), |c| {
-                f(&mut c.extra.pcb_design_rules)
-            });
+        let result = self.core.edit(
+            &tr!(
+                "librepcb::editor::CmdOrganizationEdit",
+                "Edit Organization Properties"
+            ),
+            |c| f(&mut c.extra.pcb_design_rules),
+        );
         self.core.run_checks_if_modified();
         self.refresh();
         let mut update = TabUpdate {

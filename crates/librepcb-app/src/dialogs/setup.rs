@@ -404,7 +404,7 @@ impl BoardSetupDialog {
 
         // Tab: DRC Settings.
         form.page(tr!(BSD, "DRC Settings"));
-        form.label("drc_sources", tr!(BSD, "Configuration:"), "");
+        form.label("drc_sources", tr!(BSD, "Configuration Base:"), "");
         form.button("drc_defaults", "", tr!(BSD, "Reset to Default Settings"));
         form.button(
             "drc_clear_sources",
@@ -484,7 +484,7 @@ impl BoardSetupDialog {
         self.form.set_text(
             "drc_sources",
             if names.is_empty() {
-                tr!(BSD, "Custom")
+                tr!("librepcb::editor::BoardPadPropertiesDialog", "Custom")
             } else {
                 names.join(", ")
             },
@@ -778,10 +778,7 @@ impl ProjectSetupDialog {
         form.text("variant_name", tr!(PSD, "Name:"), "");
         form.text(
             "variant_description",
-            tr!(
-                "librepcb::editor::AssemblyVariantListEditorWidget",
-                "Description"
-            ),
+            tr!("ComponentVariantListItem", "Description"),
             "",
         );
         form.set_enabled("variant_name", false);

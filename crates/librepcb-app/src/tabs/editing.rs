@@ -396,9 +396,9 @@ pub fn to_multi_line(text: &str) -> String {
 pub fn dialog_not_available() -> TabRequest {
     TabRequest::Notify(Notification::new(
         ui::NotificationType::Info,
-        tr!("WindowTab", "Not Available Yet"),
+        tr!("librepcb::editor::MainWindow", "Not Available Yet"),
         tr!(
-            "WindowTab",
+            "librepcb::editor::MainWindow",
             "This dialog is not available yet in this version of LibrePCB."
         ),
     ))
@@ -410,7 +410,7 @@ pub fn error_notification(message: String) -> TabRequest {
         auto_popup: true,
         ..Notification::new(
             ui::NotificationType::Critical,
-            tr!("WindowTab", "Error"),
+            tr!("librepcb::editor::MainWindow", "Error"),
             message,
         )
     })
