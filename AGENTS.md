@@ -18,7 +18,8 @@ Read before working:
 - `docs/status.md`: current state, next steps and how the work is organized.
 - `docs/roadmap.md`: milestones.
 - `docs/mcp-research-konnect.md`: MCP decisions.
-- `COMPAT.md`: intentional differences from upstream.
+- `COMPAT.md`: differences from upstream (Part 1: intentional, Part 2: not
+  ported yet).
 
 ## Upstream reference
 
@@ -95,7 +96,10 @@ migrations, library checks, exports. Tests take it from `LIBREPCB_CLI` or the
   when a Qt rule changes which realistic files are accepted, or which bytes
   are written (including check messages whose approvals are stored in
   files), express or port that rule and say why. Record every intentional
-  divergence from upstream, including exotic edge cases, in `COMPAT.md`.
+  divergence from upstream, including exotic edge cases, in `COMPAT.md`
+  Part 1, and missing features or behavior still to be matched in Part 2
+  (remove Part 2 entries when done). Part 1 entries are design decisions,
+  never TODO items.
 - Rust naming, not C++ naming:
   - file/module names describe the Rust type or concept, not the upstream
     file: snake_case with word separators, no upstream prefixes or

@@ -12,7 +12,8 @@ M1.5 (MCP) works end to end. About 1150 tests pass.
 Done, in `crates/librepcb-core` unless noted:
 
 - **Base:** types, the S-expression format, the serialization traits, and utils.
-  Upstream Qt semantics are dropped, with the divergences listed in `COMPAT.md`.
+  Upstream Qt semantics are dropped, with the divergences listed in `COMPAT.md`
+  (Part 1).
 - **Geometry, stroke fonts, polygon clipping:** `crates/clipper` is a
   faithful port of Clipper 1, verified differentially against the C++
   library.
@@ -119,7 +120,7 @@ Done, in `crates/librepcb-core` unless noted:
   dialogs, checks with approvals and autofixes, undo/redo, wizard mode
   for new elements and saving into the library
   (`tests/app/{library_management,library_elements}.rs`); see
-  `docs/ui-design.md` (M4) and COMPAT.md "Library management" /
+  `docs/ui-design.md` (M4) and COMPAT.md Part 2, app, "Library management" /
   "Library element editors" for the gaps.
 
 ## Next steps
@@ -157,7 +158,8 @@ Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
 - Acceptance is always mechanical where possible: upstream unit test
   vectors, byte-identical round trips over upstream `tests/data`, and diffs
   against the official `librepcb-cli`.
-- Each intentional divergence from upstream goes into `COMPAT.md`.
+- Each intentional divergence from upstream goes into `COMPAT.md` Part 1;
+  missing features still to be matched go into Part 2.
 
 ## Environment
 
