@@ -483,16 +483,25 @@ impl ElementHost for PackageHost {
     fn add_text(kind: &str) -> String {
         match kind {
             "polygon" => tr!(
-                "PackageEditorState_DrawPolygonBase",
+                "librepcb::editor::PackageEditorState_DrawPolygonBase",
                 "Add Footprint Polygon"
             ),
-            "circle" => tr!("PackageEditorState_DrawCircle", "Add Footprint Circle"),
-            _ => tr!("PackageEditorState_DrawTextBase", "Add Footprint Text"),
+            "circle" => tr!(
+                "librepcb::editor::PackageEditorState_DrawCircle",
+                "Add Footprint Circle"
+            ),
+            _ => tr!(
+                "librepcb::editor::PackageEditorState_DrawTextBase",
+                "Add Footprint Text"
+            ),
         }
     }
 
     fn paste_text() -> String {
-        tr!("PackageEditorState_Select", "Paste Footprint Elements")
+        tr!(
+            "librepcb::editor::PackageEditorState_Select",
+            "Paste Footprint Elements"
+        )
     }
 
     fn state(states: &mut PackageStates, tool: LibraryTool) -> Option<&mut dyn State<Self>> {
@@ -659,7 +668,10 @@ impl AddPadsState {
 
     /// Upstream `startAddPad()`.
     fn start(&mut self, cx: &mut Cx<'_, '_, PackageHost>, pos: Point) -> bool {
-        if !cx.begin(tr!("PackageEditorState_AddPads", "Add footprint pad")) {
+        if !cx.begin(tr!(
+            "librepcb::editor::PackageEditorState_AddPads",
+            "Add footprint pad"
+        )) {
             return false;
         }
         let mut pad = self.props.with_uuid(Uuid::new_random());
@@ -908,7 +920,10 @@ impl Default for AddHolesState {
 
 impl AddHolesState {
     fn start(&mut self, cx: &mut Cx<'_, '_, PackageHost>, pos: Point) -> bool {
-        if !cx.begin(tr!("PackageEditorState_AddHoles", "Add Footprint Hole")) {
+        if !cx.begin(tr!(
+            "librepcb::editor::PackageEditorState_AddHoles",
+            "Add Footprint Hole"
+        )) {
             return false;
         }
         let hole = Hole::new(
@@ -1056,7 +1071,10 @@ impl DrawZoneState {
     }
 
     fn begin(cx: &mut Cx<'_, '_, PackageHost>) -> bool {
-        cx.begin(tr!("PackageEditorState_DrawZone", "Add Footprint Zone"))
+        cx.begin(tr!(
+            "librepcb::editor::PackageEditorState_DrawZone",
+            "Add Footprint Zone"
+        ))
     }
 
     /// Upstream `start()`.
@@ -1193,7 +1211,7 @@ impl DrawZoneState {
     }
 
     fn update_status_bar_message(&self, cx: &mut Cx<'_, '_, PackageHost>) {
-        let ctx = "PackageEditorState_DrawZone";
+        let ctx = "librepcb::editor::PackageEditorState_DrawZone";
         let note = format!(
             " {}",
             tr!(
@@ -1342,7 +1360,10 @@ impl RenumberPadsState {
         self.tmp_snapshot = None;
         self.current_pos = cx.cursor_pos();
         self.modifiers = Modifiers::NONE;
-        if !cx.begin(tr!("PackageEditorState_ReNumberPads", "Re-number pads")) {
+        if !cx.begin(tr!(
+            "librepcb::editor::PackageEditorState_ReNumberPads",
+            "Re-number pads"
+        )) {
             return false;
         }
         self.active = true;
@@ -1514,7 +1535,7 @@ impl State<PackageHost> for RenumberPadsState {
         }
         cx.out.selection.clear();
         cx.out.tool = LibraryTool::RenumberPads;
-        let ctx = "PackageEditorState_ReNumberPads";
+        let ctx = "librepcb::editor::PackageEditorState_ReNumberPads";
         let note = format!(
             " {}",
             tr!(
@@ -1630,7 +1651,7 @@ impl LibraryEditorFsm<PackageHost> {
             match cx.execute(GeneratePackageOutline { footprint }) {
                 Some(true) => true,
                 Some(false) => {
-                    let ctx = "PackageEditorState_Select";
+                    let ctx = "librepcb::editor::PackageEditorState_Select";
                     cx.out.requests.push(LibraryRequest::ShowInfo {
                         title: tr!(ctx, "No Content"),
                         text: tr!(
@@ -1666,7 +1687,7 @@ impl LibraryEditorFsm<PackageHost> {
             match cx.execute(GenerateCourtyard { footprint, offset }) {
                 Some(true) => true,
                 Some(false) => {
-                    let ctx = "PackageEditorState_Select";
+                    let ctx = "librepcb::editor::PackageEditorState_Select";
                     cx.out.requests.push(LibraryRequest::ShowInfo {
                         title: tr!(ctx, "No Outline"),
                         text: tr!(

@@ -267,7 +267,11 @@ impl ElementCommand<Symbol> for AddSymbolObject {
     type Output = SymbolItem;
 
     fn text(&self) -> String {
-        tr!("CmdListElementInsert", "Add {0}", tag_name(self.0.item()))
+        tr!(
+            "librepcb::editor::CmdListElementInsert",
+            "Add {0}",
+            tag_name(self.0.item())
+        )
     }
 
     fn execute(self, symbol: &mut Symbol) -> Result<SymbolItem> {
@@ -317,11 +321,11 @@ impl ElementCommand<Symbol> for UpdateSymbolObject {
 
     fn text(&self) -> String {
         match self.0 {
-            SymbolObject::Pin(_) => tr!("CmdSymbolPinEdit", "Edit pin"),
-            SymbolObject::Polygon(_) => tr!("CmdPolygonEdit", "Edit polygon"),
-            SymbolObject::Circle(_) => tr!("CmdCircleEdit", "Edit circle"),
-            SymbolObject::Text(_) => tr!("CmdTextEdit", "Edit Text"),
-            SymbolObject::Image(_) => tr!("CmdImageEdit", "Edit Image"),
+            SymbolObject::Pin(_) => tr!("librepcb::editor::CmdSymbolPinEdit", "Edit pin"),
+            SymbolObject::Polygon(_) => tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon"),
+            SymbolObject::Circle(_) => tr!("librepcb::editor::CmdCircleEdit", "Edit circle"),
+            SymbolObject::Text(_) => tr!("librepcb::editor::CmdTextEdit", "Edit Text"),
+            SymbolObject::Image(_) => tr!("librepcb::editor::CmdImageEdit", "Edit Image"),
         }
     }
 
@@ -419,7 +423,7 @@ impl ElementCommand<Symbol> for EditSymbolPin {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdSymbolPinEdit", "Edit pin")
+        tr!("librepcb::editor::CmdSymbolPinEdit", "Edit pin")
     }
 
     fn execute(self, symbol: &mut Symbol) -> Result<()> {
@@ -468,7 +472,10 @@ impl ElementCommand<Symbol> for RemoveSymbolItems {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdRemoveSelectedSymbolItems", "Remove Symbol Elements")
+        tr!(
+            "librepcb::editor::CmdRemoveSelectedSymbolItems",
+            "Remove Symbol Elements"
+        )
     }
 
     fn execute(self, symbol: &mut Symbol) -> Result<()> {
@@ -512,7 +519,10 @@ impl ElementCommand<Symbol> for TransformSymbolItems {
     type Output = bool;
 
     fn text(&self) -> String {
-        tr!("CmdDragSelectedSymbolItems", "Drag Symbol Elements")
+        tr!(
+            "librepcb::editor::CmdDragSelectedSymbolItems",
+            "Drag Symbol Elements"
+        )
     }
 
     fn execute(self, symbol: &mut Symbol) -> Result<bool> {
@@ -554,7 +564,7 @@ impl ElementCommand<Symbol> for RemoveSymbolPolygonVertices {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdPolygonEdit", "Edit polygon")
+        tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon")
     }
 
     fn execute(self, symbol: &mut Symbol) -> Result<()> {
@@ -738,7 +748,10 @@ impl ElementCommand<Symbol> for PasteSymbolItems {
     type Output = BTreeSet<SymbolItem>;
 
     fn text(&self) -> String {
-        tr!("CmdPasteSymbolItems", "Paste Symbol Elements")
+        tr!(
+            "librepcb::editor::CmdPasteSymbolItems",
+            "Paste Symbol Elements"
+        )
     }
 
     fn execute(self, symbol: &mut Symbol) -> Result<BTreeSet<SymbolItem>> {

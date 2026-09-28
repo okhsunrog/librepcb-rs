@@ -774,7 +774,9 @@ impl DrcMessage {
 
     /// `DrcMsgPlatedCutouts`
     pub(super) fn plated_cutouts(locations: Vec<Path>) -> Self {
-        const CTX: &str = "DrcMsgPlatedCutouts";
+        // Upstream declares the translation context of the class above
+        // (`Q_DECLARE_TR_FUNCTIONS(DrcMsgMultipleBoardOutlines)`).
+        const CTX: &str = "DrcMsgMultipleBoardOutlines";
         Self::new(
             DrcMessageKind::PlatedCutouts,
             Severity::Hint,

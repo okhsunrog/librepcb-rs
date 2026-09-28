@@ -641,7 +641,10 @@ impl Command for DrawBus {
     type Output = BusResult;
 
     fn text(&self) -> String {
-        tr!("SchematicEditorState_DrawBus", "Draw Wire")
+        tr!(
+            "librepcb::editor::SchematicEditorState_DrawBus",
+            "Draw Wire"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<BusResult> {
@@ -677,7 +680,7 @@ impl Command for AddBusLabel {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdSchematicBusLabelAdd", "Add Bus Label")
+        tr!("librepcb::editor::CmdSchematicBusLabelAdd", "Add Bus Label")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Uuid> {
@@ -721,9 +724,12 @@ impl Command for RenameBusSegment {
 
     fn text(&self) -> String {
         if self.whole_bus {
-            tr!("CmdBusEdit", "Edit Bus")
+            tr!("librepcb::editor::CmdBusEdit", "Edit Bus")
         } else {
-            tr!("RenameBusSegmentDialog", "Change Bus of Bus Segment")
+            tr!(
+                "librepcb::editor::RenameBusSegmentDialog",
+                "Change Bus of Bus Segment"
+            )
         }
     }
 

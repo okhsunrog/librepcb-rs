@@ -51,20 +51,29 @@ impl<H: ElementHost> Default for SelectState<H> {
 
 fn drag_text<H: ElementHost>() -> String {
     if H::IS_FOOTPRINT {
-        tr!("CmdDragSelectedFootprintItems", "Drag Footprint Elements")
+        tr!(
+            "librepcb::editor::CmdDragSelectedFootprintItems",
+            "Drag Footprint Elements"
+        )
     } else {
-        tr!("CmdDragSelectedSymbolItems", "Drag Symbol Elements")
+        tr!(
+            "librepcb::editor::CmdDragSelectedSymbolItems",
+            "Drag Symbol Elements"
+        )
     }
 }
 
 fn remove_text<H: ElementHost>() -> String {
     if H::IS_FOOTPRINT {
         tr!(
-            "CmdRemoveSelectedFootprintItems",
+            "librepcb::editor::CmdRemoveSelectedFootprintItems",
             "Remove Footprint Elements"
         )
     } else {
-        tr!("CmdRemoveSelectedSymbolItems", "Remove Symbol Elements")
+        tr!(
+            "librepcb::editor::CmdRemoveSelectedSymbolItems",
+            "Remove Symbol Elements"
+        )
     }
 }
 
@@ -161,9 +170,9 @@ impl<H: ElementHost> SelectState<H> {
             Ok(Some((mime, data))) => {
                 cx.ctx.clipboard.set(&mime, data);
                 let ctx = if H::IS_FOOTPRINT {
-                    "PackageEditorState_Select"
+                    "librepcb::editor::PackageEditorState_Select"
                 } else {
-                    "SymbolEditorState_Select"
+                    "librepcb::editor::SymbolEditorState_Select"
                 };
                 cx.out
                     .view
@@ -244,10 +253,13 @@ impl<H: ElementHost> SelectState<H> {
         else {
             return false;
         };
-        cx.exec_group(tr!("CmdPolygonEdit", "Edit polygon"), |e, fpt| {
-            H::set_item_path(e, fpt, item, new);
-            Ok(())
-        });
+        cx.exec_group(
+            tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon"),
+            |e, fpt| {
+                H::set_item_path(e, fpt, item, new);
+                Ok(())
+            },
+        );
         true
     }
 
@@ -272,7 +284,7 @@ impl<H: ElementHost> SelectState<H> {
         let mut new = path.clone();
         let angle = path.vertices()[index - 1].angle;
         new.insert_vertex(index, pos.mapped_to_grid(cx.grid()), angle);
-        if !cx.begin(tr!("CmdPolygonEdit", "Edit polygon")) {
+        if !cx.begin(tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon")) {
             return false;
         }
         cx.modify(|e, fpt| H::set_item_path(e, fpt, item, new));
@@ -433,7 +445,7 @@ impl<H: ElementHost> State<H> for SelectState<H> {
                     return false;
                 };
                 if !cx.ctx.editor.is_group_active()
-                    && !cx.begin(tr!("CmdPolygonEdit", "Edit polygon"))
+                    && !cx.begin(tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon"))
                 {
                     return false;
                 }

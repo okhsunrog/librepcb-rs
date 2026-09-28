@@ -606,7 +606,10 @@ impl Command for PasteBoardItems {
     type Output = Vec<BoardItemRef>;
 
     fn text(&self) -> String {
-        tr!("CmdPasteBoardItems", "Paste Board Elements")
+        tr!(
+            "librepcb::editor::CmdPasteBoardItems",
+            "Paste Board Elements"
+        )
     }
 
     fn execute(mut self, tx: &mut Transaction<'_>) -> Result<Vec<BoardItemRef>> {

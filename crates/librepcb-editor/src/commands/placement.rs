@@ -617,7 +617,10 @@ impl Command for AutoPlaceDevices {
     type Output = AutoPlacedDevices;
 
     fn text(&self) -> String {
-        tr!("CmdAddDeviceToBoard", "Add device to board")
+        tr!(
+            "librepcb::editor::CmdAddDeviceToBoard",
+            "Add device to board"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<AutoPlacedDevices> {

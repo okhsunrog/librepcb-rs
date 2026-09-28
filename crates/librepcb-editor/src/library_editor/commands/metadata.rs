@@ -50,10 +50,16 @@ pub struct EditElementMetadata {
 /// The default undo text of a metadata edit of element type `E`.
 fn default_text<E: EditableElement>() -> String {
     match E::TAB_CONTEXT {
-        "SymbolTab" => tr!("SymbolTab", "Edit Symbol Properties"),
-        "PackageTab" => tr!("CmdPackageEdit", "Edit Package Properties"),
-        "ComponentTab" => tr!("CmdComponentEdit", "Edit Component Properties"),
-        _ => tr!("CmdDeviceEdit", "Edit Device Properties"),
+        "SymbolTab" => tr!("librepcb::editor::SymbolTab", "Edit Symbol Properties"),
+        "PackageTab" => tr!(
+            "librepcb::editor::CmdPackageEdit",
+            "Edit Package Properties"
+        ),
+        "ComponentTab" => tr!(
+            "librepcb::editor::CmdComponentEdit",
+            "Edit Component Properties"
+        ),
+        _ => tr!("librepcb::editor::CmdDeviceEdit", "Edit Device Properties"),
     }
 }
 

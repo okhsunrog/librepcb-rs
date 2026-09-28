@@ -62,7 +62,10 @@ impl AddHoleState {
     }
 
     fn add_hole(&mut self, cx: &mut Cx<'_, '_>, pos: Point) -> bool {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_AddHole", "Add hole to board")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_AddHole",
+            "Add hole to board"
+        )) {
             cx.error(e);
             return false;
         }

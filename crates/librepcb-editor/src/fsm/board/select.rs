@@ -74,7 +74,10 @@ pub(super) struct SelectState {
 }
 
 fn drag_text() -> String {
-    tr!("CmdDragSelectedBoardItems", "Drag Board Elements")
+    tr!(
+        "librepcb::editor::CmdDragSelectedBoardItems",
+        "Drag Board Elements"
+    )
 }
 
 impl SelectState {
@@ -174,8 +177,15 @@ impl SelectState {
         let Some(mut query) = Self::query(cx, ignore) else {
             return false;
         };
-        let result = flip_mutations(&mut query, orientation)
-            .and_then(|m| cx.apply(tr!("CmdFlipSelectedBoardItems", "Flip Board Elements"), m));
+        let result = flip_mutations(&mut query, orientation).and_then(|m| {
+            cx.apply(
+                tr!(
+                    "librepcb::editor::CmdFlipSelectedBoardItems",
+                    "Flip Board Elements"
+                ),
+                m,
+            )
+        });
         match result {
             Ok(()) => true,
             Err(e) => {
@@ -264,7 +274,10 @@ impl SelectState {
                 let mime = board_clipboard_mime_type(&cx.settings.app_version);
                 cx.ctx.clipboard.set(&mime, zip);
                 cx.status(
-                    tr!("BoardEditorState_Select", "Copied to clipboard!"),
+                    tr!(
+                        "librepcb::editor::BoardEditorState_Select",
+                        "Copied to clipboard!"
+                    ),
                     Some(2000),
                 );
             }
@@ -307,7 +320,10 @@ impl SelectState {
         fixed_offset: Option<Point>,
     ) -> bool {
         cx.selection.clear();
-        if let Err(e) = cx.begin(tr!("BoardEditorState_Select", "Paste board elements")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_Select",
+            "Paste board elements"
+        )) {
             cx.error(e);
             return false;
         }
@@ -409,7 +425,7 @@ impl SelectState {
             }
             if data.is_empty() {
                 return Err(crate::Error::InvalidArgument(tr!(
-                    "DxfImportDialog",
+                    "librepcb::editor::DxfImportDialog",
                     "The selected file does not contain any objects to import."
                 )));
             }
@@ -513,9 +529,9 @@ impl SelectState {
 
     fn outline_edit_text(item: OutlineItem) -> String {
         match item {
-            OutlineItem::Polygon(_) => tr!("CmdBoardPolygonEdit", "Edit polygon"),
-            OutlineItem::Plane(_) => tr!("CmdBoardPlaneEdit", "Edit plane"),
-            OutlineItem::Zone(_) => tr!("CmdBoardZoneEdit", "Edit zone"),
+            OutlineItem::Polygon(_) => tr!("librepcb::editor::CmdBoardPolygonEdit", "Edit polygon"),
+            OutlineItem::Plane(_) => tr!("librepcb::editor::CmdBoardPlaneEdit", "Edit plane"),
+            OutlineItem::Zone(_) => tr!("librepcb::editor::CmdBoardZoneEdit", "Edit zone"),
         }
     }
 
@@ -753,7 +769,7 @@ impl SelectState {
                     if cx.selection.contains(BoardItemRef::Trace(seg, t.uuid())) {
                         if next.is_some() {
                             error = Some(tr!(
-                                "BoardEditorState_Select",
+                                "librepcb::editor::BoardEditorState_Select",
                                 "Selected trace segments may not branch!"
                             ));
                             break;
@@ -782,9 +798,12 @@ impl SelectState {
             .iter()
             .filter(|i| matches!(i, BoardItemRef::Trace(..)))
             .count();
-        let title = tr!("BoardEditorState_Select", "Measurement Result");
+        let title = tr!(
+            "librepcb::editor::BoardEditorState_Select",
+            "Measurement Result"
+        );
         let mut text = trn!(
-            "BoardEditorState_Select",
+            "librepcb::editor::BoardEditorState_Select",
             "Total length of {n} trace segment(s): {0} mm / {1} in",
             "Total length of {n} trace segment(s): {0} mm / {1} in",
             visited.len(),
@@ -795,7 +814,7 @@ impl SelectState {
         if warning {
             text += "\n\n";
             text += &tr!(
-                "BoardEditorState_Select",
+                "librepcb::editor::BoardEditorState_Select",
                 "WARNING: There are {0} trace segments selected, but not all of them are connected!",
                 selected
             );
@@ -1077,7 +1096,7 @@ impl SelectState {
                 device.set_lib_model(model);
                 let board = cx.board_id();
                 if let Err(e) = cx.apply(
-                    tr!("CmdDeviceInstanceEdit", "Edit device instance"),
+                    tr!("librepcb::editor::CmdDeviceInstanceEdit", "Edit Device"),
                     vec![Mutation::Board(BoardMutation::UpdateDevice {
                         board,
                         device,
@@ -1645,7 +1664,7 @@ fn context_menu(cx: &Cx<'_, '_>, item: BoardItemRef, pos: Point) -> Vec<ContextM
                     checked: d.lib_model().is_none().then_some(true),
                     ..entry(
                         ContextAction::ChangeModel(None),
-                        tr!("BoardEditorState_Select", "None"),
+                        tr!("librepcb::editor::BoardEditorState_Select", "None"),
                     )
                 });
                 for model in pkg.models().iter() {
@@ -1907,11 +1926,11 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> CrossProbe {
             && let Some(cmp) = p.circuit().component_instance(*c)
         {
             kv.push((
-                tr!("BoardEditorState_Select", "Name"),
+                tr!("librepcb::editor::BoardEditorState_Select", "Name"),
                 cmp.name().to_string(),
             ));
             kv.push((
-                tr!("BoardEditorState_Select", "Value"),
+                tr!("librepcb::editor::BoardEditorState_Select", "Value"),
                 cmp.value().to_string(),
             ));
             let lib = p.library();
@@ -1920,7 +1939,7 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> CrossProbe {
                 .and_then(|dev| lib.package(&dev.package_uuid()))
             {
                 kv.push((
-                    tr!("BoardEditorState_Select", "Package"),
+                    tr!("librepcb::editor::BoardEditorState_Select", "Package"),
                     pkg.metadata().names().default_value().to_string(),
                 ));
             }
@@ -1934,18 +1953,30 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> CrossProbe {
                 && let Ok(Some(pad)) = d.pad(u, p.library(), p.circuit())
             {
                 if let Some(pp) = pad.package_pad() {
-                    kv.push((tr!("BoardEditorState_Select", "Pad"), pp.name().to_string()));
+                    kv.push((
+                        tr!("librepcb::editor::BoardEditorState_Select", "Pad"),
+                        pp.name().to_string(),
+                    ));
                 }
                 if let Some(s) = pad.component_signal_name() {
-                    kv.push((tr!("BoardEditorState_Select", "Signal"), s.to_string()));
+                    kv.push((
+                        tr!("librepcb::editor::BoardEditorState_Select", "Signal"),
+                        s.to_string(),
+                    ));
                 }
-                kv.push((tr!("BoardEditorState_Select", "Net"), net_name(pad.net())));
+                kv.push((
+                    tr!("librepcb::editor::BoardEditorState_Select", "Net"),
+                    net_name(pad.net()),
+                ));
                 position = Some(pad.position());
             } else if let Some((s, u)) = query.pads.iter().next()
                 && let Some(seg) = board.net_segment(*s)
                 && let Some(pad) = seg.pads().get(u)
             {
-                kv.push((tr!("BoardEditorState_Select", "Net"), net_name(seg.net())));
+                kv.push((
+                    tr!("librepcb::editor::BoardEditorState_Select", "Net"),
+                    net_name(seg.net()),
+                ));
                 position = Some(pad.pad().position());
             }
         }
@@ -2044,48 +2075,54 @@ fn info_box(query: &SelectionQuery<'_>, text: &mut String) -> CrossProbe {
         }
     }
     if let Some(n) = net.get() {
-        kv.push((tr!("BoardEditorState_Select", "Net"), net_name(n)));
+        kv.push((
+            tr!("librepcb::editor::BoardEditorState_Select", "Net"),
+            net_name(n),
+        ));
         if let Some(ns) = n.and_then(|n| p.circuit().net_signal(n))
             && p.circuit().net_classes().len() > 1
             && let Some(nc) = p.circuit().net_class(ns.net_class())
         {
             kv.push((
-                tr!("BoardEditorState_Select", "Class"),
+                tr!("librepcb::editor::BoardEditorState_Select", "Class"),
                 nc.name().to_string(),
             ));
         }
     }
     if let Some(l) = layer.get() {
-        kv.push((tr!("BoardEditorState_Select", "Layer"), l.name_tr()));
+        kv.push((
+            tr!("librepcb::editor::BoardEditorState_Select", "Layer"),
+            l.name_tr(),
+        ));
     }
     let short = unit.to_short_str();
     if let Some(v) = height.get() {
         kv.push((
-            tr!("BoardEditorState_Select", "Height"),
+            tr!("librepcb::editor::BoardEditorState_Select", "Height"),
             format!("{} {short}", fmt(v)),
         ));
     }
     if let Some(v) = width.get() {
         kv.push((
-            tr!("BoardEditorState_Select", "Width"),
+            tr!("librepcb::editor::BoardEditorState_Select", "Width"),
             format!("{} {short}", fmt(v)),
         ));
     }
     if let Some(v) = drill.get() {
         kv.push((
-            tr!("BoardEditorState_Select", "Drill"),
+            tr!("librepcb::editor::BoardEditorState_Select", "Drill"),
             format!("{} {short}", fmt(v)),
         ));
     }
     if let Some(v) = size.get() {
         kv.push((
-            tr!("BoardEditorState_Select", "Size"),
+            tr!("librepcb::editor::BoardEditorState_Select", "Size"),
             format!("{} {short}", fmt(v)),
         ));
     }
     if let Some(pos) = position {
         kv.push((
-            tr!("BoardEditorState_Select", "Position"),
+            tr!("librepcb::editor::BoardEditorState_Select", "Position"),
             format!("{}, {} {short}", fmt(pos.x), fmt(pos.y)),
         ));
     }

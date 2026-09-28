@@ -192,6 +192,11 @@ platforms, so it is not set.
   `Project::drc_approvals_update()` / `ProjectEditor::update_drc_approvals()`
   (used by MCP `drc_run`), the ERC one `ProjectEditor::update_erc_approvals()`;
   the app's rule check panel does not call them yet.
+- Translation contexts of `tr!` calls in `crates/librepcb-app` are not
+  checked by `librepcb-i18n`'s `context_check` test yet; several use
+  unqualified contexts (e.g. `MainWindow`, `GuiApplication`,
+  `ProjectEditor`, `SchematicTab`, `Board2dTab` instead of
+  `librepcb::editor::...`) and are therefore not translated.
 - Direct ZIP downloads from codeload.github.com are blocked in the cloud
   sandbox; official libraries can be cloned with git instead.
 - Upstream bugs found along the way, which could be reported upstream:

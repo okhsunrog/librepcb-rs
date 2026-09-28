@@ -122,7 +122,10 @@ impl DrawPolygonState {
     }
 
     fn start(&mut self, cx: &mut Cx<'_, '_>, pos: Point) {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_DrawPolygon", "Draw board polygon")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_DrawPolygon",
+            "Draw board polygon"
+        )) {
             cx.error(e);
             return;
         }
@@ -169,7 +172,10 @@ impl DrawPolygonState {
             self.drawing = None;
             return;
         }
-        if let Err(e) = cx.begin(tr!("BoardEditorState_DrawPolygon", "Draw board polygon")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_DrawPolygon",
+            "Draw board polygon"
+        )) {
             cx.error(e);
             self.drawing = None;
             return;
@@ -359,7 +365,10 @@ impl DrawPlaneState {
     /// Upstream `startAddPlane()`; `None`: the automatic outline, committed
     /// immediately.
     fn start(&mut self, cx: &mut Cx<'_, '_>, pos: Option<Point>) -> bool {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_DrawPlane", "Draw Board Plane")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_DrawPlane",
+            "Draw Board Plane"
+        )) {
             cx.error(e);
             return false;
         }
@@ -412,7 +421,10 @@ impl DrawPlaneState {
                 self.abort(cx);
                 return;
             }
-            if let Err(e) = cx.begin(tr!("BoardEditorState_DrawPlane", "Draw board plane")) {
+            if let Err(e) = cx.begin(tr!(
+                "librepcb::editor::BoardEditorState_DrawPlane",
+                "Draw board plane"
+            )) {
                 cx.error(e);
                 self.drawing = None;
                 return;
@@ -472,7 +484,7 @@ fn auto_plane_outline(cx: &Cx<'_, '_>) -> Result<Path> {
         vertices.iter().map(|v| v.y).max(),
     ) else {
         return Err(crate::error::Error::InvalidArgument(tr!(
-            "BoardEditorState_DrawPlane",
+            "librepcb::editor::BoardEditorState_DrawPlane",
             "Could not determine the bounding box of board. Make sure a valid board outline polygon is present."
         )));
     };
@@ -629,7 +641,10 @@ impl DrawZoneState {
     }
 
     fn start(&mut self, cx: &mut Cx<'_, '_>, pos: Point) {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_DrawZone", "Draw board zone")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_DrawZone",
+            "Draw board zone"
+        )) {
             cx.error(e);
             return;
         }
@@ -691,7 +706,10 @@ impl DrawZoneState {
                 self.abort(cx);
                 return;
             }
-            if let Err(e) = cx.begin(tr!("BoardEditorState_DrawZone", "Draw Board Zone")) {
+            if let Err(e) = cx.begin(tr!(
+                "librepcb::editor::BoardEditorState_DrawZone",
+                "Draw Board Zone"
+            )) {
                 cx.error(e);
                 self.drawing = None;
                 return;

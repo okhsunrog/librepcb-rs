@@ -68,7 +68,7 @@ impl Command for EditProjectMetadata {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdProjectEdit", "Edit Project Metadata")
+        tr!("librepcb::editor::CmdProjectEdit", "Edit Project Metadata")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -150,7 +150,7 @@ impl Command for AddSchematic {
     type Output = SchematicId;
 
     fn text(&self) -> String {
-        tr!("CmdSchematicAdd", "Add schematic")
+        tr!("librepcb::editor::CmdSchematicAdd", "Add schematic")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<SchematicId> {
@@ -190,7 +190,10 @@ impl Command for EditSchematic {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdSchematicEdit", "Edit sheet properties")
+        tr!(
+            "librepcb::editor::CmdSchematicEdit",
+            "Edit sheet properties"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -219,7 +222,7 @@ impl Command for RemoveSchematic {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdSchematicRemove", "Remove schematic")
+        tr!("librepcb::editor::CmdSchematicRemove", "Remove schematic")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -274,7 +277,7 @@ impl Command for AddBoard {
     type Output = AddedBoard;
 
     fn text(&self) -> String {
-        tr!("CmdBoardAdd", "Add board")
+        tr!("librepcb::editor::CmdBoardAdd", "Add board")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<AddedBoard> {
@@ -330,7 +333,7 @@ impl Command for RenameBoard {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdBoardEdit", "Modify Board Setup")
+        tr!("librepcb::editor::CmdBoardEdit", "Modify Board Setup")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -351,7 +354,7 @@ impl Command for RemoveBoard {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdBoardRemove", "Remove board")
+        tr!("librepcb::editor::CmdBoardRemove", "Remove board")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {

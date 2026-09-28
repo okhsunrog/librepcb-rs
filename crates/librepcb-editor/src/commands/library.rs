@@ -159,7 +159,7 @@ impl Command for AddLibraryElement {
     type Output = Vec<LibraryElementId>;
 
     fn text(&self) -> String {
-        librepcb_i18n::tr!("CmdProjectLibraryAddElement", "Add element to library")
+        librepcb_i18n::tr!("librepcb::editor", "Add element to library")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Self::Output> {
@@ -253,7 +253,7 @@ impl Command for RemoveUnusedLibraryElements {
 
     fn text(&self) -> String {
         librepcb_i18n::tr!(
-            "CmdRemoveUnusedLibraryElements",
+            "librepcb::editor::CmdRemoveUnusedLibraryElements",
             "Remove unused library elements"
         )
     }

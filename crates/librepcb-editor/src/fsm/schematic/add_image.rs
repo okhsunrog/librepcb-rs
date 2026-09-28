@@ -99,9 +99,10 @@ impl AddImageState {
             height,
             None,
         );
-        cx.ctx
-            .editor
-            .begin_group(tr!("SchematicEditorState_AddImage", "Add Schematic Image"))?;
+        cx.ctx.editor.begin_group(tr!(
+            "librepcb::editor::SchematicEditorState_AddImage",
+            "Add Schematic Image"
+        ))?;
         cx.ctx.editor.execute(AddSchematicImage {
             schematic: cx.schematic,
             image: image.clone(),

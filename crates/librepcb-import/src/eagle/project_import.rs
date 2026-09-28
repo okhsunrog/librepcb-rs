@@ -56,7 +56,7 @@ use super::model;
 use super::type_converter::EagleTypeConverter;
 use crate::UuidGenerator;
 
-const CTX: &str = "EagleProjectImport";
+const CTX: &str = "librepcb::eagleimport::EagleProjectImport";
 
 type LibKey = (String, String, String);
 

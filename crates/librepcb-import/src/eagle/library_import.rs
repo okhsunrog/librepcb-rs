@@ -36,7 +36,7 @@ use super::type_converter::EagleTypeConverter;
 use crate::library_writer::{save_element, try_create_category_if_required};
 use crate::{CheckState, CheckStateChange, ElementKind, ImportSummary, Progress, UuidGenerator};
 
-const CTX: &str = "EagleLibraryImport";
+const CTX: &str = "librepcb::eagleimport::EagleLibraryImport";
 
 /// Name of the categories created for imported elements.
 pub const CATEGORY_NAME: &str = "EAGLE Import";

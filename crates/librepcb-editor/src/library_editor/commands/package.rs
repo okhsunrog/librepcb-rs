@@ -343,7 +343,10 @@ impl ElementCommand<Package> for EditPackage {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdPackageEdit", "Edit Package Properties")
+        tr!(
+            "librepcb::editor::CmdPackageEdit",
+            "Edit Package Properties"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -362,7 +365,7 @@ impl ElementCommand<Package> for EditPackage {
 
 fn duplicate_pad_name_error(name: &str) -> Error {
     Error::InvalidArgument(tr!(
-        "PackagePadListModel",
+        "librepcb::editor::PackagePadListModel",
         "There is already a pad with the name \"{0}\".",
         name
     ))
@@ -391,7 +394,10 @@ impl ElementCommand<Package> for AddPackagePads {
     type Output = Vec<Uuid>;
 
     fn text(&self) -> String {
-        tr!("PackagePadListModel", "Add Package Pad(s)")
+        tr!(
+            "librepcb::editor::PackagePadListModel",
+            "Add Package Pad(s)"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<Vec<Uuid>> {
@@ -429,7 +435,7 @@ impl ElementCommand<Package> for RenamePackagePad {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdPackagePadEdit", "Edit package pad")
+        tr!("librepcb::editor::CmdPackagePadEdit", "Edit package pad")
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -461,7 +467,11 @@ impl ElementCommand<Package> for RemovePackagePad {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementRemove", "Remove {0}", "pad")
+        tr!(
+            "librepcb::editor::CmdListElementRemove",
+            "Remove {0}",
+            "pad"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -487,7 +497,11 @@ impl ElementCommand<Package> for AddFootprint {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdListElementInsert", "Add {0}", "footprint")
+        tr!(
+            "librepcb::editor::CmdListElementInsert",
+            "Add {0}",
+            "footprint"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<Uuid> {
@@ -535,7 +549,7 @@ impl ElementCommand<Package> for EditFootprint {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdFootprintEdit", "Edit footprint")
+        tr!("librepcb::editor::CmdFootprintEdit", "Edit footprint")
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -570,7 +584,11 @@ impl ElementCommand<Package> for MoveFootprintUp {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementsSwap", "Move {0}", "footprint")
+        tr!(
+            "librepcb::editor::CmdListElementsSwap",
+            "Move {0}",
+            "footprint"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -597,7 +615,11 @@ impl ElementCommand<Package> for DuplicateFootprint {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdListElementInsert", "Add {0}", "footprint")
+        tr!(
+            "librepcb::editor::CmdListElementInsert",
+            "Add {0}",
+            "footprint"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<Uuid> {
@@ -635,7 +657,11 @@ impl ElementCommand<Package> for RemoveFootprint {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementRemove", "Remove {0}", "footprint")
+        tr!(
+            "librepcb::editor::CmdListElementRemove",
+            "Remove {0}",
+            "footprint"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -665,7 +691,7 @@ impl ElementCommand<Package> for AddPackageModel {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdPackageModelAdd", "Add 3D model")
+        tr!("librepcb::editor::CmdPackageModelAdd", "Add 3D model")
     }
 
     fn execute(self, package: &mut Package) -> Result<Uuid> {
@@ -702,7 +728,7 @@ impl ElementCommand<Package> for EditPackageModel {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdPackageModelEdit", "Edit 3D Model")
+        tr!("librepcb::editor::CmdPackageModelEdit", "Edit 3D Model")
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -733,7 +759,7 @@ impl ElementCommand<Package> for RemovePackageModel {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdPackageModelRemove", "Remove 3D model")
+        tr!("librepcb::editor::CmdPackageModelRemove", "Remove 3D model")
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -764,7 +790,11 @@ impl ElementCommand<Package> for MovePackageModelUp {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementsSwap", "Move {0}", "3D model")
+        tr!(
+            "librepcb::editor::CmdListElementsSwap",
+            "Move {0}",
+            "3D model"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -796,7 +826,7 @@ impl ElementCommand<Package> for AddFootprintObject {
 
     fn text(&self) -> String {
         tr!(
-            "CmdListElementInsert",
+            "librepcb::editor::CmdListElementInsert",
             "Add {0}",
             tag_name(self.object.item())
         )
@@ -853,12 +883,17 @@ impl ElementCommand<Package> for UpdateFootprintObject {
 
     fn text(&self) -> String {
         match self.object {
-            FootprintObject::Pad(_) => tr!("CmdFootprintPadEdit", "Edit footprint pad"),
-            FootprintObject::Polygon(_) => tr!("CmdPolygonEdit", "Edit polygon"),
-            FootprintObject::Circle(_) => tr!("CmdCircleEdit", "Edit circle"),
-            FootprintObject::StrokeText(_) => tr!("CmdStrokeTextEdit", "Edit stroke text"),
-            FootprintObject::Zone(_) => tr!("CmdZoneEdit", "Edit zone"),
-            FootprintObject::Hole(_) => tr!("CmdHoleEdit", "Edit hole"),
+            FootprintObject::Pad(_) => tr!(
+                "librepcb::editor::CmdFootprintPadEdit",
+                "Edit footprint pad"
+            ),
+            FootprintObject::Polygon(_) => tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon"),
+            FootprintObject::Circle(_) => tr!("librepcb::editor::CmdCircleEdit", "Edit circle"),
+            FootprintObject::StrokeText(_) => {
+                tr!("librepcb::editor::CmdStrokeTextEdit", "Edit stroke text")
+            }
+            FootprintObject::Zone(_) => tr!("librepcb::editor::CmdZoneEdit", "Edit zone"),
+            FootprintObject::Hole(_) => tr!("librepcb::editor::CmdHoleEdit", "Edit hole"),
         }
     }
 
@@ -916,7 +951,7 @@ impl ElementCommand<Package> for RemoveFootprintItems {
 
     fn text(&self) -> String {
         tr!(
-            "CmdRemoveSelectedFootprintItems",
+            "librepcb::editor::CmdRemoveSelectedFootprintItems",
             "Remove Footprint Elements"
         )
     }
@@ -968,7 +1003,10 @@ impl ElementCommand<Package> for TransformFootprintItems {
     type Output = bool;
 
     fn text(&self) -> String {
-        tr!("CmdDragSelectedFootprintItems", "Drag Footprint Elements")
+        tr!(
+            "librepcb::editor::CmdDragSelectedFootprintItems",
+            "Drag Footprint Elements"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<bool> {
@@ -996,8 +1034,8 @@ impl ElementCommand<Package> for RemoveFootprintVertices {
 
     fn text(&self) -> String {
         match self.item {
-            FootprintItem::Zone(_) => tr!("CmdZoneEdit", "Edit zone"),
-            _ => tr!("CmdPolygonEdit", "Edit polygon"),
+            FootprintItem::Zone(_) => tr!("librepcb::editor::CmdZoneEdit", "Edit zone"),
+            _ => tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon"),
         }
     }
 
@@ -1047,7 +1085,10 @@ impl ElementCommand<Package> for SetFootprintPadConnections {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("PackageEditorState_ReNumberPads", "Re-number pads")
+        tr!(
+            "librepcb::editor::PackageEditorState_ReNumberPads",
+            "Re-number pads"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<()> {
@@ -1084,7 +1125,10 @@ impl ElementCommand<Package> for GeneratePackageOutline {
     type Output = bool;
 
     fn text(&self) -> String {
-        tr!("PackageEditorState_Select", "Generate package outline")
+        tr!(
+            "librepcb::editor::PackageEditorState_Select",
+            "Generate package outline"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<bool> {
@@ -1185,7 +1229,10 @@ impl ElementCommand<Package> for GenerateCourtyard {
     type Output = bool;
 
     fn text(&self) -> String {
-        tr!("PackageEditorState_Select", "Generate courtyard")
+        tr!(
+            "librepcb::editor::PackageEditorState_Select",
+            "Generate courtyard"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<bool> {
@@ -1462,7 +1509,10 @@ impl ElementCommand<Package> for PasteFootprintItems {
     type Output = BTreeSet<FootprintItem>;
 
     fn text(&self) -> String {
-        tr!("CmdPasteFootprintItems", "Paste Footprint Elements")
+        tr!(
+            "librepcb::editor::CmdPasteFootprintItems",
+            "Paste Footprint Elements"
+        )
     }
 
     fn execute(self, package: &mut Package) -> Result<BTreeSet<FootprintItem>> {

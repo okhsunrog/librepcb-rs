@@ -303,14 +303,26 @@ impl ElementHost for SymbolHost {
 
     fn add_text(kind: &str) -> String {
         match kind {
-            "polygon" => tr!("SymbolEditorState_DrawPolygonBase", "Add symbol polygon"),
-            "circle" => tr!("SymbolEditorState_DrawCircle", "Add symbol circle"),
-            _ => tr!("SymbolEditorState_DrawTextBase", "Add symbol text"),
+            "polygon" => tr!(
+                "librepcb::editor::SymbolEditorState_DrawPolygonBase",
+                "Add symbol polygon"
+            ),
+            "circle" => tr!(
+                "librepcb::editor::SymbolEditorState_DrawCircle",
+                "Add symbol circle"
+            ),
+            _ => tr!(
+                "librepcb::editor::SymbolEditorState_DrawTextBase",
+                "Add symbol text"
+            ),
         }
     }
 
     fn paste_text() -> String {
-        tr!("SymbolEditorState_Select", "Paste Symbol Elements")
+        tr!(
+            "librepcb::editor::SymbolEditorState_Select",
+            "Paste Symbol Elements"
+        )
     }
 
     fn state(states: &mut SymbolStates, tool: LibraryTool) -> Option<&mut dyn State<Self>> {
@@ -367,7 +379,10 @@ impl AddPinsState {
 
     /// Upstream `addNextPin()`.
     fn add_next_pin(&mut self, cx: &mut Cx<'_, '_, SymbolHost>, pos: Point) -> bool {
-        if !cx.begin(tr!("SymbolEditorState_AddPins", "Add symbol pin")) {
+        if !cx.begin(tr!(
+            "librepcb::editor::SymbolEditorState_AddPins",
+            "Add symbol pin"
+        )) {
             return false;
         }
         self.props.set_name(Self::next_pin_name(cx.element()));

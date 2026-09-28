@@ -131,11 +131,10 @@ impl DrawBusState {
     fn start_positioning(&mut self, cx: &mut Cx<'_, '_>, snap: bool) -> bool {
         let (item, pos) = self.snap_target(cx, snap);
         let anchor = Self::anchor_of(item, pos);
-        if let Err(e) = cx
-            .ctx
-            .editor
-            .begin_group(tr!("SchematicEditorState_DrawBus", "Draw Wire"))
-        {
+        if let Err(e) = cx.ctx.editor.begin_group(tr!(
+            "librepcb::editor::SchematicEditorState_DrawBus",
+            "Draw Wire"
+        )) {
             cx.error(e);
             return false;
         }
@@ -195,11 +194,10 @@ impl DrawBusState {
             self.abort_positioning(cx, true);
             return false;
         };
-        if let Err(e) = cx
-            .ctx
-            .editor
-            .begin_group(tr!("SchematicEditorState_DrawBus", "Draw Wire"))
-        {
+        if let Err(e) = cx.ctx.editor.begin_group(tr!(
+            "librepcb::editor::SchematicEditorState_DrawBus",
+            "Draw Wire"
+        )) {
             cx.error(e);
             return false;
         }

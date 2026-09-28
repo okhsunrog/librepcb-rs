@@ -65,7 +65,10 @@ fn brd(m: BoardMutation) -> Mutation {
 }
 
 fn text() -> String {
-    tr!("BoardEditorState_DrawTrace", "Draw Board Trace")
+    tr!(
+        "librepcb::editor::BoardEditorState_DrawTrace",
+        "Draw Board Trace"
+    )
 }
 
 /// Upstream `calcMiddlePointPos()`.
@@ -280,7 +283,7 @@ impl DrawTraceState {
         let mut layer = self.layer;
         if !copper.contains(&layer) {
             return Err(Error::InvalidArgument(tr!(
-                "BoardEditorState_DrawTrace",
+                "librepcb::editor::BoardEditorState_DrawTrace",
                 "Invalid layer selected."
             )));
         }

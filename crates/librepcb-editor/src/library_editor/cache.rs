@@ -98,13 +98,13 @@ impl LibraryElementCache {
             return Err(Error::InvalidArgument(format!(
                 "{} {}",
                 tr!(
-                    "LibraryElementCache",
+                    "librepcb::editor::LibraryElementCache",
                     "Library element '{0}' with UUID '{1}' not found in workspace library.",
                     T::LONG_ELEMENT_NAME,
                     uuid
                 ),
                 tr!(
-                    "LibraryElementCache",
+                    "librepcb::editor::LibraryElementCache",
                     "Please make sure that all dependent libraries are installed."
                 )
             )));

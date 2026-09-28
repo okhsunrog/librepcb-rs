@@ -235,7 +235,7 @@ impl SelectState {
         let mut polygon = original;
         polygon.set_path(new_path);
         match cx.ctx.editor.execute(crate::commands::ApplyMutations {
-            text: Some(tr!("CmdPolygonEdit", "Edit polygon")),
+            text: Some(tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon")),
             mutations: vec![Mutation::Schematic(SchematicMutation::UpdatePolygon {
                 schematic: cx.schematic,
                 polygon,
@@ -270,7 +270,7 @@ impl SelectState {
         if let Err(e) = cx
             .ctx
             .editor
-            .begin_group(tr!("CmdPolygonEdit", "Edit polygon"))
+            .begin_group(tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon"))
         {
             cx.error(e);
             return false;
@@ -308,7 +308,7 @@ impl SelectState {
         };
         let drag = DragSelection::new(s, &query, pos);
         if let Err(e) = cx.ctx.editor.begin_group(tr!(
-            "CmdDragSelectedSchematicItems",
+            "librepcb::editor::CmdDragSelectedSchematicItems",
             "Drag Schematic Elements"
         )) {
             cx.error(e);
@@ -373,7 +373,7 @@ impl SelectState {
         let mutations = drag.mutations(cx.project());
         match cx.ctx.editor.execute(crate::commands::ApplyMutations {
             text: Some(tr!(
-                "CmdDragSelectedSchematicItems",
+                "librepcb::editor::CmdDragSelectedSchematicItems",
                 "Drag Schematic Elements"
             )),
             mutations,
@@ -495,7 +495,10 @@ impl SelectState {
                 let mime = schematic_clipboard_mime_type(&cx.settings.app_version);
                 cx.ctx.clipboard.set(&mime, zip);
                 cx.out.view.set_status(
-                    tr!("SchematicEditorState_Select", "Copied to clipboard!"),
+                    tr!(
+                        "librepcb::editor::SchematicEditorState_Select",
+                        "Copied to clipboard!"
+                    ),
                     Some(2000),
                 );
             }
@@ -537,7 +540,7 @@ impl SelectState {
         self.start_pos = cx.cursor_pos();
         cx.out.selection.clear();
         if let Err(e) = cx.ctx.editor.begin_group(tr!(
-            "SchematicEditorState_Select",
+            "librepcb::editor::SchematicEditorState_Select",
             "Paste Schematic Elements"
         )) {
             cx.error(e);
@@ -753,11 +756,11 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> (String, CrossProbe) {
             .and_then(|ao| ao.parts().first())
             .map_or_else(|| "\u{2716}".to_owned(), |part| part.mpn().to_string());
         key_values.push((
-            tr!("SchematicEditorState_Select", "Name"),
+            tr!("librepcb::editor::SchematicEditorState_Select", "Name"),
             cmp.name().to_string(),
         ));
-        let value_key = tr!("SchematicEditorState_Select", "Value");
-        let mpn_key = tr!("SchematicEditorState_Select", "MPN");
+        let value_key = tr!("librepcb::editor::SchematicEditorState_Select", "Value");
+        let mpn_key = tr!("librepcb::editor::SchematicEditorState_Select", "MPN");
         if value == mpn {
             key_values.push((format!("{value_key}/{mpn_key}"), value));
         } else {
@@ -769,13 +772,16 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> (String, CrossProbe) {
         let name = n
             .and_then(|id| p.circuit().net_signal(id))
             .map_or_else(|| "\u{2716}".to_owned(), |x| x.name().to_string());
-        key_values.push((tr!("SchematicEditorState_Select", "Net"), name));
+        key_values.push((
+            tr!("librepcb::editor::SchematicEditorState_Select", "Net"),
+            name,
+        ));
         if let Some(signal) = n.and_then(|id| p.circuit().net_signal(id))
             && p.circuit().net_classes().len() > 1
             && let Some(class) = p.circuit().net_class(signal.net_class())
         {
             key_values.push((
-                tr!("SchematicEditorState_Select", "Class"),
+                tr!("librepcb::editor::SchematicEditorState_Select", "Class"),
                 class.name().to_string(),
             ));
         }
@@ -784,7 +790,7 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> (String, CrossProbe) {
         && let Some(bus) = p.circuit().bus(b)
     {
         key_values.push((
-            tr!("SchematicEditorState_Select", "Bus"),
+            tr!("librepcb::editor::SchematicEditorState_Select", "Bus"),
             bus.name().to_string(),
         ));
     }
@@ -793,11 +799,11 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> (String, CrossProbe) {
     {
         let signal = view.signal();
         key_values.push((
-            tr!("SchematicEditorState_Select", "Signal"),
+            tr!("librepcb::editor::SchematicEditorState_Select", "Signal"),
             view.lib_signal().name().to_string(),
         ));
         key_values.push((
-            tr!("SchematicEditorState_Select", "Pin"),
+            tr!("librepcb::editor::SchematicEditorState_Select", "Pin"),
             view.name().to_string(),
         ));
         // Pad names of the signal on the primary device.
@@ -816,7 +822,10 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> (String, CrossProbe) {
         }
         pads.sort_by(|a, b| toolbox::compare_numeric(a, b));
         pads.dedup();
-        key_values.push((tr!("SchematicEditorState_Select", "Pad(s)"), pads.join(",")));
+        key_values.push((
+            tr!("librepcb::editor::SchematicEditorState_Select", "Pad(s)"),
+            pads.join(","),
+        ));
         // Forced net name mismatch.
         let forced = p
             .circuit()
@@ -837,7 +846,7 @@ fn info_text(cx: &Cx<'_, '_>, q: &SelectionQuery) -> (String, CrossProbe) {
             key_values.push((
                 String::new(),
                 tr!(
-                    "SchematicEditorState_Select",
+                    "librepcb::editor::SchematicEditorState_Select",
                     "Wire net '{0}' does not match forced net '{1}'!",
                     net.name(),
                     forced
@@ -1081,7 +1090,7 @@ impl State for SelectState {
                     if let Err(err) = cx
                         .ctx
                         .editor
-                        .begin_group(tr!("CmdPolygonEdit", "Edit polygon"))
+                        .begin_group(tr!("librepcb::editor::CmdPolygonEdit", "Edit polygon"))
                     {
                         cx.error(err);
                         return false;
@@ -1091,7 +1100,11 @@ impl State for SelectState {
                     return true;
                 }
                 if let Some(resize) = Self::find_image_handle(cx, e.pos) {
-                    if let Err(err) = cx.ctx.editor.begin_group(tr!("CmdImageEdit", "Edit Image")) {
+                    if let Err(err) = cx
+                        .ctx
+                        .editor
+                        .begin_group(tr!("librepcb::editor::CmdImageEdit", "Edit Image"))
+                    {
                         cx.error(err);
                         return false;
                     }

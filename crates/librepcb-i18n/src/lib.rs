@@ -48,6 +48,8 @@
 mod catalog;
 #[cfg(test)]
 mod compile;
+#[cfg(test)]
+mod context_check;
 mod language;
 mod plural;
 

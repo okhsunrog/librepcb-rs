@@ -32,7 +32,10 @@ impl Command for SimplifyBoardNetSegments {
     type Output = bool;
 
     fn text(&self) -> String {
-        tr!("CmdSimplifyBoardNetSegments", "Simplify Board Net Segments")
+        tr!(
+            "librepcb::editor::CmdSimplifyBoardNetSegments",
+            "Simplify Board Net Segments"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<bool> {

@@ -208,7 +208,10 @@ impl Command for AddComponent {
     type Output = AddedComponent;
 
     fn text(&self) -> String {
-        tr!("CmdAddComponentToCircuit", "Add component")
+        tr!(
+            "librepcb::editor::CmdAddComponentToCircuit",
+            "Add component"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<AddedComponent> {
@@ -419,7 +422,7 @@ impl Command for PlaceSymbol {
     type Output = PlacedSymbol;
 
     fn text(&self) -> String {
-        tr!("CmdAddSymbolToSchematic", "Add symbol")
+        tr!("librepcb::editor::CmdAddSymbolToSchematic", "Add symbol")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<PlacedSymbol> {
@@ -462,7 +465,7 @@ impl Command for MoveSymbol {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdSymbolInstanceEditAll", "Drag Symbol")
+        tr!("librepcb::editor::CmdSymbolInstanceEditAll", "Drag Symbol")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -558,7 +561,10 @@ impl Command for EditComponent {
     type Output = ComponentInstanceId;
 
     fn text(&self) -> String {
-        tr!("CmdComponentInstanceEdit", "Edit Component")
+        tr!(
+            "librepcb::editor::CmdComponentInstanceEdit",
+            "Edit Component"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<ComponentInstanceId> {
@@ -604,7 +610,10 @@ impl Command for RemoveComponent {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdComponentInstanceRemove", "Remove component")
+        tr!(
+            "librepcb::editor::CmdComponentInstanceRemove",
+            "Remove component"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -768,7 +777,10 @@ impl Command for AddDevice {
     type Output = AddedDevice;
 
     fn text(&self) -> String {
-        tr!("CmdAddDeviceToBoard", "Add device to board")
+        tr!(
+            "librepcb::editor::CmdAddDeviceToBoard",
+            "Add device to board"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<AddedDevice> {
@@ -825,7 +837,7 @@ impl Command for ReplaceDevice {
     type Output = AddedDevice;
 
     fn text(&self) -> String {
-        tr!("CmdReplaceDevice", "Change Device")
+        tr!("librepcb::editor::CmdReplaceDevice", "Change Device")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<AddedDevice> {
@@ -966,7 +978,10 @@ impl Command for MoveDevice {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdDeviceInstanceEditAll", "Edit device instance")
+        tr!(
+            "librepcb::editor::CmdDeviceInstanceEditAll",
+            "Edit device instance"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
