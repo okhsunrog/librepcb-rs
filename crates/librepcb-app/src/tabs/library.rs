@@ -350,7 +350,7 @@ impl LibraryTab {
         };
         if !data.move_or_copy_to_lib.is_empty() {
             update.status = Some(tr!(
-                "MainWindow",
+                "librepcb::editor::MainWindow",
                 "Not available yet in this version: {0}",
                 "move/copy"
             ));

@@ -300,7 +300,11 @@ impl DeviceTab {
                 None,
                 format!(
                     "({})",
-                    tr!("ComponentSignalNameListModel", "unconnected").to_lowercase()
+                    tr!(
+                        "librepcb::editor::ComponentSignalNameListModel",
+                        "unconnected"
+                    )
+                    .to_lowercase()
                 ),
             ),
         );

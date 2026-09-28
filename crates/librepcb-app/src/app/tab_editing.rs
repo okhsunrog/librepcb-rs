@@ -339,11 +339,11 @@ impl State {
     /// (upstream `ImageHelpers::execImageChooserDialog()`) and passes it to
     /// the tab.
     fn choose_image_file(&mut self, tab: TabId) {
-        let title = tr!("librepcb::editor::ImageHelpers", "Choose Image File");
+        let title = tr!("ImageHelpers", "Choose Image File");
         let filters = [crate::file_dialog::Filter {
             name: format!(
                 "{} (*.png *.jpg *.jpeg *.svg)",
-                tr!("librepcb::editor::ImageHelpers", "Image Files")
+                tr!("ImageHelpers", "Image Files")
             ),
             extensions: vec!["png", "jpg", "jpeg", "svg", "PNG", "JPG", "JPEG", "SVG"],
         }];
@@ -359,7 +359,7 @@ impl State {
                         auto_popup: true,
                         ..crate::notifications::Notification::new(
                             ui::NotificationType::Critical,
-                            tr!("SchematicTab", "Error"),
+                            tr!("librepcb::editor::SchematicTab", "Error"),
                             message,
                         )
                     });

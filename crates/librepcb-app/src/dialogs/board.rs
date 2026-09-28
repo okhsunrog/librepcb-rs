@@ -1422,10 +1422,7 @@ impl FormDialog for StrokeTextDialog {
         text.set_mirrored(form.get_checked("mirror"));
         text.set_locked(form.get_checked("lock"));
         let board = self.board;
-        let label = tr!(
-            "librepcb::editor::CmdBoardStrokeTextEdit",
-            "Edit stroke text"
-        );
+        let label = tr!("librepcb::editor::CmdStrokeTextEdit", "Edit stroke text");
         match self.device {
             None => {
                 let item = BoardItem::StrokeText(text.clone());
@@ -1816,7 +1813,11 @@ impl DxfImportDialog {
     pub fn new(file: librepcb_core::fileio::FilePath, layers: &[Layer], unit: LengthUnit) -> Self {
         let c = DXF_CHOICES.with_borrow(Clone::clone);
         let mut form = Form::new(unit);
-        form.label("file", tr!("MainWindow", "File:"), file.to_native());
+        form.label(
+            "file",
+            tr!("librepcb::editor::MainWindow", "File:"),
+            file.to_native(),
+        );
         layer_field(&mut form, "layer", &tr!(DXF_CTX, "Layer:"), layers, c.layer);
         form.length(
             "line_width",

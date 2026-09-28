@@ -28,7 +28,7 @@ use crate::notifications::{Notification, NotificationButton};
 use crate::project::{AppProject, OpenOutcome, OpenRequest};
 use crate::tabs::{ProjectLibraryTab, Tab};
 
-const PE: &str = "ProjectEditor";
+const PE: &str = "librepcb::editor::ProjectEditor";
 
 impl State {
     /// Shows a dialog which belongs neither to a project nor to a tab
@@ -135,7 +135,7 @@ impl State {
                     auto_popup: true,
                     ..Notification::new(
                         ui::NotificationType::Critical,
-                        tr!("GuiApplication", "Error"),
+                        tr!("librepcb::editor::GuiApplication", "Error"),
                         e.to_string(),
                     )
                 });
@@ -145,7 +145,7 @@ impl State {
         if !project.is_writable() {
             self.notifications.borrow_mut().push(Notification::new(
                 ui::NotificationType::Warning,
-                tr!("GuiApplication", "Read-Only Mode"),
+                tr!("librepcb::editor::GuiApplication", "Read-Only Mode"),
                 fp.to_native(),
             ));
         }
@@ -306,9 +306,9 @@ impl State {
                 auto_popup: true,
                 ..Notification::new(
                     ui::NotificationType::Info,
-                    tr!("GuiApplication", "Workspace changed"),
+                    tr!("librepcb::editor::GuiApplication", "Workspace changed"),
                     tr!(
-                        "GuiApplication",
+                        "librepcb::editor::GuiApplication",
                         "The chosen workspace will be used after restarting the application."
                     ),
                 )
@@ -398,7 +398,7 @@ impl State {
             log.push(tr!(CTX, "Ask to close project (confirm message box!)"));
             if project.shared().lock().has_unsaved_changes() {
                 log.push(tr!(
-                    "ProjectEditor",
+                    "librepcb::editor::ProjectEditor",
                     "The project contains unsaved changes. Please save it first."
                 ));
                 log.push(tr!(CTX, "Abort."));

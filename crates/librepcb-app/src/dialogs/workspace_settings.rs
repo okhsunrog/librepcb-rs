@@ -331,8 +331,8 @@ impl WorkspaceSettingsDialog {
                 "api_endpoints",
                 tr!(CTX, "API Servers:"),
                 &[
-                    tr!(CTX, "URL"),
-                    tr!(CTX, "Libraries"),
+                    tr!("librepcb::editor::ApiEndpointListModelLegacy", "URL"),
+                    tr!("librepcb::editor::ApiEndpointListModelLegacy", "Libraries"),
                     tr!(CTX, "Parts"),
                     tr!(CTX, "Order"),
                 ],

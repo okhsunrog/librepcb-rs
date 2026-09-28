@@ -571,7 +571,7 @@ impl SchematicTab {
                     auto_popup: true,
                     ..Notification::new(
                         ui::NotificationType::Critical,
-                        tr!("SchematicTab", "Error"),
+                        tr!("librepcb::editor::SchematicTab", "Error"),
                         msg,
                     )
                 }));
@@ -1211,7 +1211,10 @@ impl SchematicTab {
             ..props
         };
         if let Err(e) = p.editor.execute(ApplyMutations {
-            text: Some(tr!("SchematicTab", "Change Grid Properties")),
+            text: Some(tr!(
+                "librepcb::editor::SchematicTab",
+                "Change Grid Properties"
+            )),
             mutations: vec![Mutation::UpdateSchematic(props)],
         }) {
             log::error!("Failed to change the grid: {e}");
@@ -1327,7 +1330,9 @@ impl SchematicTab {
                 self.abort_blocking_tool();
                 let result = self.project.save();
                 match result {
-                    Ok(()) => extra.status = Some(tr!("ProjectEditor", "Project saved")),
+                    Ok(()) => {
+                        extra.status = Some(tr!("librepcb::editor::ProjectEditor", "Project saved"))
+                    }
                     Err(e) => extra.requests.push(error_notification(e.to_string())),
                 }
                 extra.project_modified = true;

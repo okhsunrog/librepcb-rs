@@ -174,7 +174,13 @@ impl FootprintPadDialog {
     ) -> Self {
         let mut form = Form::new(unit);
         form.page(tr!(PAD, "General"));
-        let mut names = vec![format!("({})", tr!(PAD, "unconnected"))];
+        let mut names = vec![format!(
+            "({})",
+            tr!(
+                "librepcb::editor::ComponentSignalNameListModel",
+                "unconnected"
+            )
+        )];
         let mut uuids = vec![None];
         for (uuid, name) in package_pads {
             names.push(name.clone());
@@ -617,7 +623,7 @@ impl FootprintStrokeTextDialog {
 
 impl FormDialog for FootprintStrokeTextDialog {
     fn title(&self) -> String {
-        tr!(STROKE, "Text Properties")
+        tr!("librepcb::editor::TextPropertiesDialog", "Text Properties")
     }
 
     form_accessors!();
@@ -892,7 +898,7 @@ impl ImportPinsDialog {
 
 impl FormDialog for ImportPinsDialog {
     fn title(&self) -> String {
-        tr!(IMPORT, "Import Pins")
+        tr!("SymbolEditorTab", "Import Pins")
     }
 
     form_accessors!();

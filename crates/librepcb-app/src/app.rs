@@ -991,9 +991,13 @@ impl State {
 
     pub(crate) fn open_project_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
-            .set_title(tr!("GuiApplication", "Open Project"))
+            .set_title(tr!("librepcb::editor::GuiApplication", "Open Project"))
             .add_filter(
-                tr!("GuiApplication", "LibrePCB project files ({0})", "*.lpp"),
+                tr!(
+                    "librepcb::editor::GuiApplication",
+                    "LibrePCB project files ({0})",
+                    "*.lpp"
+                ),
                 &["lpp"],
             )
             .set_directory(self.workspace.lock().projects_path().as_path());
@@ -1075,11 +1079,14 @@ impl State {
                 match result {
                     Ok(()) => {
                         self.project_saved(&project);
-                        self.show_status(&tr!("ProjectEditor", "Project saved"), 2000);
+                        self.show_status(
+                            &tr!("librepcb::editor::ProjectEditor", "Project saved"),
+                            2000,
+                        );
                     }
                     Err(e) => self.notifications.borrow_mut().push(Notification::new(
                         ui::NotificationType::Critical,
-                        tr!("ProjectEditor", "Error"),
+                        tr!("librepcb::editor::ProjectEditor", "Error"),
                         e.to_string(),
                     )),
                 }
@@ -1316,7 +1323,11 @@ impl State {
     pub(crate) fn not_implemented(&self, what: &str) {
         log::info!("Not implemented yet: {what}");
         self.show_status(
-            &tr!("MainWindow", "Not available yet in this version: {0}", what),
+            &tr!(
+                "librepcb::editor::MainWindow",
+                "Not available yet in this version: {0}",
+                what
+            ),
             4000,
         );
     }

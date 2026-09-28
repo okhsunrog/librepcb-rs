@@ -60,7 +60,7 @@ impl State {
                 log::error!("{action:?} failed: {e}");
                 self.notifications.borrow_mut().push(Notification::new(
                     ui::NotificationType::Critical,
-                    tr!("ProjectEditor", "Error"),
+                    tr!("librepcb::editor::ProjectEditor", "Error"),
                     e.to_string(),
                 ));
             }

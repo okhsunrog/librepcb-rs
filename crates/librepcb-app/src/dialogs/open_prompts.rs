@@ -18,7 +18,7 @@ use super::{AppRequest, Applied, ButtonResult, DialogContext, DialogOptions, For
 use crate::project::{LockDecision, OpenRequest};
 
 const LOCK: &str = "librepcb::editor::DirectoryLockHandlerDialog";
-const APP: &str = "GuiApplication";
+const APP: &str = "librepcb::editor::GuiApplication";
 
 /// Upstream `DirectoryLockHandlerDialog`: the directory is locked by
 /// another application. "Open anyway" (only if the lock may be stale:

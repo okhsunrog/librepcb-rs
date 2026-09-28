@@ -863,7 +863,10 @@ impl FormDialog for NewProjectWizard {
         let messages = create_project(&options, self.eagle.as_ref()).map_err(|e| {
             format!(
                 "{}\n\n{e}",
-                tr!("GuiApplication", "Could not create project")
+                tr!(
+                    "librepcb::editor::GuiApplication",
+                    "Could not create project"
+                )
             )
         })?;
         Ok(Applied::App(AppRequest::OpenProject {

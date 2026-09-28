@@ -552,9 +552,9 @@ impl State {
         approved: bool,
     ) {
         let text = if approved {
-            tr!("RuleCheckPanel", "Approve")
+            tr!("RuleCheckListItem", "Approve")
         } else {
-            tr!("RuleCheckPanel", "Remove Approval")
+            tr!("RuleCheckListItem", "Remove Approval")
         };
         let mutation = match kind {
             CheckKind::Erc => Mutation::SetErcApproval { approval, approved },

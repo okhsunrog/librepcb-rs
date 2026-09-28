@@ -1098,7 +1098,7 @@ impl SymbolTab {
             }
             A::ToolImage | A::ImportDxf | A::ExportPdf | A::ExportImage | A::Print => {
                 extra.status = Some(tr!(
-                    "MainWindow",
+                    "librepcb::editor::MainWindow",
                     "Not available yet in this version: {0}",
                     format!("{action:?}")
                 ));

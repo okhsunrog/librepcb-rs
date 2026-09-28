@@ -51,7 +51,7 @@ impl State {
                     auto_popup: true,
                     ..Notification::new(
                         ui::NotificationType::Critical,
-                        tr!("GuiApplication", "Error"),
+                        tr!("librepcb::editor::GuiApplication", "Error"),
                         e.to_string(),
                     )
                 });
