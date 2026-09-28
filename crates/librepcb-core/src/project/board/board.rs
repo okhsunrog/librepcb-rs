@@ -872,6 +872,10 @@ pub struct BoardDerived {
     pub(crate) dirty_air_wire_nets: BTreeSet<Option<NetSignalId>>,
     pub(crate) plane_fragments: BTreeMap<PlaneId, Vec<Path>>,
     pub(crate) dirty_plane_layers: BTreeSet<Layer>,
+    /// Approvals of all DRC messages which occurred in a full check during
+    /// this session (upstream `mSupportedDrcMessageApprovals`), see
+    /// [`Project::drc_approvals_update()`](crate::project::Project::drc_approvals_update).
+    pub(crate) supported_drc_approvals: BTreeSet<SExpression>,
 }
 
 impl PartialEq for BoardDerived {
@@ -911,6 +915,12 @@ impl BoardDerived {
     /// `mScheduledLayersForPlanesRebuild`).
     pub fn dirty_plane_layers(&self) -> &BTreeSet<Layer> {
         &self.dirty_plane_layers
+    }
+
+    /// Returns the approvals of all DRC messages which occurred during this
+    /// session (upstream `mSupportedDrcMessageApprovals`).
+    pub fn supported_drc_approvals(&self) -> &BTreeSet<SExpression> {
+        &self.supported_drc_approvals
     }
 
     /// Schedules the air wires of a net for rebuild (upstream

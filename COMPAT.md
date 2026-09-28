@@ -80,10 +80,6 @@ stated otherwise. Entries are grouped by module.
   decomposed with the `unicode-normalization` crate instead of
   `QString::normalized()`; results only differ where the Unicode versions
   differ.
-- **ERC approvals after a project migration** are not cleaned up yet
-  (upstream runs the ERC and keeps only approvals of messages which still
-  occur); obsolete approvals stay in `circuit/erc.lp` until the ERC is
-  ported.
 - **Migration log**: the application version in the footer is passed in by
   the application (`ProjectLoader::set_application_version()`, empty by
   default); dates are formatted with `chrono` like Qt's
@@ -695,8 +691,13 @@ Rendering only; no file is affected.
 - **Errors**: checks that fail (e.g. a non-positive calculated diameter)
   report the error in `DrcResult::errors` like upstream, with the Rust error
   message. A panic of a check thread is reported as error as well.
-- The approval cleanup `Board::updateDrcMessageApprovals()` is not ported
-  (it modifies the board; to be added as mutation with the editor).
+- **Approval cleanup** (`Board::updateDrcMessageApprovals()`):
+  `Project::drc_approvals_update()` returns a `SetDrcApprovals` mutation
+  instead of modifying the board; the set of approvals seen during the
+  session is derived data of the board. `ProjectEditor::update_drc_approvals()`
+  applies it without undo step and marks the project as manually modified,
+  like upstream's board editor. `librepcb-cli` does not clean up approvals
+  (like upstream).
 - `DrcMsgInvalidPadConnection` keeps upstream's untranslated `'%2'` in its
   message (upstream substitutes only the first placeholder).
 
@@ -1147,8 +1148,10 @@ upstream `librepcb-cli` 2.1.1 except for:
 - **Rule checks:** approving or unapproving an ERC/DRC message is an
   undoable command (`SetErcApproval`/`SetDrcApproval` mutations; upstream
   modifies the project outside the undo stack). Approvals of messages
-  which disappeared are not cleaned up (upstream removes them after a
-  check run, `Board::updateDrcMessageApprovals()`). Selecting a message
+  which disappeared are not cleaned up yet by the tabs (upstream removes
+  them after a check run; the editor provides
+  `ProjectEditor::update_erc_approvals()`/`update_drc_approvals()`, used
+  by the MCP server). Selecting a message
   zooms to its location, but no location marker is drawn; automatic fixes
   are not available yet.
 - **DRC** runs in a worker thread which locks the project only to rebuild

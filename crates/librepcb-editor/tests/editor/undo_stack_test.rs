@@ -154,3 +154,88 @@ fn test_new_group_discards_redo_and_clean_state() {
     assert!(!editor.is_clean());
     let _ = NetClassId(Uuid::new_random());
 }
+
+/// The DRC approval cleanup (upstream `Board::updateDrcMessageApprovals()`
+/// via `BoardEditor::setDrcResult()`) is applied without undo step and
+/// marks the project as modified until it is saved.
+#[test]
+fn test_update_drc_approvals_is_manual_modification() {
+    use librepcb_core::project::BoardMutation;
+    use librepcb_core::serialization::{Mode, SExpression};
+    use librepcb_editor::commands::AddBoard;
+    let (_tmp, mut editor) = editor();
+    let board = editor
+        .execute(AddBoard {
+            name: ElementName::new("default").unwrap(),
+            copy_settings_from: None,
+            default_outline: true,
+        })
+        .unwrap()
+        .board;
+    let obsolete =
+        SExpression::parse(b"(approved obsolete (foo bar))", None, Mode::LibrePcb).unwrap();
+    editor
+        .apply_mutations(
+            "approvals",
+            vec![Mutation::Board(BoardMutation::SetDrcApprovals {
+                board,
+                version: "1".parse().unwrap(),
+                approvals: [obsolete].into(),
+            })],
+        )
+        .unwrap();
+    editor.save().unwrap();
+    assert!(editor.is_clean());
+    let undo_index = editor.undo_stack().index();
+
+    let result = editor
+        .update_derived_data(|p| p.run_drc(board, None, false, &|_| {}))
+        .unwrap()
+        .unwrap();
+    assert!(editor.update_drc_approvals(board, &result).unwrap());
+    let b = editor.project().board(board).unwrap();
+    assert!(b.drc_approvals().is_empty());
+    assert_eq!(b.drc_approvals_version().to_string(), "2");
+    assert_eq!(editor.undo_stack().index(), undo_index);
+    assert!(editor.has_manual_modifications());
+    assert!(!editor.is_clean());
+    // Nothing left to clean up.
+    assert!(!editor.update_drc_approvals(board, &result).unwrap());
+    editor.save().unwrap();
+    assert!(editor.is_clean());
+}
+
+/// ERC approval cleanup (upstream `ProjectEditor::runErc()`): approvals of
+/// messages which disappeared during the session are removed without undo
+/// step, approvals of messages never seen are kept.
+#[test]
+fn test_update_erc_approvals() {
+    use librepcb_core::project::erc::run_erc;
+    use librepcb_core::serialization::{Mode, SExpression};
+    let (_tmp, mut editor) = editor();
+    // An unused net class gives an ERC message.
+    editor.apply_mutations("a", vec![net_class("a")]).unwrap();
+    let messages = run_erc(editor.project());
+    assert!(!messages.is_empty());
+    let approval = messages[0].approval().clone();
+    let unknown =
+        SExpression::parse(b"(approved future_check (foo bar))", None, Mode::LibrePcb).unwrap();
+    editor
+        .apply_mutations(
+            "approve",
+            vec![Mutation::SetErcApprovals(
+                [approval.clone(), unknown.clone()].into(),
+            )],
+        )
+        .unwrap();
+    editor.save().unwrap();
+    assert!(!editor.update_erc_approvals(&messages).unwrap());
+    assert!(editor.is_clean());
+
+    // The message disappears.
+    let undo_index = editor.undo_stack().index();
+    assert!(editor.update_erc_approvals(&[]).unwrap());
+    assert_eq!(*editor.project().erc_approvals(), [unknown].into());
+    assert_eq!(editor.undo_stack().index(), undo_index);
+    assert!(!editor.is_clean());
+}

@@ -115,6 +115,12 @@ pub struct ProjectEditor {
     project: Project,
     undo_stack: UndoStack,
     source: Arc<dyn LibraryElementSource>,
+    /// Modifications made outside the undo stack since the last save
+    /// (upstream `ProjectEditor::setManualModificationsMade()`).
+    manual_modifications: bool,
+    /// Approvals of all ERC messages which occurred during this session
+    /// (upstream `ProjectEditor::mSupportedErcApprovals`).
+    supported_erc_approvals: std::collections::BTreeSet<librepcb_core::serialization::SExpression>,
 }
 
 static_assertions::assert_impl_all!(ProjectEditor: Send, Sync);
@@ -181,6 +187,8 @@ impl ProjectEditor {
             project,
             undo_stack: UndoStack::new(),
             source,
+            manual_modifications: false,
+            supported_erc_approvals: Default::default(),
         }
     }
 
@@ -366,9 +374,73 @@ impl ProjectEditor {
         Ok(true)
     }
 
-    /// Whether the project is unmodified since the last save.
+    /// Removes the approvals of DRC messages which disappeared, after a
+    /// check of `board` produced `result` (upstream
+    /// `BoardEditor::setDrcResult()` calling
+    /// `Board::updateDrcMessageApprovals()`, see
+    /// [`Project::drc_approvals_update()`]). Like upstream, the change is
+    /// not undoable: it is applied directly and marks the project as
+    /// modified ([`has_manual_modifications()`](Self::has_manual_modifications)).
+    /// Returns whether the approvals changed.
+    pub fn update_drc_approvals(
+        &mut self,
+        board: librepcb_core::project::BoardId,
+        result: &librepcb_core::project::board::drc::DrcResult,
+    ) -> Result<bool> {
+        let Some(mutation) = self.project.drc_approvals_update(board, result)? else {
+            return Ok(false);
+        };
+        self.project.apply(mutation)?;
+        self.manual_modifications = true;
+        Ok(true)
+    }
+
+    /// Removes the approvals of ERC messages which disappeared during this
+    /// session, after an ERC produced `messages` (upstream
+    /// `ProjectEditor::runErc()`). Approvals of messages which never
+    /// occurred during this session are kept (e.g. added by newer
+    /// versions). Like upstream, the change is not undoable: it is applied
+    /// directly and marks the project as modified. Returns whether the
+    /// approvals changed.
+    pub fn update_erc_approvals(
+        &mut self,
+        messages: &[librepcb_core::project::erc::ErcMessage],
+    ) -> Result<bool> {
+        let approvals: std::collections::BTreeSet<_> =
+            messages.iter().map(|m| m.approval().clone()).collect();
+        self.supported_erc_approvals
+            .extend(approvals.iter().cloned());
+        let supported = &self.supported_erc_approvals;
+        let current = self.project.erc_approvals();
+        let new: std::collections::BTreeSet<_> = current
+            .iter()
+            .filter(|a| !supported.contains(*a) || approvals.contains(*a))
+            .cloned()
+            .collect();
+        if new == *current {
+            return Ok(false);
+        }
+        self.project.apply(Mutation::SetErcApprovals(new))?;
+        self.manual_modifications = true;
+        Ok(true)
+    }
+
+    /// Whether the project was modified outside the undo stack since the
+    /// last save (upstream `ProjectEditor::setManualModificationsMade()`).
+    pub fn has_manual_modifications(&self) -> bool {
+        self.manual_modifications
+    }
+
+    /// Marks the project as modified outside the undo stack (upstream
+    /// `setManualModificationsMade()`); cleared by [`save()`](Self::save).
+    pub fn set_manual_modifications_made(&mut self) {
+        self.manual_modifications = true;
+    }
+
+    /// Whether the project is unmodified since the last save (neither
+    /// through the undo stack nor manually).
     pub fn is_clean(&self) -> bool {
-        self.undo_stack.is_clean()
+        self.undo_stack.is_clean() && !self.manual_modifications
     }
 
     /// Writes the project files and commits them to disk (upstream
@@ -381,6 +453,7 @@ impl ProjectEditor {
         self.project.save()?;
         self.project.directory().file_system().save()?;
         self.undo_stack.set_clean();
+        self.manual_modifications = false;
         Ok(())
     }
 

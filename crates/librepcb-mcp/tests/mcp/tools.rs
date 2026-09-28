@@ -368,7 +368,7 @@ fn checks_exports_and_render() {
     let (mut session, lpp) = open_project(tmp.path(), "Nested Planes");
     let project_dir = lpp.parent().unwrap().to_owned();
 
-    let out = output::erc_run(&session, ErcArgs::default()).unwrap();
+    let out = output::erc_run(&mut session, ErcArgs::default()).unwrap();
     assert_eq!(out.result["ran"], true);
     assert!(out.result["messages"].is_array());
 

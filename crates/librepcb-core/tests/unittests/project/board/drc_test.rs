@@ -202,3 +202,116 @@ fn test_multithreading() {
         assert!(result.errors.is_empty(), "{:?}", result.errors);
     }
 }
+
+/// `Project::drc_approvals_update()` (upstream
+/// `Board::updateDrcMessageApprovals()`): obsolete approvals are removed
+/// after full checks only, approvals unknown to this session are kept, and
+/// the first full check after a file format upgrade removes everything not
+/// occurring anymore.
+#[test]
+fn drc_approvals_update() {
+    use librepcb_core::project::{BoardMutation, Mutation};
+    let mut project = open_project("DRC", "project.lpp");
+    let id = project
+        .boards_with_ids()
+        .find(|(_, b)| *b.properties().name == *"checkMinimumCopperWidth")
+        .unwrap()
+        .0;
+    let approvals = |p: &Project| p.board(id).unwrap().drc_approvals().clone();
+    let version = |p: &Project| p.board(id).unwrap().drc_approvals_version().to_string();
+    let unknown =
+        SExpression::parse(b"(approved future_check (foo bar))", None, Mode::LibrePcb).unwrap();
+    project
+        .apply(Mutation::Board(BoardMutation::SetDrcApproval {
+            board: id,
+            approval: unknown.clone(),
+            approved: true,
+        }))
+        .unwrap();
+    let initial = approvals(&project);
+    assert_eq!(version(&project), "2");
+
+    // A full check with all messages: nothing to remove (the unknown
+    // approval never occurred in this session).
+    let full = project.run_drc(id, None, false, &no_progress).unwrap();
+    assert_eq!(project.drc_approvals_update(id, &full).unwrap(), None);
+    assert!(
+        project
+            .board(id)
+            .unwrap()
+            .derived()
+            .supported_drc_approvals()
+            .contains(full.messages[0].approval())
+    );
+
+    // A message disappears: after a quick check nothing is removed, after
+    // a full check its approval is removed.
+    let approved = full
+        .messages
+        .iter()
+        .find(|m| initial.contains(m.approval()))
+        .unwrap()
+        .approval()
+        .clone();
+    let mut reduced = full.clone();
+    reduced.messages.retain(|m| *m.approval() != approved);
+    let mut quick = reduced.clone();
+    quick.quick = true;
+    assert_eq!(project.drc_approvals_update(id, &quick).unwrap(), None);
+    let mutation = project.drc_approvals_update(id, &reduced).unwrap().unwrap();
+    project.apply(mutation).unwrap();
+    let mut expected = initial.clone();
+    expected.remove(&approved);
+    assert_eq!(approvals(&project), expected);
+    assert!(approvals(&project).contains(&unknown));
+    assert_eq!(version(&project), "2");
+
+    // First full check after a file format upgrade: everything not
+    // occurring is removed and the version is updated.
+    project
+        .apply(Mutation::Board(BoardMutation::SetDrcApprovals {
+            board: id,
+            version: "1".parse().unwrap(),
+            approvals: initial.clone(),
+        }))
+        .unwrap();
+    let mut quick = full.clone();
+    quick.quick = true;
+    assert_eq!(project.drc_approvals_update(id, &quick).unwrap(), None);
+    let mutation = project.drc_approvals_update(id, &full).unwrap().unwrap();
+    project.apply(mutation).unwrap();
+    let mut expected = initial.clone();
+    expected.remove(&unknown);
+    assert_eq!(approvals(&project), expected);
+    assert_eq!(version(&project), "2");
+}
+
+/// On all boards of the upstream DRC test project, whose approvals are
+/// exactly the emitted messages, a full check removes nothing except the
+/// messages ignored by `test_messages`; boards with an older approvals
+/// version get the current version.
+#[test]
+fn drc_approvals_update_on_test_project() {
+    let mut project = open_project("DRC", "project.lpp");
+    let boards: Vec<_> = project.boards_with_ids().map(|(id, _)| id).collect();
+    for id in boards {
+        let before = project.board(id).unwrap().drc_approvals().clone();
+        let old_version = project.board(id).unwrap().drc_approvals_version().clone();
+        let result = project.run_drc(id, None, false, &no_progress).unwrap();
+        let emitted: BTreeSet<_> = result
+            .messages
+            .iter()
+            .map(|m| m.approval().clone())
+            .collect();
+        match project.drc_approvals_update(id, &result).unwrap() {
+            None => assert_eq!(old_version.to_string(), "2"),
+            Some(m) => {
+                project.apply(m).unwrap();
+                let board = project.board(id).unwrap();
+                assert_eq!(board.drc_approvals_version().to_string(), "2");
+                let expected: BTreeSet<_> = before.intersection(&emitted).cloned().collect();
+                assert_eq!(*board.drc_approvals(), expected);
+            }
+        }
+    }
+}
