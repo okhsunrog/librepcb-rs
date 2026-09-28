@@ -211,6 +211,8 @@ pub struct ElementCore<E: ElementKindInfo> {
     /// Opened as a new (or duplicated) element: its interface can't be
     /// broken while the tab is open (upstream `mIsNewElement`).
     is_new: bool,
+    /// How the tab was opened.
+    pub mode: OpenMode,
     user_name: String,
     /// The database (for new elements' categories etc.).
     pub db: Arc<LibraryDb>,
@@ -274,6 +276,7 @@ impl<E: ElementKindInfo> ElementCore<E> {
             element_duplicated: false,
             allow_breaking_changes: false,
             is_new: mode != OpenMode::Open,
+            mode,
             user_name,
             db,
         };
@@ -469,7 +472,9 @@ impl<E: ElementKindInfo> ElementCore<E> {
         } else {
             self.editor.save().map_err(|e| e.to_string())?;
         }
-        if self.wizard_mode && self.page_index == 0 {
+        // Upstream: saving the first wizard page goes to the next page
+        // (not for devices, whose first page chooses component and package).
+        if self.wizard_mode && self.page_index == 0 && E::KIND != ElementKind::Device {
             self.page_index += 1;
             if E::EDITOR_PAGE == 1 {
                 self.wizard_mode = false;

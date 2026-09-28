@@ -652,6 +652,7 @@ impl State {
         connect!(symbol, Symbol);
         connect!(package, Package);
         connect!(component, Component);
+        connect!(device, Device);
         let w = self.this.clone();
         schematic.set_handler(move |row, data: ui::SchematicTabData| {
             deferred(&w, move |s| {

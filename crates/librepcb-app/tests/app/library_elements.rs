@@ -675,6 +675,172 @@ fn component_editor() {
     });
 }
 
+/// The R-0805 device of the upstream test library.
+pub const R0805_DEVICE: &str = "078650d3-483c-4b9e-a848-b14f1aad2edc";
+
+#[test]
+fn device_editor() {
+    crate::common::with_headless(W, H, |headless| {
+        let tmp = tempfile::tempdir().unwrap();
+        let (app, lib) = app_with_library(headless, tmp.path());
+        let backend = app.window().global::<ui::Backend>();
+        let data = app.window().global::<ui::Data>();
+        let dev_dir = lib.path_to(&format!("dev/{R0805_DEVICE}"));
+        open_from_library_tab(&app, headless, &lib, &dev_dir);
+        let tab = find_tab(&app, |t| matches!(t, Tab::Device(_))).expect("device tab");
+        let derived = || {
+            with_tab(&app, tab, |t| {
+                let Tab::Device(d) = t else { unreachable!() };
+                d.derived_ui_data()
+            })
+        };
+        {
+            let sections = data.get_sections();
+            let d = sections
+                .row_data(tab.0)
+                .unwrap()
+                .device_tabs
+                .row_data(tab.1)
+                .unwrap();
+            assert_eq!(d.name, "R-0805");
+            assert_eq!(d.page_index, 1);
+            assert_eq!(d.component_name, "Resistor");
+            assert_eq!(d.package_name, "RESC2012 (0805)");
+            assert!(!d.component_error && !d.package_error);
+            assert_eq!(d.pinout.row_count(), 2);
+            assert!(!d.has_unconnected_pads);
+        }
+        for scene in [0, 1] {
+            let image = with_tab(&app, tab, |t| t.render_scene(300.0, 200.0, 1.0, scene));
+            assert_eq!(image.size().width, 300, "preview {scene}");
+        }
+        save(headless, "element_device.png");
+
+        // Pinout: disconnect a pad, then reconnect it interactively.
+        let d = derived();
+        let mut row = d.pinout.row_data(0).unwrap();
+        let signal_index = row.signal_index;
+        assert!(signal_index > 0);
+        row.signal_index = 0;
+        d.pinout.set_row_data(0, row);
+        headless.settle(5);
+        backend.invoke_trigger_tab(tab.0 as i32, tab.1 as i32, ui::TabAction::Unlock);
+        headless.settle(5);
+        let d = derived();
+        assert_eq!(d.pinout.row_data(0).unwrap().signal_index, 0);
+        assert!(d.has_unconnected_pads);
+        backend.invoke_trigger_tab(
+            tab.0 as i32,
+            tab.1 as i32,
+            ui::TabAction::DevicePinoutConnectInteractively,
+        );
+        headless.settle(5);
+        let d = derived();
+        assert!(d.interactive_pinout_number > 0);
+        assert!(d.interactive_pinout_signals.row_count() >= 2);
+        save(headless, "element_device_interactive.png");
+        // Choose the first unused signal.
+        let choice = (0..d.interactive_pinout_signals.row_count())
+            .find(|i| {
+                let s = d.interactive_pinout_signals.row_data(*i).unwrap();
+                !s.name.is_empty() && !s.used
+            })
+            .unwrap();
+        with_tab(&app, tab, |t| {
+            let Tab::Device(dt) = t else { unreachable!() };
+            let mut d = dt.derived_ui_data();
+            d.interactive_pinout_signal_index = choice as i32;
+            dt.set_derived_ui_data(&d);
+            t.trigger(ui::TabAction::Accept);
+            let Tab::Device(dt) = t else { unreachable!() };
+            assert!(!dt.is_interactive(), "all pads connected");
+        });
+        assert!(!derived().has_unconnected_pads);
+
+        // Parts: the "new part" row is added on "apply".
+        let d = derived();
+        assert_eq!(d.parts.row_count(), 1, "the new part row");
+        let mut part = d.parts.row_data(0).unwrap();
+        part.mpn = "RC0805".into();
+        part.manufacturer = "ACME".into();
+        d.parts.set_row_data(0, part);
+        headless.settle(5);
+        backend.invoke_trigger_tab(tab.0 as i32, tab.1 as i32, ui::TabAction::Apply);
+        headless.settle(5);
+        let d = derived();
+        assert_eq!(d.parts.row_count(), 2);
+        assert_eq!(d.parts.row_data(0).unwrap().mpn, "RC0805");
+        assert_eq!(
+            d.parts.row_data(1).unwrap().mpn,
+            "",
+            "MPN of the new row reset"
+        );
+        assert_eq!(d.parts.row_data(1).unwrap().manufacturer, "ACME");
+        with_tab(&app, tab, |t| {
+            t.trigger(ui::TabAction::Save);
+            assert!(!t.ui_data().unsaved_changes);
+        });
+        headless.settle(10);
+        let content = std::fs::read_to_string(dev_dir.path_to("device.lp").as_path()).unwrap();
+        assert!(
+            content.contains("(part \"RC0805\" (manufacturer \"ACME\")"),
+            "{content}"
+        );
+        backend.invoke_trigger_tab(tab.0 as i32, tab.1 as i32, ui::TabAction::Apply);
+        headless.settle(10);
+        save(headless, "element_device_saved.png");
+
+        // A new device: component & package, metadata, pinout, parts.
+        backend.invoke_trigger_library(lib.to_native().into(), ui::LibraryAction::NewDevice);
+        headless.settle(10);
+        let new = find_tab(
+            &app,
+            |t| matches!(t, Tab::Device(s) if s.core().wizard_mode),
+        )
+        .expect("new device tab");
+        let trigger = |action| {
+            backend.invoke_trigger_tab(new.0 as i32, new.1 as i32, action);
+            headless.settle(10);
+        };
+        assert_eq!(
+            with_tab(&app, new, |t| {
+                let Tab::Device(d) = t else { unreachable!() };
+                d.derived_ui_data().component_name
+            }),
+            ""
+        );
+        trigger(ui::TabAction::DeviceSelectComponent);
+        save(headless, "element_device_choose_component.png");
+        choose_in_dialog(&app, headless, "Resistor");
+        trigger(ui::TabAction::DeviceSelectPackage);
+        choose_in_dialog(&app, headless, "RESC2012 (0805)");
+        save(headless, "element_device_new.png");
+        trigger(ui::TabAction::Next);
+        let name = with_tab(&app, new, |t| {
+            let Tab::Device(d) = t else { unreachable!() };
+            assert_eq!(d.core().page_index, 1);
+            d.derived_ui_data().name
+        });
+        assert_eq!(name, "Resistor (RESC2012 (0805))");
+        trigger(ui::TabAction::Next);
+        let page = with_tab(&app, new, |t| {
+            let Tab::Device(d) = t else { unreachable!() };
+            d.core().page_index
+        });
+        assert_eq!(page, 2, "the pinout page");
+        trigger(ui::TabAction::DevicePinoutConnectAuto);
+        trigger(ui::TabAction::Next);
+        trigger(ui::TabAction::Next);
+        let dir = with_tab(&app, new, |t| {
+            let Tab::Device(d) = t else { unreachable!() };
+            assert!(!d.core().wizard_mode);
+            assert_eq!(d.core().page_index, 1);
+            d.core().directory_path()
+        });
+        assert!(dir.path_to("device.lp").is_existing_file());
+    });
+}
+
 #[test]
 fn symbol_editor() {
     crate::common::with_headless(W, H, |headless| {

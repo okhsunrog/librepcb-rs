@@ -1128,78 +1128,8 @@ impl ComponentTab {
         self.load_gate_symbols();
         let cmp = self.core.editor.element();
         let var = cmp.symbol_variants().iter().nth(variant)?;
-        let all = gate >= var.symbol_items().len();
-        let metadata = BaseMetadata::new(
-            Uuid::new_random(),
-            "0.1".parse::<Version>().ok()?,
-            "",
-            Utc::now(),
-            ElementName::new("Preview").ok()?,
-            "",
-            "",
-        );
-        let mut out = Symbol::new(metadata).ok()?;
-        for (gi, g) in var.symbol_items().iter().enumerate() {
-            if !all && gi != gate {
-                continue;
-            }
-            let Some(Some(sym)) = self.symbols.get(&g.symbol_uuid()) else {
-                continue;
-            };
-            let (rotation, offset) = if all {
-                (g.symbol_rotation(), g.symbol_position())
-            } else {
-                (Angle::DEG0, Point::ORIGIN)
-            };
-            let place = |o: &mut dyn Transformable| {
-                o.rotate(rotation, Point::ORIGIN);
-                o.translate(offset);
-            };
-            for pin in sym.pins().iter() {
-                let mut pin = pin.clone();
-                let item = g
-                    .pin_signal_map()
-                    .iter()
-                    .find(|i| i.pin_uuid() == pin.uuid());
-                let signal = item
-                    .and_then(|i| i.signal_uuid())
-                    .and_then(|u| cmp.signals().by_uuid(&u));
-                let text = match (item.map(|i| i.display_type()), signal) {
-                    (Some(CmpSigPinDisplayType::ComponentSignal), Some(s)) => {
-                        Some(s.name().clone())
-                    }
-                    (Some(CmpSigPinDisplayType::NetSignal), Some(s)) => CircuitIdentifier::new(
-                        CircuitIdentifier::clean(if s.forced_net_name().is_empty() {
-                            s.name().as_str()
-                        } else {
-                            s.forced_net_name()
-                        }),
-                    )
-                    .ok(),
-                    _ => None,
-                };
-                if let Some(text) = text {
-                    pin.set_name(text);
-                }
-                place(&mut pin);
-                out.pins_mut().push(pin);
-            }
-            for p in sym.polygons().iter() {
-                let mut p = p.clone();
-                place(&mut p);
-                out.polygons_mut().push(p);
-            }
-            for c in sym.circles().iter() {
-                let mut c = c.clone();
-                place(&mut c);
-                out.circles_mut().push(c);
-            }
-            for t in sym.texts().iter() {
-                let mut t = t.clone();
-                place(&mut t);
-                out.texts_mut().push(t);
-            }
-        }
+        let gate = (gate < var.symbol_items().len()).then_some(gate);
+        let out = assemble_variant_symbol(cmp, variant, gate, &self.symbols, true)?;
         Some(SymbolScene::build(
             &out,
             self.font.as_ref(),
@@ -1216,4 +1146,87 @@ impl ComponentTab {
     pub fn set_attributes(&mut self, list: &AttributeList) {
         self.attributes = AttributeEditor::new(list);
     }
+}
+
+/// A symbol with the gates of a variant of `cmp` (one gate at the origin,
+/// or all gates at their positions if `gate` is `None`); with
+/// `label_signals`, the pins are named like the displayed signals.
+pub fn assemble_variant_symbol(
+    cmp: &Component,
+    variant: usize,
+    gate: Option<usize>,
+    symbols: &HashMap<Uuid, Option<Symbol>>,
+    label_signals: bool,
+) -> Option<Symbol> {
+    let var = cmp.symbol_variants().iter().nth(variant)?;
+    let metadata = BaseMetadata::new(
+        Uuid::new_random(),
+        "0.1".parse::<Version>().ok()?,
+        "",
+        Utc::now(),
+        ElementName::new("Preview").ok()?,
+        "",
+        "",
+    );
+    let mut out = Symbol::new(metadata).ok()?;
+    for (gi, g) in var.symbol_items().iter().enumerate() {
+        if gate.is_some_and(|g| g != gi) {
+            continue;
+        }
+        let Some(Some(sym)) = symbols.get(&g.symbol_uuid()) else {
+            continue;
+        };
+        let (rotation, offset) = if gate.is_none() {
+            (g.symbol_rotation(), g.symbol_position())
+        } else {
+            (Angle::DEG0, Point::ORIGIN)
+        };
+        let place = |o: &mut dyn Transformable| {
+            o.rotate(rotation, Point::ORIGIN);
+            o.translate(offset);
+        };
+        for pin in sym.pins().iter() {
+            let mut pin = pin.clone();
+            let item = g
+                .pin_signal_map()
+                .iter()
+                .find(|i| i.pin_uuid() == pin.uuid());
+            let signal = item
+                .and_then(|i| i.signal_uuid())
+                .and_then(|u| cmp.signals().by_uuid(&u));
+            let text = match (item.map(|i| i.display_type()), signal) {
+                (Some(CmpSigPinDisplayType::ComponentSignal), Some(s)) => Some(s.name().clone()),
+                (Some(CmpSigPinDisplayType::NetSignal), Some(s)) => CircuitIdentifier::new(
+                    CircuitIdentifier::clean(if s.forced_net_name().is_empty() {
+                        s.name().as_str()
+                    } else {
+                        s.forced_net_name()
+                    }),
+                )
+                .ok(),
+                _ => None,
+            };
+            if label_signals && let Some(text) = text {
+                pin.set_name(text);
+            }
+            place(&mut pin);
+            out.pins_mut().push(pin);
+        }
+        for p in sym.polygons().iter() {
+            let mut p = p.clone();
+            place(&mut p);
+            out.polygons_mut().push(p);
+        }
+        for c in sym.circles().iter() {
+            let mut c = c.clone();
+            place(&mut c);
+            out.circles_mut().push(c);
+        }
+        for t in sym.texts().iter() {
+            let mut t = t.clone();
+            place(&mut t);
+            out.texts_mut().push(t);
+        }
+    }
+    Some(out)
 }

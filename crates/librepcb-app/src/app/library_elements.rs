@@ -12,6 +12,7 @@ use std::rc::Rc;
 use librepcb_app_ui as ui;
 use librepcb_core::fileio::FilePath;
 use librepcb_core::library::cmp::Component;
+use librepcb_core::library::dev::Device;
 use librepcb_core::library::pkg::Package;
 use librepcb_core::library::sym::Symbol;
 use librepcb_i18n::tr;
@@ -21,8 +22,8 @@ use super::{State, deferred};
 use crate::open_library::OpenLibrary;
 use crate::tabs::element_core::{ElementCore, ElementKindInfo, OpenMode};
 use crate::tabs::{
-    ComponentRowEvent, ComponentTab, LibraryItemRef, PackageRowEvent, PackageTab, SymbolTab, Tab,
-    TabId, TabUpdate,
+    ComponentRowEvent, ComponentTab, DeviceRowEvent, DeviceTab, LibraryItemRef, PackageRowEvent,
+    PackageTab, SymbolTab, Tab, TabId, TabUpdate,
 };
 
 impl State {
@@ -187,6 +188,18 @@ impl State {
                 });
                 Tab::Component(Box::new(ComponentTab::new(core, sink).with_id(id)))
             }
+            ui::LibraryTreeViewItemType::Device => {
+                let Some(core) = self.element_core::<Device>(id, lib, relative, mode) else {
+                    return;
+                };
+                let w = self.this.clone();
+                let sink = Rc::new(move |event: DeviceRowEvent| {
+                    deferred(&w, move |s| {
+                        s.element_tab_event(id, |t| t.device_row_written(event));
+                    });
+                });
+                Tab::Device(Box::new(DeviceTab::new(core, sink).with_id(id)))
+            }
             other => {
                 self.not_implemented(&format!("{other:?}"));
                 return;
@@ -241,6 +254,14 @@ impl State {
                 (
                     Rc::clone(&t.core().library),
                     ui::LibraryTreeViewItemType::Component,
+                    t.core().directory_path(),
+                )
+            }
+            Tab::Device(t) => {
+                t.core_mut().element_duplicated = true;
+                (
+                    Rc::clone(&t.core().library),
+                    ui::LibraryTreeViewItemType::Device,
                     t.core().directory_path(),
                 )
             }
@@ -364,6 +385,39 @@ impl State {
         };
         let dialog = crate::dialogs::chooser::ElementChooserDialog::new(purpose, db, locales);
         self.open_library_dialog(Some(tab), Box::new(dialog));
+    }
+
+    /// Lets the user choose a pinout CSV file for a device tab (upstream
+    /// `DevicePinoutBuilder::loadFromFile()`).
+    pub(crate) fn choose_pinout_file(&mut self, tab: TabId) {
+        let title = tr!(
+            "librepcb::editor::DevicePinoutBuilder",
+            "Choose Pinout File"
+        );
+        let filters = [crate::file_dialog::Filter {
+            name: "Comma-Separated Values (*.csv)".to_owned(),
+            extensions: vec!["csv", "CSV"],
+        }];
+        let Some(path) = crate::file_dialog::open_file(&title, &filters, None) else {
+            return;
+        };
+        match std::fs::read(&path) {
+            Ok(content) => {
+                let text = String::from_utf8_lossy(&content).into_owned();
+                self.element_tab_event(tab, |t| t.pinout_file_chosen(&text));
+            }
+            Err(e) => self
+                .notifications
+                .borrow_mut()
+                .push(crate::notifications::Notification {
+                    auto_popup: true,
+                    ..crate::notifications::Notification::new(
+                        ui::NotificationType::Critical,
+                        tr!("librepcb::editor::DevicePinoutBuilder", "Error"),
+                        format!("{}: {e}", path.display()),
+                    )
+                }),
+        }
     }
 
     /// Opens the "courtyard excess" dialog of a package tab.
