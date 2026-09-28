@@ -76,7 +76,10 @@ impl AddStrokeTextState {
     }
 
     fn add_text(&mut self, cx: &mut Cx<'_, '_>, pos: Point) -> bool {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_AddStrokeText", "Add text to board")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_AddStrokeText",
+            "Add text to board"
+        )) {
             cx.error(e);
             return false;
         }

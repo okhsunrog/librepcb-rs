@@ -35,10 +35,10 @@ pub enum Error {
     Serialization(#[from] serialization::Error),
     /// A group is active, so no other group can be started and undo/redo
     /// are not possible.
-    #[error("{}", tr!("UndoStack", "Another command is active at the moment. Please finish that command to continue."))]
+    #[error("{}", tr!("librepcb::editor::UndoStack", "Another command is active at the moment. Please finish that command to continue."))]
     GroupActive,
     /// No group is active.
-    #[error("{}", tr!("UndoStack", "No command group active!"))]
+    #[error("{}", tr!("librepcb::editor::UndoStack", "No command group active!"))]
     NoGroupActive,
     /// The library element does not exist in the library element source
     /// (upstream: "workspace library").
@@ -58,26 +58,26 @@ pub enum Error {
         uuid: Uuid,
     },
     /// The package has no footprints.
-    #[error("{}", tr!("CmdAddDeviceToBoard", "Package does not have any footprints: {0}", .0))]
+    #[error("{}", tr!("librepcb::editor::CmdAddDeviceToBoard", "Package does not have any footprints: {0}", .0))]
     NoFootprints(Uuid),
     /// The device is not a compatible device of the component and the
     /// component's assembly options are locked.
-    #[error("{}", tr!("CmdAddDeviceToBoard", "The component in the schematic does not specify the chosen device as compatible and is locked for modifications from the board editor. Either add a corresponding assembly option to the component in the schematic, or remove the lock from the component."))]
+    #[error("{}", tr!("librepcb::editor::CmdAddDeviceToBoard", "The component in the schematic does not specify the chosen device as compatible and is locked for modifications from the board editor. Either add a corresponding assembly option to the component in the schematic, or remove the lock from the component."))]
     DeviceNotCompatible,
     /// The component has no symbols (gates) in its symbol variant.
-    #[error("{}", tr!("SchematicEditorState_AddComponent", "The component with the UUID \"{0}\" does not have any symbol.", .0))]
+    #[error("{}", tr!("librepcb::editor::SchematicEditorState_AddComponent", "The component with the UUID \"{0}\" does not have any symbol.", .0))]
     ComponentWithoutSymbols(Uuid),
     /// All gates of the component are placed already.
     #[error("All gates of the component \"{0}\" are placed already.")]
     AllGatesPlaced(String),
     /// A trace cannot be attached to a pad without net.
-    #[error("{}", tr!("BoardEditorState_DrawTrace", "This pad is not connected to any net, therefore no trace can be attached to it. To allow attaching a trace, first connect this pad to a net in the schematics. So this is a problem of the schematics, not of the board."))]
+    #[error("{}", tr!("librepcb::editor::BoardEditorState_DrawTrace", "This pad is not connected to any net, therefore no trace can be attached to it. To allow attaching a trace, first connect this pad to a net in the schematics. So this is a problem of the schematics, not of the board."))]
     PadNotConnected,
     /// A trace cannot connect copper of two different nets.
     #[error("Cannot connect copper of the nets \"{0}\" and \"{1}\".")]
     NetMismatch(String, String),
     /// An invalid name (e.g. a directory name could not be derived).
-    #[error("{}", tr!("ProjectEditor", "Invalid name: '{0}'", .0))]
+    #[error("{}", tr!("librepcb::editor::ProjectEditor", "Invalid name: '{0}'", .0))]
     InvalidName(String),
     /// An entity referenced by the command parameters does not exist.
     #[error("{kind} not found: {id}")]
@@ -133,22 +133,22 @@ impl Error {
 fn not_in_source_message(kind: LibraryElementKind, uuid: &Uuid) -> String {
     match kind {
         LibraryElementKind::Symbol => tr!(
-            "CmdAddSymbolToSchematic",
+            "librepcb::editor::CmdAddSymbolToSchematic",
             "The symbol with the UUID \"{0}\" does not exist in the workspace library!",
             uuid
         ),
         LibraryElementKind::Package => tr!(
-            "CmdAddDeviceToBoard",
+            "librepcb::editor::CmdAddDeviceToBoard",
             "The package with the UUID \"{0}\" does not exist in the workspace library!",
             uuid
         ),
         LibraryElementKind::Component => tr!(
-            "CmdAddComponentToCircuit",
+            "librepcb::editor::CmdAddComponentToCircuit",
             "The component with the UUID \"{0}\" does not exist in the workspace library!",
             uuid
         ),
         LibraryElementKind::Device => tr!(
-            "CmdAddDeviceToBoard",
+            "librepcb::editor::CmdAddDeviceToBoard",
             "The device with the UUID \"{0}\" does not exist in the workspace library!",
             uuid
         ),
@@ -158,12 +158,12 @@ fn not_in_source_message(kind: LibraryElementKind, uuid: &Uuid) -> String {
 fn not_in_project_library_message(kind: LibraryElementKind, uuid: &Uuid) -> String {
     match kind {
         LibraryElementKind::Component => tr!(
-            "CmdComponentInstanceAdd",
+            "librepcb::editor::CmdComponentInstanceAdd",
             "The component with the UUID \"{0}\" does not exist in the project's library!",
             uuid
         ),
         LibraryElementKind::Symbol => tr!(
-            "SI_Symbol",
+            "librepcb::SI_Symbol",
             "No symbol with the UUID \"{0}\" found in the project's library.",
             uuid
         ),

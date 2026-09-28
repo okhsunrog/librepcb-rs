@@ -453,3 +453,53 @@ fn cli_like_upstream_cli() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Parser errors (e.g. several unknown options) are reported like
+/// `QCommandLineParser` does; the executable paths in the usage lines are
+/// normalized.
+#[test]
+fn parser_errors_like_upstream_cli() {
+    let Some(upstream) = upstream_cli() else {
+        eprintln!(
+            "librepcb-cli not found (set LIBREPCB_CLI), skipping the comparison with upstream"
+        );
+        return;
+    };
+    let ours = PathBuf::from(env!("CARGO_BIN_EXE_librepcb-cli"));
+    let tmp = tempfile::tempdir().unwrap();
+    let normalize = |(code, out): (i32, String)| -> (i32, String) {
+        let mut out = out;
+        let paths: Vec<String> = out
+            .split_whitespace()
+            .filter(|w| w.ends_with("/librepcb-cli"))
+            .map(str::to_owned)
+            .collect();
+        for path in paths {
+            out = out.replace(&path, "librepcb-cli");
+        }
+        (code, out)
+    };
+    let mut failures = Vec::new();
+    for case in [
+        &["open-library", "-abc", "--foo", "x"][..],
+        &["open-library", "--foo", "--bar=1", "x"],
+        &["--foo", "-x"],
+        &["-abc"],
+        &["open-project", "-v", "--erc", "--bar", "-q", "p.lpp"],
+        &["open-project", "--foo", "--board"],
+        &["open-project", "--board", "--foo", "p.lpp", "--", "--bar"],
+        &["open-project", "--erc=1", "--foo", "p.lpp"],
+        &["open-project", "-xvh", "p.lpp"],
+    ] {
+        let case = args(case);
+        let expected = normalize(run(&upstream, tmp.path(), &case));
+        let actual = normalize(run(&ours, tmp.path(), &case));
+        if expected != actual {
+            failures.push(format!(
+                "{case:?}:\n--- upstream (exit {}):\n{}\n--- ours (exit {}):\n{}",
+                expected.0, expected.1, actual.0, actual.1
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}

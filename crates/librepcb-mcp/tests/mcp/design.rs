@@ -241,7 +241,7 @@ fn design_rc_circuit_with_populated_library() {
         net_pins(&session, "GND"),
         ["C1.2", "C2.2", &format!("{gnd}.Net")]
     );
-    let erc = output::erc_run(&session, ErcArgs::default()).unwrap();
+    let erc = output::erc_run(&mut session, ErcArgs::default()).unwrap();
     assert_eq!(erc.result["ran"], true);
     assert_eq!(erc.result["errors"], 0, "{}", erc.summary);
     assert_eq!(erc.result["warnings"], 0, "{}", erc.summary);
@@ -300,7 +300,7 @@ fn design_rc_circuit_with_populated_library() {
     assert_eq!(out.result["supplies"], 2, "{}", out.summary);
     assert_eq!(circuit::netlist(&session).unwrap().result, netlist_before);
     assert!(!symbols_overlap(&session), "symbols overlap");
-    let erc = output::erc_run(&session, ErcArgs::default()).unwrap();
+    let erc = output::erc_run(&mut session, ErcArgs::default()).unwrap();
     assert_eq!(erc.result["errors"], 0, "{}", erc.summary);
     assert_eq!(erc.result["warnings"], 0, "{}", erc.summary);
 
@@ -454,7 +454,7 @@ fn design_rc_circuit_with_populated_library() {
     let drc = output::drc_run(&mut session, DrcArgs::default()).unwrap();
     assert_eq!(drc.result["ran"], true);
     assert_eq!(drc.result["errors"], 0, "{}", drc.summary);
-    let erc = output::erc_run(&session, ErcArgs::default()).unwrap();
+    let erc = output::erc_run(&mut session, ErcArgs::default()).unwrap();
     assert_eq!(erc.result["errors"], 0, "{}", erc.summary);
     let fab = output::export_fabrication(
         &mut session,

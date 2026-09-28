@@ -298,7 +298,10 @@ impl Command for RemoveBoardItems {
     type Output = bool;
 
     fn text(&self) -> String {
-        tr!("CmdRemoveBoardItems", "Remove Board Items")
+        tr!(
+            "librepcb::editor::CmdRemoveBoardItems",
+            "Remove Board Items"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<bool> {
@@ -584,7 +587,10 @@ impl Command for AddTrace {
     type Output = TraceResult;
 
     fn text(&self) -> String {
-        tr!("BoardEditorState_DrawTrace", "Draw Board Trace")
+        tr!(
+            "librepcb::editor::BoardEditorState_DrawTrace",
+            "Draw Board Trace"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<TraceResult> {
@@ -643,7 +649,7 @@ impl Command for AddTrace {
         let b_ref = resolve::board(p, Some(board))?;
         if !b_ref.copper_layers().contains(&layer) {
             return Err(Error::InvalidArgument(tr!(
-                "BoardEditorState_DrawTrace",
+                "librepcb::editor::BoardEditorState_DrawTrace",
                 "Invalid layer selected."
             )));
         }
@@ -889,7 +895,10 @@ impl Command for AddVia {
     type Output = ViaResult;
 
     fn text(&self) -> String {
-        tr!("BoardEditorState_AddVia", "Add via to board")
+        tr!(
+            "librepcb::editor::BoardEditorState_AddVia",
+            "Add via to board"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<ViaResult> {
@@ -986,25 +995,15 @@ impl PlaneSettings {
 
 /// Returns the automatic plane outline (upstream
 /// `BoardEditorState_DrawPlane::determineAutoPlaneOutline()`): a rectangle
-/// around the board outline (vertices, arcs ignored) with a spacing of a
-/// multiple of the grid interval (at least 2 mm), not at the left X
-/// coordinate of an existing plane.
-fn auto_plane_outline(p: &Project, board: BoardId) -> Result<Path> {
+/// around the bounding rectangle of the board outlines (incl. arcs and the
+/// outlines of footprints) with a spacing of a multiple of `grid` (at least
+/// 2 mm), not at the left X coordinate of an existing plane.
+pub(crate) fn auto_plane_outline(p: &Project, board: BoardId, grid: Length) -> Result<Path> {
     let b = resolve::board(p, Some(board))?;
-    let vertices: Vec<Point> = b
-        .polygons()
-        .values()
-        .filter(|poly| poly.layer() == Layer::BOARD_OUTLINES)
-        .flat_map(|poly| poly.path().vertices().iter().map(|v| v.pos))
-        .collect();
-    let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
-        vertices.iter().map(|v| v.x).min(),
-        vertices.iter().map(|v| v.x).max(),
-        vertices.iter().map(|v| v.y).min(),
-        vertices.iter().map(|v| v.y).max(),
-    ) else {
+    let bbox = p.board_bounding_rect(board).map_err(Error::from_export)?;
+    let Some((bottom_left, top_right)) = bbox else {
         return Err(Error::InvalidArgument(tr!(
-            "BoardEditorState_DrawPlane",
+            "librepcb::editor::BoardEditorState_DrawPlane",
             "Could not determine the bounding box of board. Make sure a valid board outline polygon is present."
         )));
     };
@@ -1013,7 +1012,7 @@ fn auto_plane_outline(p: &Project, board: BoardId) -> Result<Path> {
         .values()
         .flat_map(|plane| plane.outline().vertices().iter().map(|v| v.pos.x))
         .collect();
-    let mut grid = *b.settings().grid_interval;
+    let mut grid = grid;
     while grid < Length::new(2_000_000) {
         grid *= 2;
     }
@@ -1021,14 +1020,14 @@ fn auto_plane_outline(p: &Project, board: BoardId) -> Result<Path> {
     let mut left;
     loop {
         min_space += grid;
-        left = (min_x - min_space).rounded_down_to(grid);
+        left = (bottom_left.x - min_space).rounded_down_to(grid);
         if !used_left.contains(&left) {
             break;
         }
     }
-    let bottom = (min_y - min_space).rounded_down_to(grid);
-    let top = (max_y + min_space).rounded_up_to(grid);
-    let right = (max_x + min_space).rounded_up_to(grid);
+    let bottom = (bottom_left.y - min_space).rounded_down_to(grid);
+    let top = (top_right.y + min_space).rounded_up_to(grid);
+    let right = (top_right.x + min_space).rounded_up_to(grid);
     Ok(Path::rect(Point::new(left, bottom), Point::new(right, top)))
 }
 
@@ -1059,7 +1058,7 @@ impl Command for AddPlane {
     type Output = PlaneId;
 
     fn text(&self) -> String {
-        tr!("CmdBoardPlaneAdd", "Add plane to board")
+        tr!("librepcb::editor::CmdBoardPlaneAdd", "Add plane to board")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<PlaneId> {
@@ -1071,7 +1070,12 @@ impl Command for AddPlane {
             .transpose()?;
         let outline = match self.outline {
             Some(o) => o,
-            None => auto_plane_outline(tx.project(), board)?,
+            None => {
+                let grid = resolve::board(tx.project(), Some(board))?
+                    .settings()
+                    .grid_interval;
+                auto_plane_outline(tx.project(), board, *grid)?
+            }
         };
         let layer = self.layer.unwrap_or(Layer::TOP_COPPER);
         if !layer.is_copper() {
@@ -1116,7 +1120,7 @@ impl Command for EditPlane {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdBoardPlaneEdit", "Edit plane")
+        tr!("librepcb::editor::CmdBoardPlaneEdit", "Edit plane")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -1170,7 +1174,10 @@ impl Command for AddBoardPolygon {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdBoardPolygonAdd", "Add polygon to board")
+        tr!(
+            "librepcb::editor::CmdBoardPolygonAdd",
+            "Add polygon to board"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Uuid> {
@@ -1219,7 +1226,10 @@ impl Command for SetBoardOutline {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdBoardPolygonAdd", "Add polygon to board")
+        tr!(
+            "librepcb::editor::CmdBoardPolygonAdd",
+            "Add polygon to board"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Uuid> {
@@ -1278,7 +1288,7 @@ impl Command for AddHole {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdBoardHoleAdd", "Add hole to board")
+        tr!("librepcb::editor::CmdBoardHoleAdd", "Add hole to board")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Uuid> {
@@ -1319,7 +1329,7 @@ impl Command for AddZone {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdBoardZoneAdd", "Add zone to board")
+        tr!("librepcb::editor::CmdBoardZoneAdd", "Add zone to board")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Uuid> {
@@ -1372,7 +1382,10 @@ impl Command for AddStrokeText {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdBoardStrokeTextAdd", "Add text to board")
+        tr!(
+            "librepcb::editor::CmdBoardStrokeTextAdd",
+            "Add text to board"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Uuid> {
@@ -1424,7 +1437,7 @@ impl Command for UpdateBoardItem {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdBoardPolygonEdit", "Edit polygon")
+        tr!("librepcb::editor::CmdBoardPolygonEdit", "Edit polygon")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -1462,7 +1475,7 @@ impl Command for EditBoardSettings {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdBoardEdit", "Modify Board Setup")
+        tr!("librepcb::editor::CmdBoardEdit", "Modify Board Setup")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {

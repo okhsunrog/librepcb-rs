@@ -24,8 +24,9 @@ use crate::project::board::export_error::BoardExportResult;
 use crate::project::board::pad_data::PadOnBoard;
 use crate::project::circuit::ComponentInstance;
 use crate::project::error::{EntityKind, Error};
-use crate::project::id::{AssemblyVariantId, ComponentInstanceId, NetSignalId};
+use crate::project::id::{AssemblyVariantId, BoardId, ComponentInstanceId, NetSignalId};
 use crate::types::{Angle, Layer, Length, Point, Uuid};
+use crate::utils::painter_path;
 use crate::utils::transform::Transform;
 
 /// A device of a board with its resolved library elements and component.
@@ -197,6 +198,44 @@ impl<'a> BoardContext<'a> {
         })
     }
 
+    /// Upstream `Board::calculateBoundingRect()`: the bounding rectangle
+    /// `(bottom_left, top_right)` of the board outlines (of the board and of the
+    /// footprints), or `None` if there are no outlines.
+    pub fn bounding_rect(&self) -> Option<(Point, Point)> {
+        let mut outlines: Vec<Path> = self
+            .board
+            .polygons()
+            .values()
+            .filter(|p| p.layer() == Layer::BOARD_OUTLINES && !p.path().vertices().is_empty())
+            .map(|p| p.path().clone())
+            .collect();
+        for dev in &self.devices {
+            let transform = dev.transform();
+            for polygon in dev.footprint.polygons().iter() {
+                if polygon.layer() == Layer::BOARD_OUTLINES && !polygon.path().vertices().is_empty()
+                {
+                    outlines.push(transform.map(polygon.path()));
+                }
+            }
+            for circle in dev.footprint.circles().iter() {
+                if circle.layer() == Layer::BOARD_OUTLINES {
+                    outlines.push(
+                        transform.map(&Path::circle(circle.diameter()).translated(circle.center())),
+                    );
+                }
+            }
+        }
+        if outlines.is_empty() {
+            return None;
+        }
+        let rect = painter_path::bounding_rect_px(&outlines);
+        // The rectangle is built from coordinates of valid points, so the
+        // conversion back cannot overflow.
+        let bottom_left = Point::from_px(rect.left(), rect.bottom()).unwrap_or_default();
+        let top_right = Point::from_px(rect.right(), rect.top()).unwrap_or_default();
+        Some((bottom_left, top_right))
+    }
+
     /// Returns the name of a net.
     pub fn net_name(&self, net: Option<NetSignalId>) -> Option<&'a str> {
         net.and_then(|n| self.project.circuit().net_signal(n))
@@ -348,5 +387,19 @@ impl<'a> BoardContext<'a> {
         'a: 'p,
     {
         ProjectAttributeLookup::for_device(self.project, self.board, device.device, part)
+    }
+}
+
+impl Project {
+    /// Returns the bounding rectangle `(bottom_left, top_right)` of the
+    /// board outlines of a board and of its footprints, or `None` if there
+    /// are no outlines (upstream `Board::calculateBoundingRect()`). Fails if
+    /// the board or a library element of its devices does not exist.
+    pub fn board_bounding_rect(&self, board: BoardId) -> BoardExportResult<Option<(Point, Point)>> {
+        let b = self.board(board).ok_or(Error::NotFound {
+            kind: EntityKind::Board,
+            uuid: board.0,
+        })?;
+        Ok(BoardContext::new(self, b)?.bounding_rect())
     }
 }

@@ -269,11 +269,10 @@ impl DrawWireState {
             return true;
         }
         let anchor = Self::anchor_of(item, pos);
-        if let Err(e) = cx
-            .ctx
-            .editor
-            .begin_group(tr!("SchematicEditorState_DrawWire", "Draw Wire"))
-        {
+        if let Err(e) = cx.ctx.editor.begin_group(tr!(
+            "librepcb::editor::SchematicEditorState_DrawWire",
+            "Draw Wire"
+        )) {
             cx.error(e);
             return false;
         }
@@ -394,11 +393,10 @@ impl DrawWireState {
             self.abort_positioning(cx, true);
             return false;
         };
-        if let Err(e) = cx
-            .ctx
-            .editor
-            .begin_group(tr!("SchematicEditorState_DrawWire", "Draw Wire"))
-        {
+        if let Err(e) = cx.ctx.editor.begin_group(tr!(
+            "librepcb::editor::SchematicEditorState_DrawWire",
+            "Draw Wire"
+        )) {
             cx.error(e);
             return false;
         }

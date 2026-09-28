@@ -368,9 +368,9 @@ impl DrawPolygonState {
     /// Upstream `updateStatusBarMessage()`.
     fn update_status_bar_message<H: ElementHost>(&self, cx: &mut Cx<'_, '_, H>) {
         let ctx = if H::IS_FOOTPRINT {
-            "PackageEditorState_DrawPolygonBase"
+            "librepcb::editor::PackageEditorState_DrawPolygonBase"
         } else {
-            "SymbolEditorState_DrawPolygonBase"
+            "librepcb::editor::SymbolEditorState_DrawPolygonBase"
         };
         let note = format!(
             " {}",

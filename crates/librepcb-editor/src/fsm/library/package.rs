@@ -60,6 +60,37 @@ fn footprint(e: &Package, fpt: Option<Uuid>) -> Option<&Footprint> {
     e.footprints().by_uuid(&fpt?)
 }
 
+/// The single object of clipboard data whose geometry can be pasted onto
+/// other objects (upstream `canPasteGeometry()`: exactly one object).
+fn geometry_source(data: &FootprintClipboardData) -> Option<FootprintItem> {
+    let count = data.pads.len()
+        + data.polygons.len()
+        + data.circles.len()
+        + data.stroke_texts.len()
+        + data.zones.len()
+        + data.holes.len();
+    if count != 1 {
+        return None;
+    }
+    data.pads
+        .iter()
+        .map(|p| FootprintItem::Pad(p.uuid()))
+        .chain(
+            data.polygons
+                .iter()
+                .map(|p| FootprintItem::Polygon(p.uuid())),
+        )
+        .chain(data.circles.iter().map(|c| FootprintItem::Circle(c.uuid())))
+        .chain(
+            data.stroke_texts
+                .iter()
+                .map(|t| FootprintItem::StrokeText(t.uuid())),
+        )
+        .chain(data.zones.iter().map(|z| FootprintItem::Zone(z.uuid())))
+        .chain(data.holes.iter().map(|h| FootprintItem::Hole(h.uuid())))
+        .next()
+}
+
 fn footprint_mut(e: &mut Package, fpt: Option<Uuid>) -> Option<&mut Footprint> {
     e.footprints_mut().by_uuid_mut(&fpt?)
 }
@@ -240,6 +271,107 @@ impl ElementHost for PackageHost {
             offset,
         }
         .execute(e)
+    }
+
+    fn can_paste_geometry(
+        _e: &Package,
+        fpt: Option<Uuid>,
+        data: &FootprintClipboardData,
+        selection: &BTreeSet<FootprintItem>,
+    ) -> bool {
+        let Some(copied) = geometry_source(data) else {
+            return false;
+        };
+        // Objects of the same kind other than the copied one must be
+        // selected (so that a single object can still be copied & pasted).
+        fpt.is_some()
+            && selection.iter().any(|item| {
+                std::mem::discriminant(item) == std::mem::discriminant(&copied)
+                    && item.uuid() != copied.uuid()
+            })
+    }
+
+    fn paste_geometry(
+        e: &mut Package,
+        fpt: Option<Uuid>,
+        data: &FootprintClipboardData,
+        selection: &BTreeSet<FootprintItem>,
+    ) {
+        let Some(f) = footprint_mut(e, fpt) else {
+            return;
+        };
+        for item in selection {
+            match *item {
+                FootprintItem::Pad(u) => {
+                    if let (Some(src), Some(dst)) =
+                        (data.pads.iter().next(), f.pads_mut().by_uuid_mut(&u))
+                    {
+                        let (src, dst) = (src.pad(), dst.pad_mut());
+                        dst.set_component_side(src.component_side());
+                        dst.set_function(src.function());
+                        dst.set_shape(src.shape());
+                        dst.set_width(src.width());
+                        dst.set_height(src.height());
+                        dst.set_radius(src.radius());
+                        dst.set_custom_shape_outline(src.custom_shape_outline().clone());
+                        dst.set_stop_mask_config(src.stop_mask_config());
+                        dst.set_solder_paste_config(src.solder_paste_config());
+                        dst.set_copper_clearance(src.copper_clearance());
+                        dst.set_holes(src.holes().clone());
+                    }
+                }
+                FootprintItem::Polygon(u) => {
+                    if let (Some(src), Some(dst)) = (
+                        data.polygons.iter().next(),
+                        f.polygons_mut().by_uuid_mut(&u),
+                    ) {
+                        dst.set_layer(src.layer());
+                        dst.set_line_width(src.line_width());
+                        dst.set_is_filled(src.is_filled());
+                        dst.set_is_grab_area(src.is_grab_area());
+                    }
+                }
+                FootprintItem::Circle(u) => {
+                    if let (Some(src), Some(dst)) =
+                        (data.circles.iter().next(), f.circles_mut().by_uuid_mut(&u))
+                    {
+                        dst.set_layer(src.layer());
+                        dst.set_line_width(src.line_width());
+                        dst.set_is_filled(src.is_filled());
+                        dst.set_is_grab_area(src.is_grab_area());
+                        dst.set_diameter(src.diameter());
+                    }
+                }
+                FootprintItem::StrokeText(u) => {
+                    if let (Some(src), Some(dst)) = (
+                        data.stroke_texts.iter().next(),
+                        f.stroke_texts_mut().by_uuid_mut(&u),
+                    ) {
+                        dst.set_layer(src.layer());
+                        dst.set_height(src.height());
+                        dst.set_stroke_width(src.stroke_width());
+                        dst.set_letter_spacing(src.letter_spacing());
+                        dst.set_line_spacing(src.line_spacing());
+                    }
+                }
+                FootprintItem::Zone(u) => {
+                    if let (Some(src), Some(dst)) =
+                        (data.zones.iter().next(), f.zones_mut().by_uuid_mut(&u))
+                    {
+                        dst.set_layers(src.layers());
+                        dst.set_rules(src.rules());
+                    }
+                }
+                FootprintItem::Hole(u) => {
+                    if let (Some(src), Some(dst)) =
+                        (data.holes.iter().next(), f.holes_mut().by_uuid_mut(&u))
+                    {
+                        dst.set_diameter(src.diameter());
+                        dst.set_stop_mask_config(src.stop_mask_config());
+                    }
+                }
+            }
+        }
     }
 
     fn object(e: &Package, fpt: Option<Uuid>, item: FootprintItem) -> Option<FootprintObject> {
@@ -483,16 +615,25 @@ impl ElementHost for PackageHost {
     fn add_text(kind: &str) -> String {
         match kind {
             "polygon" => tr!(
-                "PackageEditorState_DrawPolygonBase",
+                "librepcb::editor::PackageEditorState_DrawPolygonBase",
                 "Add Footprint Polygon"
             ),
-            "circle" => tr!("PackageEditorState_DrawCircle", "Add Footprint Circle"),
-            _ => tr!("PackageEditorState_DrawTextBase", "Add Footprint Text"),
+            "circle" => tr!(
+                "librepcb::editor::PackageEditorState_DrawCircle",
+                "Add Footprint Circle"
+            ),
+            _ => tr!(
+                "librepcb::editor::PackageEditorState_DrawTextBase",
+                "Add Footprint Text"
+            ),
         }
     }
 
     fn paste_text() -> String {
-        tr!("PackageEditorState_Select", "Paste Footprint Elements")
+        tr!(
+            "librepcb::editor::PackageEditorState_Select",
+            "Paste Footprint Elements"
+        )
     }
 
     fn state(states: &mut PackageStates, tool: LibraryTool) -> Option<&mut dyn State<Self>> {
@@ -659,7 +800,10 @@ impl AddPadsState {
 
     /// Upstream `startAddPad()`.
     fn start(&mut self, cx: &mut Cx<'_, '_, PackageHost>, pos: Point) -> bool {
-        if !cx.begin(tr!("PackageEditorState_AddPads", "Add footprint pad")) {
+        if !cx.begin(tr!(
+            "librepcb::editor::PackageEditorState_AddPads",
+            "Add footprint pad"
+        )) {
             return false;
         }
         let mut pad = self.props.with_uuid(Uuid::new_random());
@@ -908,7 +1052,10 @@ impl Default for AddHolesState {
 
 impl AddHolesState {
     fn start(&mut self, cx: &mut Cx<'_, '_, PackageHost>, pos: Point) -> bool {
-        if !cx.begin(tr!("PackageEditorState_AddHoles", "Add Footprint Hole")) {
+        if !cx.begin(tr!(
+            "librepcb::editor::PackageEditorState_AddHoles",
+            "Add Footprint Hole"
+        )) {
             return false;
         }
         let hole = Hole::new(
@@ -1056,7 +1203,10 @@ impl DrawZoneState {
     }
 
     fn begin(cx: &mut Cx<'_, '_, PackageHost>) -> bool {
-        cx.begin(tr!("PackageEditorState_DrawZone", "Add Footprint Zone"))
+        cx.begin(tr!(
+            "librepcb::editor::PackageEditorState_DrawZone",
+            "Add Footprint Zone"
+        ))
     }
 
     /// Upstream `start()`.
@@ -1193,7 +1343,7 @@ impl DrawZoneState {
     }
 
     fn update_status_bar_message(&self, cx: &mut Cx<'_, '_, PackageHost>) {
-        let ctx = "PackageEditorState_DrawZone";
+        let ctx = "librepcb::editor::PackageEditorState_DrawZone";
         let note = format!(
             " {}",
             tr!(
@@ -1342,7 +1492,10 @@ impl RenumberPadsState {
         self.tmp_snapshot = None;
         self.current_pos = cx.cursor_pos();
         self.modifiers = Modifiers::NONE;
-        if !cx.begin(tr!("PackageEditorState_ReNumberPads", "Re-number pads")) {
+        if !cx.begin(tr!(
+            "librepcb::editor::PackageEditorState_ReNumberPads",
+            "Re-number pads"
+        )) {
             return false;
         }
         self.active = true;
@@ -1514,7 +1667,7 @@ impl State<PackageHost> for RenumberPadsState {
         }
         cx.out.selection.clear();
         cx.out.tool = LibraryTool::RenumberPads;
-        let ctx = "PackageEditorState_ReNumberPads";
+        let ctx = "librepcb::editor::PackageEditorState_ReNumberPads";
         let note = format!(
             " {}",
             tr!(
@@ -1619,6 +1772,63 @@ impl LibraryEditorFsm<PackageHost> {
             .unwrap_or(false)
     }
 
+    /// Imports a DXF file into the current footprint (upstream
+    /// `processImportDxf()`, select tool only): its polygons become
+    /// polygons on the chosen layer, its circles polygons or non-plated
+    /// holes, which are pasted like clipboard data (following the cursor
+    /// unless a placement position is given).
+    pub fn import_dxf(
+        &mut self,
+        ctx: &mut PackageContext<'_>,
+        settings: &crate::fsm::board::DxfImportSettings,
+    ) -> bool {
+        let Some(footprint) = self.footprint() else {
+            return false;
+        };
+        self.with_select_state(ctx, |s, cx| {
+            let result = crate::fsm::read_dxf_import(settings).map(|(paths, circles)| {
+                let pads = cx.element().pads().clone();
+                let mut data = FootprintClipboardData::new(footprint, pads, Point::ORIGIN);
+                let polygon = |path| {
+                    librepcb_core::geometry::Polygon::new(
+                        Uuid::new_random(),
+                        settings.layer,
+                        settings.line_width,
+                        false,
+                        false,
+                        path,
+                    )
+                };
+                for path in paths {
+                    data.polygons.push(polygon(path));
+                }
+                for circle in &circles {
+                    if settings.circles_as_drills {
+                        data.holes.push(librepcb_core::geometry::Hole::new(
+                            Uuid::new_random(),
+                            circle.diameter,
+                            librepcb_core::geometry::NonEmptyPath::from_point(circle.position),
+                            MaskConfig::Automatic,
+                        ));
+                    } else {
+                        data.polygons.push(polygon(
+                            Path::circle(circle.diameter).translated(circle.position),
+                        ));
+                    }
+                }
+                data
+            });
+            match result {
+                Ok(data) => s.start_paste_data(cx, (data, Point::ORIGIN), settings.placement),
+                Err(e) => {
+                    cx.error(e);
+                    false
+                }
+            }
+        })
+        .unwrap_or(false)
+    }
+
     /// Generates the package outline of the current footprint (upstream
     /// `processGenerateOutline()`).
     pub fn generate_outline(&mut self, ctx: &mut PackageContext<'_>) -> bool {
@@ -1630,7 +1840,7 @@ impl LibraryEditorFsm<PackageHost> {
             match cx.execute(GeneratePackageOutline { footprint }) {
                 Some(true) => true,
                 Some(false) => {
-                    let ctx = "PackageEditorState_Select";
+                    let ctx = "librepcb::editor::PackageEditorState_Select";
                     cx.out.requests.push(LibraryRequest::ShowInfo {
                         title: tr!(ctx, "No Content"),
                         text: tr!(
@@ -1666,7 +1876,7 @@ impl LibraryEditorFsm<PackageHost> {
             match cx.execute(GenerateCourtyard { footprint, offset }) {
                 Some(true) => true,
                 Some(false) => {
-                    let ctx = "PackageEditorState_Select";
+                    let ctx = "librepcb::editor::PackageEditorState_Select";
                     cx.out.requests.push(LibraryRequest::ShowInfo {
                         title: tr!(ctx, "No Outline"),
                         text: tr!(

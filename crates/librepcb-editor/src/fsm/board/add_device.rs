@@ -49,7 +49,10 @@ impl AddDeviceState {
         {
             return false;
         }
-        if let Err(e) = cx.begin(tr!("BoardEditorState_AddDevice", "Add device to board")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_AddDevice",
+            "Add device to board"
+        )) {
             cx.error(e);
             return false;
         }
@@ -77,9 +80,12 @@ impl AddDeviceState {
             }
             None => {
                 cx.error(tr!(
-                    "BoardEditorState_AddDevice",
+                    "librepcb::editor::BoardEditorState_AddDevice",
                     "Could not add device:\n\n{0}",
-                    tr!("BoardEditorState_AddDevice", "Add device to board")
+                    tr!(
+                        "librepcb::editor::BoardEditorState_AddDevice",
+                        "Add device to board"
+                    )
                 ));
                 self.abort(cx);
                 false

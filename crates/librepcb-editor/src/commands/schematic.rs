@@ -718,7 +718,10 @@ impl Command for DrawWire {
     type Output = WireResult;
 
     fn text(&self) -> String {
-        tr!("SchematicEditorState_DrawWire", "Draw Wire")
+        tr!(
+            "librepcb::editor::SchematicEditorState_DrawWire",
+            "Draw Wire"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<WireResult> {
@@ -754,7 +757,10 @@ impl Command for ConnectPins {
     type Output = WireResult;
 
     fn text(&self) -> String {
-        tr!("SchematicEditorState_DrawWire", "Draw Wire")
+        tr!(
+            "librepcb::editor::SchematicEditorState_DrawWire",
+            "Draw Wire"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<WireResult> {
@@ -837,7 +843,10 @@ impl Command for ConnectPinToNet {
     type Output = PinNetResult;
 
     fn text(&self) -> String {
-        tr!("SchematicEditorState_DrawWire", "Draw Wire")
+        tr!(
+            "librepcb::editor::SchematicEditorState_DrawWire",
+            "Draw Wire"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<PinNetResult> {
@@ -926,7 +935,7 @@ impl Command for AddNetLabel {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdSchematicNetLabelAdd", "Add Net Label")
+        tr!("librepcb::editor::CmdSchematicNetLabelAdd", "Add Net Label")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Uuid> {
@@ -1476,7 +1485,7 @@ impl Command for RemoveSchematicItems {
 
     fn text(&self) -> String {
         tr!(
-            "CmdRemoveSelectedSchematicItems",
+            "librepcb::editor::CmdRemoveSelectedSchematicItems",
             "Remove Schematic Elements"
         )
     }

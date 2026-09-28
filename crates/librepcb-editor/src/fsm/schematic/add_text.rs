@@ -79,7 +79,10 @@ impl AddTextState {
         let result = cx
             .ctx
             .editor
-            .begin_group(tr!("SchematicEditorState_AddText", "Add text to schematic"))
+            .begin_group(tr!(
+                "librepcb::editor::SchematicEditorState_AddText",
+                "Add text to schematic"
+            ))
             .and_then(|()| {
                 cx.ctx.editor.execute(ApplyMutations {
                     text: None,

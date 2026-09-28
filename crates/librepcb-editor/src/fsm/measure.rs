@@ -166,7 +166,11 @@ impl MeasureTool {
         let value = self.unit.convert_to_unit(*(end - start).length());
         let text = format_value(value, 12);
         view.set_status(
-            tr!("MeasureTool", "Copied to clipboard: {0}", text.clone()),
+            tr!(
+                "librepcb::editor::MeasureTool",
+                "Copied to clipboard: {0}",
+                text.clone()
+            ),
             Some(3000),
         );
         Some(text)
@@ -242,19 +246,29 @@ impl MeasureTool {
     fn update_status_bar_message(&self, view: &mut ViewState) {
         let note = format!(
             " {}",
-            tr!("MeasureTool", "(press {0} to disable snap)", "Shift")
+            tr!(
+                "librepcb::editor::MeasureTool",
+                "(press {0} to disable snap)",
+                "Shift"
+            )
         );
         let text = if self.end.is_some() {
             tr!(
-                "MeasureTool",
+                "librepcb::editor::MeasureTool",
                 "Press {0} to copy the value to clipboard or {1} to clear the measurement",
                 "Ctrl+C",
                 "Del"
             )
         } else if self.start.is_some() {
-            tr!("MeasureTool", "Click to specify the end point") + &note
+            tr!(
+                "librepcb::editor::MeasureTool",
+                "Click to specify the end point"
+            ) + &note
         } else {
-            tr!("MeasureTool", "Click to specify the start point") + &note
+            tr!(
+                "librepcb::editor::MeasureTool",
+                "Click to specify the start point"
+            ) + &note
         };
         view.set_status(text, None);
     }

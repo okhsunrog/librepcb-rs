@@ -382,6 +382,68 @@ impl Project {
         progress(DrcProgress::Percent(12));
         Ok(run_drc(&data, progress))
     }
+
+    /// Detects DRC message approvals which became obsolete (port of
+    /// `Board::updateDrcMessageApprovals()`) and returns the mutation
+    /// removing them, or `None` if nothing changes. The caller applies it
+    /// (upstream modifies the board without undo command and marks the
+    /// project as modified).
+    ///
+    /// Records the approvals of `result` as occurring in this session
+    /// (derived data of the board). After a quick check nothing is removed,
+    /// since messages of the skipped checks would lose their approvals.
+    /// On the first full check after a file format upgrade (approvals
+    /// version older than the current file format), all approvals not
+    /// occurring anymore are removed and the version is updated; otherwise
+    /// only approvals of messages which disappeared during this session
+    /// are removed, to keep approvals added by newer minor versions.
+    pub fn drc_approvals_update(
+        &mut self,
+        board: BoardId,
+        result: &DrcResult,
+    ) -> crate::project::Result<Option<crate::project::Mutation>> {
+        use crate::project::{BoardMutation, Mutation};
+        let index = self
+            .board_index(board)
+            .ok_or(crate::project::Error::NotFound {
+                kind: crate::project::EntityKind::Board,
+                uuid: board.0,
+            })?;
+        let b = &mut self.boards[index];
+        let approvals: BTreeSet<_> = result
+            .messages
+            .iter()
+            .map(|m| m.approval().clone())
+            .collect();
+        b.derived
+            .supported_drc_approvals
+            .extend(approvals.iter().cloned());
+        if result.quick {
+            return Ok(None);
+        }
+        let current = crate::application::file_format_version();
+        let (version, new) = if b.drc_approvals_version < current {
+            let new = b.drc_approvals.intersection(&approvals).cloned().collect();
+            (current, new)
+        } else {
+            let supported = &b.derived.supported_drc_approvals;
+            let new: BTreeSet<_> = b
+                .drc_approvals
+                .iter()
+                .filter(|a| !supported.contains(*a) || approvals.contains(*a))
+                .cloned()
+                .collect();
+            if new == b.drc_approvals {
+                return Ok(None);
+            }
+            (b.drc_approvals_version.clone(), new)
+        };
+        Ok(Some(Mutation::Board(BoardMutation::SetDrcApprovals {
+            board,
+            version,
+            approvals: new,
+        })))
+    }
 }
 
 /// An item of the copper clearance check.

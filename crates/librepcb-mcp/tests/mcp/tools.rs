@@ -368,7 +368,7 @@ fn checks_exports_and_render() {
     let (mut session, lpp) = open_project(tmp.path(), "Nested Planes");
     let project_dir = lpp.parent().unwrap().to_owned();
 
-    let out = output::erc_run(&session, ErcArgs::default()).unwrap();
+    let out = output::erc_run(&mut session, ErcArgs::default()).unwrap();
     assert_eq!(out.result["ran"], true);
     assert!(out.result["messages"].is_array());
 
@@ -606,6 +606,41 @@ fn mutations_revisions_and_locking() {
     )
     .unwrap();
     assert_eq!(out.result["nets"].as_array().unwrap().len(), 1);
+}
+
+/// `board_add` with `copy_from` copies a board with all its items.
+#[test]
+fn board_add_copy() {
+    use librepcb_mcp::tools::board_edit::{self, BoardAddArgs};
+    let tmp = tempfile::tempdir().unwrap();
+    let (mut session, _) = open_project(tmp.path(), "Nested Planes");
+    let p = session.project().unwrap().project();
+    let original = p.boards()[0].name().to_string();
+    let planes = p.boards()[0].planes().len();
+    assert!(planes > 0);
+    let out = board_edit::board_add(
+        &mut session,
+        BoardAddArgs {
+            name: "copy".into(),
+            copy_from: Some(original),
+            expected_revision: None,
+        },
+    )
+    .unwrap();
+    assert_eq!(out.result["planes"], planes);
+    let p = session.project().unwrap().project();
+    assert_eq!(p.boards().len(), 2);
+    assert_eq!(p.boards()[1].devices(), p.boards()[0].devices());
+    let err = board_edit::board_add(
+        &mut session,
+        BoardAddArgs {
+            name: "other".into(),
+            copy_from: Some("no such board".into()),
+            expected_revision: None,
+        },
+    )
+    .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::NotFound, "{err:?}");
 }
 
 #[test]

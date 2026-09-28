@@ -83,7 +83,7 @@ impl AddComponentState {
             return false;
         };
         if let Err(e) = cx.ctx.editor.begin_group(tr!(
-            "SchematicEditorState_AddComponent",
+            "librepcb::editor::SchematicEditorState_AddComponent",
             "Add Component Gate to Schematic"
         )) {
             cx.error(e);
@@ -119,7 +119,7 @@ impl AddComponentState {
         keep_value: bool,
     ) -> crate::Result<()> {
         cx.ctx.editor.begin_group(tr!(
-            "SchematicEditorState_AddComponent",
+            "librepcb::editor::SchematicEditorState_AddComponent",
             "Add Component to Schematic"
         ))?;
         let result = (|| -> crate::Result<()> {
@@ -415,7 +415,7 @@ impl AddComponentState {
         let result = (|| -> crate::Result<()> {
             cx.ctx.editor.commit_group()?;
             cx.ctx.editor.begin_group(tr!(
-                "SchematicEditorState_AddComponent",
+                "librepcb::editor::SchematicEditorState_AddComponent",
                 "Add Symbol to Schematic"
             ))?;
             if self.abort_after_current_gate {

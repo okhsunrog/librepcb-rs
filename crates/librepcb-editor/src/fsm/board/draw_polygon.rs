@@ -122,7 +122,10 @@ impl DrawPolygonState {
     }
 
     fn start(&mut self, cx: &mut Cx<'_, '_>, pos: Point) {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_DrawPolygon", "Draw board polygon")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_DrawPolygon",
+            "Draw board polygon"
+        )) {
             cx.error(e);
             return;
         }
@@ -169,7 +172,10 @@ impl DrawPolygonState {
             self.drawing = None;
             return;
         }
-        if let Err(e) = cx.begin(tr!("BoardEditorState_DrawPolygon", "Draw board polygon")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_DrawPolygon",
+            "Draw board polygon"
+        )) {
             cx.error(e);
             self.drawing = None;
             return;
@@ -359,7 +365,10 @@ impl DrawPlaneState {
     /// Upstream `startAddPlane()`; `None`: the automatic outline, committed
     /// immediately.
     fn start(&mut self, cx: &mut Cx<'_, '_>, pos: Option<Point>) -> bool {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_DrawPlane", "Draw Board Plane")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_DrawPlane",
+            "Draw Board Plane"
+        )) {
             cx.error(e);
             return false;
         }
@@ -412,7 +421,10 @@ impl DrawPlaneState {
                 self.abort(cx);
                 return;
             }
-            if let Err(e) = cx.begin(tr!("BoardEditorState_DrawPlane", "Draw board plane")) {
+            if let Err(e) = cx.begin(tr!(
+                "librepcb::editor::BoardEditorState_DrawPlane",
+                "Draw board plane"
+            )) {
                 cx.error(e);
                 self.drawing = None;
                 return;
@@ -458,46 +470,7 @@ impl DrawPlaneState {
 
 /// The automatic plane outline (upstream `determineAutoPlaneOutline()`).
 fn auto_plane_outline(cx: &Cx<'_, '_>) -> Result<Path> {
-    let board = cx.board()?;
-    let vertices: Vec<Point> = board
-        .polygons()
-        .values()
-        .filter(|p| p.layer() == Layer::BOARD_OUTLINES)
-        .flat_map(|p| p.path().vertices().iter().map(|v| v.pos))
-        .collect();
-    let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
-        vertices.iter().map(|v| v.x).min(),
-        vertices.iter().map(|v| v.x).max(),
-        vertices.iter().map(|v| v.y).min(),
-        vertices.iter().map(|v| v.y).max(),
-    ) else {
-        return Err(crate::error::Error::InvalidArgument(tr!(
-            "BoardEditorState_DrawPlane",
-            "Could not determine the bounding box of board. Make sure a valid board outline polygon is present."
-        )));
-    };
-    let used_left: BTreeSet<Length> = board
-        .planes()
-        .values()
-        .flat_map(|p| p.outline().vertices().iter().map(|v| v.pos.x))
-        .collect();
-    let mut grid = *cx.grid();
-    while grid < Length::new(2_000_000) {
-        grid *= 2;
-    }
-    let mut min_space = -(grid / 2);
-    let mut left;
-    loop {
-        min_space += grid;
-        left = (min_x - min_space).rounded_down_to(grid);
-        if !used_left.contains(&left) {
-            break;
-        }
-    }
-    let bottom = (min_y - min_space).rounded_down_to(grid);
-    let top = (max_y + min_space).rounded_up_to(grid);
-    let right = (max_x + min_space).rounded_up_to(grid);
-    Ok(Path::rect(Point::new(left, bottom), Point::new(right, top)))
+    crate::commands::board::auto_plane_outline(cx.project(), cx.board_id(), *cx.grid())
 }
 
 impl State for DrawPlaneState {
@@ -629,7 +602,10 @@ impl DrawZoneState {
     }
 
     fn start(&mut self, cx: &mut Cx<'_, '_>, pos: Point) {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_DrawZone", "Draw board zone")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_DrawZone",
+            "Draw board zone"
+        )) {
             cx.error(e);
             return;
         }
@@ -691,7 +667,10 @@ impl DrawZoneState {
                 self.abort(cx);
                 return;
             }
-            if let Err(e) = cx.begin(tr!("BoardEditorState_DrawZone", "Draw Board Zone")) {
+            if let Err(e) = cx.begin(tr!(
+                "librepcb::editor::BoardEditorState_DrawZone",
+                "Draw Board Zone"
+            )) {
                 cx.error(e);
                 self.drawing = None;
                 return;

@@ -39,7 +39,7 @@ impl ElementCommand<Device> for EditDeviceAttributes {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdDeviceEdit", "Edit Device Properties")
+        tr!("librepcb::editor::CmdDeviceEdit", "Edit Device Properties")
     }
 
     fn execute(self, dev: &mut Device) -> Result<()> {
@@ -61,7 +61,7 @@ impl ElementCommand<Device> for SetDeviceComponent<'_> {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("DeviceTab", "Change Component")
+        tr!("librepcb::editor::DeviceTab", "Change Component")
     }
 
     fn execute(self, dev: &mut Device) -> Result<()> {
@@ -93,7 +93,7 @@ impl ElementCommand<Device> for SetDevicePackage<'_> {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("DeviceTab", "Change Package")
+        tr!("librepcb::editor::DeviceTab", "Change Package")
     }
 
     fn execute(self, dev: &mut Device) -> Result<()> {
@@ -136,7 +136,10 @@ impl ElementCommand<Device> for SetPadSignal {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdDevicePadSignalMapItemEdit", "Edit Device Pinout")
+        tr!(
+            "librepcb::editor::CmdDevicePadSignalMapItemEdit",
+            "Edit Device Pinout"
+        )
     }
 
     fn execute(self, dev: &mut Device) -> Result<()> {
@@ -208,7 +211,7 @@ fn find_signal<'a>(signals: &'a ComponentSignalList, name: &str) -> Option<&'a C
 /// `DevicePinoutBuilder::resetAll()`).
 pub fn reset_pinout() -> SetDevicePinout {
     SetDevicePinout {
-        text: tr!("DevicePinoutBuilder", "Reset Pinout"),
+        text: tr!("librepcb::editor::DevicePinoutBuilder", "Reset Pinout"),
         map: BTreeMap::new(),
     }
 }
@@ -236,7 +239,10 @@ pub fn auto_connect_pinout(
         }
     }
     SetDevicePinout {
-        text: tr!("DevicePinoutBuilder", "Auto-Connect Pads To Signals"),
+        text: tr!(
+            "librepcb::editor::DevicePinoutBuilder",
+            "Auto-Connect Pads To Signals"
+        ),
         map,
     }
 }
@@ -290,7 +296,10 @@ pub fn pinout_from_csv(
         }
     }
     SetDevicePinout {
-        text: tr!("DevicePinoutBuilder", "Load Pinout From File"),
+        text: tr!(
+            "librepcb::editor::DevicePinoutBuilder",
+            "Load Pinout From File"
+        ),
         map,
     }
 }
@@ -544,7 +553,7 @@ impl ElementCommand<Device> for AddPart {
     type Output = usize;
 
     fn text(&self) -> String {
-        tr!("CmdListElementInsert", "Add {0}", "part")
+        tr!("librepcb::editor::CmdListElementInsert", "Add {0}", "part")
     }
 
     fn execute(self, dev: &mut Device) -> Result<usize> {
@@ -574,7 +583,7 @@ impl ElementCommand<Device> for EditPart {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdPartEdit", "Edit Part")
+        tr!("librepcb::editor::CmdPartEdit", "Edit Part")
     }
 
     fn execute(self, dev: &mut Device) -> Result<()> {
@@ -603,7 +612,7 @@ impl ElementCommand<Device> for MovePartUp {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementsSwap", "Move {0}", "part")
+        tr!("librepcb::editor::CmdListElementsSwap", "Move {0}", "part")
     }
 
     fn execute(self, dev: &mut Device) -> Result<()> {
@@ -626,7 +635,7 @@ impl ElementCommand<Device> for DuplicatePart {
     type Output = usize;
 
     fn text(&self) -> String {
-        tr!("CmdListElementInsert", "Add {0}", "part")
+        tr!("librepcb::editor::CmdListElementInsert", "Add {0}", "part")
     }
 
     fn execute(self, dev: &mut Device) -> Result<usize> {
@@ -646,7 +655,11 @@ impl ElementCommand<Device> for RemovePart {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementRemove", "Remove {0}", "part")
+        tr!(
+            "librepcb::editor::CmdListElementRemove",
+            "Remove {0}",
+            "part"
+        )
     }
 
     fn execute(self, dev: &mut Device) -> Result<()> {

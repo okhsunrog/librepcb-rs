@@ -111,7 +111,10 @@ impl Command for AddSchematicImage {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdSchematicImageAdd", "Add Image to Schematic")
+        tr!(
+            "librepcb::editor::CmdSchematicImageAdd",
+            "Add Image to Schematic"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Uuid> {

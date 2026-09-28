@@ -156,9 +156,13 @@ fn severity_str(s: Severity) -> &'static str {
 }
 
 /// `erc_run`.
-pub fn erc_run(session: &Session, args: ErcArgs) -> ToolResult<ToolOutput> {
-    let p = session.project()?.project();
-    let messages = run_erc(p);
+pub fn erc_run(session: &mut Session, args: ErcArgs) -> ToolResult<ToolOutput> {
+    let open = session.project_mut()?;
+    let messages = run_erc(open.project());
+    // Remove approvals of messages which disappeared (upstream
+    // `ProjectEditor::runErc()`, not undoable).
+    open.editor.update_erc_approvals(&messages)?;
+    let p = open.project();
     let mut list = Vec::new();
     let (mut errors, mut warnings, mut hints, mut approved) = (0, 0, 0, 0);
     for m in &messages {
@@ -492,6 +496,9 @@ pub fn drc_run(session: &mut Session, args: DrcArgs) -> ToolResult<ToolOutput> {
         .editor
         .update_derived_data(|p| p.run_drc(board, None, false, &|_| {}))?
         .map_err(|e| ToolError::internal(format!("The DRC could not run: {e}")))?;
+    // Remove approvals of messages which disappeared (upstream
+    // `Board::updateDrcMessageApprovals()`, not undoable).
+    open.editor.update_drc_approvals(board, &result)?;
     let p = open.project();
     let approvals = p
         .board(board)
@@ -620,9 +627,10 @@ pub fn jobs_run(session: &mut Session, args: JobsRunArgs) -> ToolResult<ToolOutp
     let info = ExportInfo::now(env!("CARGO_PKG_VERSION"));
     let written = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
     let warnings = std::sync::Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
-    let (w, warn) = (
+    let (w, warn, written_in_run) = (
         std::sync::Arc::clone(&written),
         std::sync::Arc::clone(&warnings),
+        std::sync::Arc::clone(&written),
     );
     let result = open.editor.update_derived_data(move |project| {
         let mut runner = OutputJobRunner::new(project, info)?;
@@ -639,13 +647,15 @@ pub fn jobs_run(session: &mut Session, args: JobsRunArgs) -> ToolResult<ToolOutp
         // (when running all jobs).
         let mut skipped = Vec::new();
         for job in &jobs {
+            let written_before = written_in_run.lock().len();
             match runner.run(std::slice::from_ref(job)) {
-                Err(librepcb_core::project::OutputJobError::Unsupported(kind))
-                    if skip_unsupported =>
-                {
+                Err(librepcb_core::project::OutputJobError::Unsupported(_)) if skip_unsupported => {
+                    // The announced files were not written.
+                    written_in_run.lock().truncate(written_before);
                     skipped.push(format!(
-                        "Skipped the output job \"{}\" ({kind} jobs are not supported yet).",
-                        job.name().as_str()
+                        "Skipped the output job \"{}\" ({} jobs are not supported yet).",
+                        job.name().as_str(),
+                        job.type_name()
                     ));
                 }
                 Err(librepcb_core::project::OutputJobError::ArchiveDependencyNotRun)

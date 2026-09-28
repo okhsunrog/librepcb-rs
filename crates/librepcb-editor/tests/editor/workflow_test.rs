@@ -386,6 +386,63 @@ fn test_build_save_reopen_undo_redo() {
     assert!(after_redo == full, "{}", diff(&full, &after_redo));
 }
 
+/// Copying a board (upstream `Board::copyFrom()`) copies its settings and
+/// all items; the project stays valid for the official CLI.
+#[test]
+fn test_copy_board() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("project");
+    let mut editor = create_editor(&dir);
+    let demo = build_demo(&mut editor);
+    let copy = editor
+        .execute(AddBoard {
+            name: name("copy"),
+            copy_from: Some(demo.board),
+            default_outline: true,
+        })
+        .unwrap()
+        .board;
+    let p = editor.project();
+    assert!(p.is_ref_index_consistent());
+    let (a, b) = (p.board(demo.board).unwrap(), p.board(copy).unwrap());
+    assert_eq!(a.settings(), b.settings());
+    assert_eq!(a.devices(), b.devices());
+    assert_eq!(a.net_segments().len(), b.net_segments().len());
+    let count = |board: &librepcb_core::project::board::Board| {
+        board
+            .net_segments()
+            .values()
+            .map(|s| {
+                (
+                    s.net(),
+                    s.vias().len(),
+                    s.junctions().len(),
+                    s.traces().len(),
+                )
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert_eq!(count(a), count(b));
+    assert_eq!(a.planes().len(), b.planes().len());
+    assert_eq!(a.polygons().len(), b.polygons().len());
+    assert_eq!(a.stroke_texts().len(), b.stroke_texts().len());
+    assert_eq!(a.holes().len(), b.holes().len());
+    // New UUIDs for everything but the devices.
+    assert!(
+        a.polygons()
+            .keys()
+            .all(|uuid| !b.polygons().contains_key(uuid))
+    );
+    editor.save().unwrap();
+    match run_cli_erc(&dir) {
+        Some((ok, output)) => assert!(ok, "librepcb-cli failed:\n{output}"),
+        None => eprintln!("librepcb-cli not found, skipping the upstream check"),
+    }
+    // Undone in one step.
+    editor.undo().unwrap();
+    assert!(editor.project().board(copy).is_none());
+}
+
 #[test]
 fn test_remove_and_modify() {
     let tmp = tempfile::tempdir().unwrap();
@@ -698,4 +755,77 @@ fn test_combine_segments_and_nets() {
     assert_eq!(pin_net(p, "R1", "2"), Some(net(p, "N1")));
     assert_eq!(pin_net(p, "R3", "1"), Some(net(p, "VCC")));
     assert!(p.is_ref_index_consistent());
+}
+
+/// The automatic plane outline encloses the bounding rectangle of the board
+/// outline including its arcs (upstream `Board::calculateBoundingRect()`).
+#[test]
+fn test_auto_plane_outline_includes_arcs() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut editor = create_editor(&tmp.path().join("p"));
+    let board = editor
+        .execute(AddBoard {
+            name: name("default"),
+            copy_from: None,
+            default_outline: false,
+        })
+        .unwrap()
+        .board;
+    let diameter = PositiveLength::new(Length::new(20_000_000)).unwrap();
+    editor
+        .execute(AddBoardPolygon {
+            board: Some(board),
+            layer: Layer::BOARD_OUTLINES,
+            path: librepcb_core::geometry::Path::circle(diameter).translated(mm(50.0, 50.0)),
+            line_width: None,
+            filled: false,
+            grab_area: false,
+        })
+        .unwrap();
+    let plane = editor
+        .execute(AddPlane {
+            board: Some(board),
+            net: None,
+            layer: None,
+            outline: None,
+            settings: PlaneSettings::default(),
+        })
+        .unwrap();
+    let outline = editor
+        .project()
+        .board(board)
+        .unwrap()
+        .planes()
+        .get(&plane)
+        .unwrap()
+        .outline()
+        .clone();
+    let ys: Vec<Length> = outline.vertices().iter().map(|v| v.pos.y).collect();
+    let xs: Vec<Length> = outline.vertices().iter().map(|v| v.pos.x).collect();
+    // The circle spans 40..60 mm in both directions.
+    assert!(*ys.iter().min().unwrap() < Length::new(40_000_000));
+    assert!(*ys.iter().max().unwrap() > Length::new(60_000_000));
+    assert!(*xs.iter().min().unwrap() < Length::new(40_000_000));
+    assert!(*xs.iter().max().unwrap() > Length::new(60_000_000));
+
+    // Without board outline, the automatic outline is refused.
+    let empty = editor
+        .execute(AddBoard {
+            name: name("empty"),
+            copy_from: None,
+            default_outline: false,
+        })
+        .unwrap()
+        .board;
+    assert!(
+        editor
+            .execute(AddPlane {
+                board: Some(empty),
+                net: None,
+                layer: None,
+                outline: None,
+                settings: PlaneSettings::default(),
+            })
+            .is_err()
+    );
 }

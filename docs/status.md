@@ -55,7 +55,7 @@ Done, in `crates/librepcb-core` unless noted:
   groundwork: `library_editor` (element editor with snapshot undo stack,
   dirty state, interface check, save; commands for symbols, packages,
   components and devices; check fixes) and `fsm::library` (symbol and
-  package editor FSMs with all upstream tools except images/DXF),
+  package editor FSMs with all upstream tools),
   headless scenarios in `tests/editor/library_editor_test.rs`; the Slint
   element tabs are wired (see `librepcb-app` below).
 - **`crates/librepcb-import`:** EAGLE import (parseagle model, type and
@@ -139,7 +139,7 @@ Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
 3. MCP: stdio MCP mode for Freerouting, subcircuit templates, design
    intent file (see `mcp-research-konnect.md`), more end-to-end scenarios
    (ICs with multiple gates, multi-page schematics, 4-layer boards).
-4. `Board::updateDrcMessageApprovals()`, STEP/3D (needs an OpenCascade
+4. STEP/3D (needs an OpenCascade
    replacement). Import wizards in the app (on `librepcb-import`).
 
 ## How the work is organized
@@ -188,8 +188,15 @@ platforms, so it is not set.
 
 - Adding and removing project library elements are `Project` methods, not
   `Mutation`s; `librepcb-editor`'s undo stack makes them undoable.
-- `Board::updateDrcMessageApprovals()` (obsolete approval cleanup) is not
-  ported.
+- The DRC approval cleanup (`Board::updateDrcMessageApprovals()`) is
+  `Project::drc_approvals_update()` / `ProjectEditor::update_drc_approvals()`
+  (used by MCP `drc_run`), the ERC one `ProjectEditor::update_erc_approvals()`;
+  the app's rule check panel does not call them yet.
+- Translation contexts of `tr!` calls in `crates/librepcb-app` are not
+  checked by `librepcb-i18n`'s `context_check` test yet; several use
+  unqualified contexts (e.g. `MainWindow`, `GuiApplication`,
+  `ProjectEditor`, `SchematicTab`, `Board2dTab` instead of
+  `librepcb::editor::...`) and are therefore not translated.
 - Direct ZIP downloads from codeload.github.com are blocked in the cloud
   sandbox; official libraries can be cloned with git instead.
 - Upstream bugs found along the way, which could be reported upstream:

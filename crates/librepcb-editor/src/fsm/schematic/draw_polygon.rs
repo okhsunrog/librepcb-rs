@@ -62,7 +62,7 @@ impl DrawPolygonState {
 
     fn begin(cx: &mut Cx<'_, '_>) -> bool {
         match cx.ctx.editor.begin_group(tr!(
-            "SchematicEditorState_DrawPolygon",
+            "librepcb::editor::SchematicEditorState_DrawPolygon",
             "Draw schematic polygon"
         )) {
             Ok(()) => true,

@@ -713,7 +713,10 @@ impl Command for PasteSchematicItems {
     type Output = Vec<SchematicItem>;
 
     fn text(&self) -> String {
-        tr!("CmdPasteSchematicItems", "Paste Schematic Elements")
+        tr!(
+            "librepcb::editor::CmdPasteSchematicItems",
+            "Paste Schematic Elements"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<Vec<SchematicItem>> {

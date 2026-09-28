@@ -40,7 +40,7 @@ impl Command for SimplifySchematicSegments {
 
     fn text(&self) -> String {
         tr!(
-            "CmdSimplifySchematicSegments",
+            "librepcb::editor::CmdSimplifySchematicSegments",
             "Simplify Schematic Net/Bus Segments"
         )
     }

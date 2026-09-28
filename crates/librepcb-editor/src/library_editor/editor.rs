@@ -428,7 +428,7 @@ impl GridElement for librepcb_core::library::pkg::Package {
 
 fn read_only_error() -> Error {
     Error::InvalidArgument(librepcb_i18n::tr!(
-        "LibraryEditorTab",
+        "librepcb::editor::LibraryEditorTab",
         "The library element is read-only."
     ))
 }

@@ -261,7 +261,10 @@ impl AddPadState {
             *hole = PadHole::new(Uuid::new_random(), hole.diameter(), hole.path().clone());
         }
         self.props.set_holes(holes);
-        if let Err(e) = cx.begin(tr!("BoardEditorState_AddPad", "Add Pad to Board")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_AddPad",
+            "Add Pad to Board"
+        )) {
             cx.error(e);
             return false;
         }

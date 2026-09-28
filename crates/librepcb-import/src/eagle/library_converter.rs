@@ -36,7 +36,7 @@ use super::model;
 use super::type_converter::{EagleTypeConverter, Geometry};
 use crate::UuidGenerator;
 
-const CTX: &str = "EagleLibraryConverter";
+const CTX: &str = "librepcb::eagleimport::EagleLibraryConverter";
 
 /// Settings of the [`EagleLibraryConverter`].
 #[derive(Debug, Clone)]

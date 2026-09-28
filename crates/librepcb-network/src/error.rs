@@ -103,7 +103,7 @@ pub enum Error {
     #[error(
         "{}",
         tr!(
-            "OrderPcbApiRequest",
+            "librepcb::OrderPcbApiRequest",
             "This service is currently not available. Please try again later or order the PCB manually either with the Gerber export or the *.lppz export."
         )
     )]
@@ -112,7 +112,7 @@ pub enum Error {
     #[error(
         "{}",
         tr!(
-            "OrderPcbApiRequest",
+            "librepcb::OrderPcbApiRequest",
             "The project is too large ({0}). If you manually added files to the project directory, you might need to move them out of the project directory.",
             .0
         )

@@ -495,7 +495,10 @@ impl LibraryElementEditor<Package> {
                     )));
                 };
                 if all {
-                    let text = tr!("PackageTab", "Fix Unspecified Pad Functions");
+                    let text = tr!(
+                        "librepcb::editor::PackageTab",
+                        "Fix Unspecified Pad Functions"
+                    );
                     self.begin_group(text)?;
                     let result = self.modify(|pkg| {
                         for fpt in pkg.footprints_mut().iter_mut() {
@@ -606,7 +609,11 @@ impl super::ElementCommand<Component> for InsertVariant {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementInsert", "Add {0}", "variant")
+        tr!(
+            "librepcb::editor::CmdListElementInsert",
+            "Add {0}",
+            "variant"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {

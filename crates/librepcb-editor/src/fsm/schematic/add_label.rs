@@ -43,7 +43,7 @@ impl AddLabelState {
     ) -> bool {
         let pos = pos.mapped_to_grid(cx.grid());
         if let Err(e) = cx.ctx.editor.begin_group(tr!(
-            "SchematicEditorState_AddLabel",
+            "librepcb::editor::SchematicEditorState_AddLabel",
             "Add Bus Label to Schematic"
         )) {
             cx.error(e);
@@ -102,7 +102,7 @@ impl AddLabelState {
         };
         let pos = pos.mapped_to_grid(cx.grid());
         if let Err(e) = cx.ctx.editor.begin_group(tr!(
-            "SchematicEditorState_AddLabel",
+            "librepcb::editor::SchematicEditorState_AddLabel",
             "Add Net Label to Schematic"
         )) {
             cx.error(e);

@@ -47,7 +47,10 @@ impl ElementCommand<Component> for EditComponent {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdComponentEdit", "Edit Component Properties")
+        tr!(
+            "librepcb::editor::CmdComponentEdit",
+            "Edit Component Properties"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -71,7 +74,7 @@ impl ElementCommand<Component> for EditComponent {
 
 fn duplicate_signal_error(name: &str) -> Error {
     Error::InvalidArgument(tr!(
-        "ComponentSignalListModel",
+        "librepcb::editor::ComponentSignalListModel",
         "There is already a signal with the name \"{0}\".",
         name
     ))
@@ -105,7 +108,10 @@ impl ElementCommand<Component> for AddComponentSignals {
     type Output = Vec<Uuid>;
 
     fn text(&self) -> String {
-        tr!("ComponentSignalListModel", "Add Component Signal(s)")
+        tr!(
+            "librepcb::editor::ComponentSignalListModel",
+            "Add Component Signal(s)"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<Vec<Uuid>> {
@@ -170,7 +176,10 @@ impl ElementCommand<Component> for EditComponentSignal {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdComponentSignalEdit", "Edit component signal")
+        tr!(
+            "librepcb::editor::CmdComponentSignalEdit",
+            "Edit component signal"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -220,7 +229,10 @@ impl ElementCommand<Component> for RemoveComponentSignal {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("ComponentSignalListModel", "Delete Component Signal")
+        tr!(
+            "librepcb::editor::ComponentSignalListModel",
+            "Delete Component Signal"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -255,7 +267,11 @@ impl ElementCommand<Component> for AddSymbolVariant<'_> {
     type Output = Uuid;
 
     fn text(&self) -> String {
-        tr!("CmdListElementInsert", "Add {0}", "variant")
+        tr!(
+            "librepcb::editor::CmdListElementInsert",
+            "Add {0}",
+            "variant"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<Uuid> {
@@ -263,7 +279,11 @@ impl ElementCommand<Component> for AddSymbolVariant<'_> {
         let name = if count == 0 {
             "default".to_owned()
         } else {
-            tr!("ComponentVariantListModel", "Variant {0}", count + 1)
+            tr!(
+                "librepcb::editor::ComponentVariantListModel",
+                "Variant {0}",
+                count + 1
+            )
         };
         let name = ElementName::new(name)
             .or_else(|_| ElementName::new(format!("Variant {}", count + 1)))?;
@@ -306,7 +326,7 @@ impl ElementCommand<Component> for EditSymbolVariant {
 
     fn text(&self) -> String {
         tr!(
-            "CmdComponentSymbolVariantEdit",
+            "librepcb::editor::CmdComponentSymbolVariantEdit",
             "Edit component symbol variant"
         )
     }
@@ -338,7 +358,11 @@ impl ElementCommand<Component> for MoveSymbolVariantUp {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementsSwap", "Move {0}", "variant")
+        tr!(
+            "librepcb::editor::CmdListElementsSwap",
+            "Move {0}",
+            "variant"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -365,7 +389,10 @@ impl ElementCommand<Component> for SetDefaultSymbolVariant {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("ComponentVariantListModel", "Set Default Component Variant")
+        tr!(
+            "librepcb::editor::ComponentVariantListModel",
+            "Set Default Component Variant"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -389,7 +416,11 @@ impl ElementCommand<Component> for RemoveSymbolVariant {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementRemove", "Remove {0}", "variant")
+        tr!(
+            "librepcb::editor::CmdListElementRemove",
+            "Remove {0}",
+            "variant"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -563,7 +594,10 @@ impl ElementCommand<Component> for EditGate {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdComponentSymbolVariantItemEdit", "Edit Component Gate")
+        tr!(
+            "librepcb::editor::CmdComponentSymbolVariantItemEdit",
+            "Edit Component Gate"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -601,7 +635,10 @@ impl ElementCommand<Component> for SetGateSymbol<'_> {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("ComponentGateEditor", "Edit Component Gate")
+        tr!(
+            "librepcb::editor::ComponentGateEditor",
+            "Edit Component Gate"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -633,7 +670,7 @@ impl ElementCommand<Component> for MoveGateUp {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdListElementsSwap", "Move {0}", "gate")
+        tr!("librepcb::editor::CmdListElementsSwap", "Move {0}", "gate")
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -710,7 +747,10 @@ impl ElementCommand<Component> for SetPinSignal {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdComponentPinSignalMapItemEdit", "Edit Component Pinout")
+        tr!(
+            "librepcb::editor::CmdComponentPinSignalMapItemEdit",
+            "Edit Component Pinout"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {
@@ -750,7 +790,10 @@ impl ElementCommand<Component> for AutoConnectPins<'_> {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("ComponentVariantEditor", "Auto-Assign Component Signals")
+        tr!(
+            "librepcb::editor::ComponentVariantEditor",
+            "Auto-Assign Component Signals"
+        )
     }
 
     fn execute(self, cmp: &mut Component) -> Result<()> {

@@ -318,7 +318,7 @@ impl Command for AddNetClass {
     type Output = NetClassId;
 
     fn text(&self) -> String {
-        tr!("CmdNetClassAdd", "Add netclass")
+        tr!("librepcb::editor::CmdNetClassAdd", "Add netclass")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<NetClassId> {
@@ -356,7 +356,7 @@ impl Command for EditNetClass {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdNetClassEdit", "Edit Net Class")
+        tr!("librepcb::editor::CmdNetClassEdit", "Edit Net Class")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -394,7 +394,7 @@ impl Command for RemoveNetClass {
     type Output = ();
 
     fn text(&self) -> String {
-        tr!("CmdNetClassRemove", "Remove netclass")
+        tr!("librepcb::editor::CmdNetClassRemove", "Remove netclass")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<()> {
@@ -418,7 +418,7 @@ impl Command for AddNet {
     type Output = NetSignalId;
 
     fn text(&self) -> String {
-        tr!("CmdNetSignalAdd", "Add netsignal")
+        tr!("librepcb::editor::CmdNetSignalAdd", "Add netsignal")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<NetSignalId> {
@@ -455,7 +455,7 @@ impl Command for EditNet {
     type Output = NetSignalId;
 
     fn text(&self) -> String {
-        tr!("CmdNetSignalEdit", "Edit netsignal")
+        tr!("librepcb::editor::CmdNetSignalEdit", "Edit netsignal")
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<NetSignalId> {
@@ -507,7 +507,10 @@ impl Command for MergeNets {
     type Output = NetSignalId;
 
     fn text(&self) -> String {
-        tr!("CmdCombineNetSignals", "Combine Net Signals")
+        tr!(
+            "librepcb::editor::CmdCombineNetSignals",
+            "Combine Net Signals"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<NetSignalId> {
@@ -529,7 +532,7 @@ impl Command for RemoveUnusedNets {
 
     fn text(&self) -> String {
         tr!(
-            "CmdRemoveUnusedNetSignalsAndBuses",
+            "librepcb::editor::CmdRemoveUnusedNetSignalsAndBuses",
             "Remove Unused Nets & Buses"
         )
     }
@@ -556,7 +559,10 @@ impl Command for ChangeNetOfSchematicSegment {
     type Output = NetSignalId;
 
     fn text(&self) -> String {
-        tr!("RenameNetSegmentDialog", "Change net of net segment")
+        tr!(
+            "librepcb::editor::RenameNetSegmentDialog",
+            "Change net of net segment"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<NetSignalId> {

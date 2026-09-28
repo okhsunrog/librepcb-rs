@@ -80,10 +80,6 @@ stated otherwise. Entries are grouped by module.
   decomposed with the `unicode-normalization` crate instead of
   `QString::normalized()`; results only differ where the Unicode versions
   differ.
-- **ERC approvals after a project migration** are not cleaned up yet
-  (upstream runs the ERC and keeps only approvals of messages which still
-  occur); obsolete approvals stay in `circuit/erc.lp` until the ERC is
-  ported.
 - **Migration log**: the application version in the footer is passed in by
   the application (`ProjectLoader::set_application_version()`, empty by
   default); dates are formatted with `chrono` like Qt's
@@ -360,9 +356,6 @@ differ between platforms/implementations:
   identically; a hand-edited, non-normalized or invalid URL is written back
   unchanged instead of being normalized or cleared. **File output can
   differ** in that case.
-- **Old file formats**: elements in a file format older than the current
-  one are rejected (`Error::MigrationRequired`) since the file format
-  migrations are not ported yet. Upstream upgrades them when opening.
 - **Title case check** (`is_title_case()`, `title_case_fixed_name()`):
   "lowercase letter" is general category Ll (upstream `QChar::isLetter() &&
   isLower()` on UTF-16 code units, identical for BMP names). The fixed name
@@ -516,9 +509,7 @@ Rendering only; no file is affected.
 - Pad and via drills are cut out of the copper (filled subpaths nested in
   others become holes, like Qt's odd-even rule); all drills are also
   filled with the background color on a separate layer (the editor look,
-  hidden in graphics exports). Standalone board pads are drawn with the
-  pad's preview geometries (default mask offsets) until core exposes the
-  board pad geometries for them.
+  hidden in graphics exports).
 - Planes are drawn with the fragments stored in the board's derived data
   (if computed) plus their outline as a hairline.
 - Board colors are the dark scheme's primary colors (the editor look); the
@@ -602,8 +593,7 @@ Rendering only; no file is affected.
   they are written, i.e. after an edit or a file format upgrade). Keyboard
   shortcuts keep their key sequences as strings without
   `QKeySequence` normalization. The migration of the legacy `themes` entry
-  only restores the grid styles; its colors are not converted into user
-  color schemes (upstream creates `*_color_schemes` entries from them).
+  writes the user color schemes like upstream (as raw S-expressions).
   API endpoint URLs are stored verbatim (upstream: `QUrl`), and an endpoint
   counts as valid if its URL is non-empty (upstream: `QUrl::isValid()`).
 - The "workspace requires LibrePCB %2 or later" message fills in both
@@ -695,8 +685,13 @@ Rendering only; no file is affected.
 - **Errors**: checks that fail (e.g. a non-positive calculated diameter)
   report the error in `DrcResult::errors` like upstream, with the Rust error
   message. A panic of a check thread is reported as error as well.
-- The approval cleanup `Board::updateDrcMessageApprovals()` is not ported
-  (it modifies the board; to be added as mutation with the editor).
+- **Approval cleanup** (`Board::updateDrcMessageApprovals()`):
+  `Project::drc_approvals_update()` returns a `SetDrcApprovals` mutation
+  instead of modifying the board; the set of approvals seen during the
+  session is derived data of the board. `ProjectEditor::update_drc_approvals()`
+  applies it without undo step and marks the project as manually modified,
+  like upstream's board editor. `librepcb-cli` does not clean up approvals
+  (like upstream).
 - `DrcMsgInvalidPadConnection` keeps upstream's untranslated `'%2'` in its
   message (upstream substitutes only the first placeholder).
 
@@ -728,11 +723,9 @@ Rendering only; no file is affected.
   remove unused project library elements; upstream's nested
   `CmdRemoveBoardItems` does. The explicit `RemoveBoardItems` and all
   schematic removals do, like upstream.
-- **`AddBoard`** with `copy_settings_from` copies only the board settings;
-  upstream `Board::copyFrom()` also copies all items. The automatic plane
-  outline of `AddPlane` uses the vertices of the board outline polygons
-  (arc bulges are ignored); upstream uses the bounding rectangle including
-  arcs.
+- **`AddBoard`** with `copy_from` (upstream `Board::copyFrom()`) does not
+  copy the calculated plane fragments; the planes of the copy are rebuilt
+  like any other planes.
 - **Adding a via** connects it to the traces and junctions of its net at
   its position like upstream's add-via tool (hit test: the trace width
   resp. the widest trace at a junction instead of the graphics items'
@@ -810,14 +803,12 @@ Rendering only; no file is affected.
 - **Change device:** the devices offered in the context menu come from the
   editor's library element source (upstream: the workspace library
   database).
-- **Plane tool:** the automatic outline uses the vertices of the board
-  outline polygons (upstream `Board::calculateBoundingRect()`).
 - **Cross-probing** is an output of the FSM (`cross_probe()`,
   `highlighted_nets()`); the application highlights the objects in the
   other editors.
-- Not ported: plane visibility from the context menu (a view setting of
-  the application) and aborting blocking tools of other editors (the
-  application must abort them).
+- Plane visibility (context menu "Visible") and aborting blocking tools
+  of other editors are handled by the application (the FSM reports the
+  context menu action).
 
 ### DXF reader (`import::dxf_reader`)
 
@@ -849,8 +840,10 @@ Rendering only; no file is affected.
 - **Dialogs** (pin/pad/polygon properties, import pins, courtyard excess,
   fix parameters) are requests to the application; check fixes take their
   answers as `FixParams`.
-- Not ported: adding images and resizing them, DXF import, "paste
-  geometry" into pads; the clipboard data has no pixmap.
+- **Images** (symbol editor): the file name of an added image is derived
+  from the base name passed by the application (upstream asks for it in
+  an input dialog); an existing file with the same content is reused
+  like upstream. The clipboard data has no pixmap.
 
 ## project (output job runner)
 
@@ -861,10 +854,12 @@ Rendering only; no file is affected.
   `buildPages()`; for board contents with "no board" (a project without
   boards and the default board set), no page is created (upstream would
   dereference a null board).
-- **Unsupported job types**: 3D (STEP) jobs fail with "Output jobs of type
-  '...' are not supported yet by this LibrePCB version (librepcb-rs)."
-  since the STEP export is not ported yet (the CLI reports them like an
-  upstream build without OpenCascade, see CLI). Unknown job types fail with the upstream message.
+- **3D (STEP) jobs** behave like upstream built without OpenCascade (the
+  STEP export is not ported): the planes are rebuilt, the output file is
+  announced (`AboutToWriteFile`), then the job fails (`Unsupported`; the
+  CLI prints upstream's "Attempted to work with STEP file, but LibrePCB was
+  compiled without OpenCascade.").
+  Unknown job types fail with the upstream message.
 - The Qt signals (`jobStarted`, `aboutToWriteFile`, `aboutToRemoveFile`,
   `warning`) are one observer callback (`OutputJobEvent`).
 - The application version and creation date written into the files are
@@ -934,10 +929,8 @@ upstream `librepcb-cli` 2.1.1 except for:
   `open-step` and `open-library --minify-step` fail with
   "Attempted to work with STEP file, but LibrePCB was compiled without
   OpenCascade." (the upstream CLI tests skip these cases). 3D output jobs
-  fail with the same message (upstream prints the output file name before
-  failing; here the job fails before, since the runner does not support
-  3D jobs), so the upstream `--run-jobs` tests with a STEP job are skipped
-  as well.
+  print their output file name and fail with the same message, so the
+  upstream `--run-jobs` tests with a STEP job are skipped as well.
 - **`--version`** prints `Implementation librepcb-rs (Rust, no Qt)`
   instead of the Qt version line, `OpenCascade N/A`, and the Git revision
   `unknown`; the application version is the crate version (also written
@@ -945,10 +938,9 @@ upstream `librepcb-cli` 2.1.1 except for:
 - **`--verbose`** log messages use the `env_logger` format and the
   messages of the Rust port (upstream: Qt's message handler format).
 - **Parser errors**: the command line is parsed with `clap`; the error
-  texts of `QCommandLineParser` are reproduced for unknown options,
-  missing and unexpected values. Several unknown options (e.g. `-abc`) are
-  reported one at a time (`Unknown option 'a'.`) instead of `Unknown
-  options: a, b, c.`. The parser strings of Qt (`Usage: {0}`, `Options:`,
+  texts of `QCommandLineParser` are reproduced for unknown options
+  (all of them, like `Unknown options: a, b, c.`), missing and unexpected
+  values. The parser strings of Qt (`Usage: {0}`, `Options:`,
   `Arguments:`, the error texts) are not in LibrePCB's translation
   catalogs, so they are always English (upstream: Qt's catalogs).
 
@@ -1096,8 +1088,9 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *No file system watcher:* the "files modified" banner of the tabs is
     never shown; elements changed on disk are not reloaded.
 - **Library element editors (M4b):**
-  - *Symbol and package editors:* images and DXF import are not
-    available in the symbol and package editors, nor graphics export,
+  - *Symbol and package editors:* images, DXF import and "Paste
+    Geometry" are not available in the tabs yet (the editor FSMs provide
+    them: `add_image()`, `import_dxf()`, `paste_geometry()`), nor graphics export,
     printing and the background image. There is no 3D view in the
     package editor: the 3D models can be added (the STEP file is stored
     as-is, not minified and not validated since there is no
@@ -1147,8 +1140,10 @@ upstream `librepcb-cli` 2.1.1 except for:
 - **Rule checks:** approving or unapproving an ERC/DRC message is an
   undoable command (`SetErcApproval`/`SetDrcApproval` mutations; upstream
   modifies the project outside the undo stack). Approvals of messages
-  which disappeared are not cleaned up (upstream removes them after a
-  check run, `Board::updateDrcMessageApprovals()`). Selecting a message
+  which disappeared are not cleaned up yet by the tabs (upstream removes
+  them after a check run; the editor provides
+  `ProjectEditor::update_erc_approvals()`/`update_drc_approvals()`, used
+  by the MCP server). Selecting a message
   zooms to its location, but no location marker is drawn; automatic fixes
   are not available yet.
 - **DRC** runs in a worker thread which locks the project only to rebuild

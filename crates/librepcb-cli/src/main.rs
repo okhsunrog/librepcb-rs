@@ -131,7 +131,12 @@ fn execute(args: &[String]) -> u8 {
     let (cli, matches) = match parse_result {
         Ok(result) => result,
         Err(e) => {
-            print_err(&help::parse_error_text(&e));
+            // Report the error like Qt (e.g. all unknown options at once).
+            let mut options = args::global_options();
+            options.extend(args::command_options(command));
+            let text =
+                help::qt_parse_error(args, &options).unwrap_or_else(|| help::parse_error_text(&e));
+            print_err(&text);
             print_err(&usage_text);
             print_err(&help_command_text);
             return 1;

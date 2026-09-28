@@ -61,7 +61,7 @@ use crate::editor::{Command, Transaction};
 use crate::error::{Error, Result};
 
 /// Translation context of the upstream command.
-const CTX: &str = "CmdBoardSpecctraImport";
+const CTX: &str = "librepcb::editor::CmdBoardSpecctraImport";
 
 /// Level of an import message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

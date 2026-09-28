@@ -455,7 +455,8 @@ fn open_project_impl(a: &OpenProjectArgs) -> CliResult<bool> {
                     runner.output_directory().to_native()
                 );
                 match runner.run(&jobs) {
-                    // Like an upstream build without OpenCascade.
+                    // 3D jobs fail like an upstream build without
+                    // OpenCascade (after announcing the output file).
                     Err(OutputJobError::Unsupported(kind))
                         if kind == Board3DOutputJob::TYPE_NAME =>
                     {

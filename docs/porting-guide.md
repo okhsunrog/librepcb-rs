@@ -106,6 +106,12 @@ current-format element (add new element types there).
   context lupdate recorded):
   `#[error("{}", tr!("Length", "Value must be > 0!"))]`. Replace `%1`, `%2`
   by `{0}`, `{1}`; `{{`/`}}` are literal braces. Plurals: `trn!` with `{n}`.
+  The context is the `msgctxt` of `lang/librepcb.pot`, including the
+  namespace for classes outside the `librepcb` root namespace
+  (`librepcb::editor::CmdBoardEdit`, `librepcb::eagleimport::...`). The
+  test `context_check` in `librepcb-i18n` fails for contexts or source
+  strings missing from the catalog; genuinely new strings go into its
+  allow-list.
 - Untranslated upstream strings (logic errors, debug messages) stay plain
   `#[error("...")]`.
 - No panics on file or user input. `expect()` only for real invariants, with

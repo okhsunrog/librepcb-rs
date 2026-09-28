@@ -69,13 +69,13 @@ pub enum Error {
     #[error("Duplicate import.")]
     DuplicateImport,
     /// The symbol of a gate was not converted before.
-    #[error("{}", tr!("EagleLibraryConverter", "Dependent symbol \"{0}\" not imported.", .0))]
+    #[error("{}", tr!("librepcb::eagleimport::EagleLibraryConverter", "Dependent symbol \"{0}\" not imported.", .0))]
     DependentSymbolNotImported(String),
     /// The component of a device was not converted before.
-    #[error("{}", tr!("EagleLibraryConverter", "Dependent component \"{0}\" not imported.", .0))]
+    #[error("{}", tr!("librepcb::eagleimport::EagleLibraryConverter", "Dependent component \"{0}\" not imported.", .0))]
     DependentComponentNotImported(String),
     /// The package of a device was not converted before.
-    #[error("{}", tr!("EagleLibraryConverter", "Dependent package \"{0}\" not imported.", .0))]
+    #[error("{}", tr!("librepcb::eagleimport::EagleLibraryConverter", "Dependent package \"{0}\" not imported.", .0))]
     DependentPackageNotImported(String),
     /// A pin has no corresponding component signal.
     #[error("Could not find component signal from pin name: {0}")]

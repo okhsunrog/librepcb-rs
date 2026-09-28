@@ -40,7 +40,7 @@ use super::types::{KiCadFootprint, KiCadSymbolGate, KiCadSymbolGateStyle, KiCadS
 use crate::library_writer::{save_element, try_create_category_if_required};
 use crate::{CheckState, CheckStateChange, ElementKind, ImportSummary, Progress, UuidGenerator};
 
-const CTX: &str = "KiCadLibraryImport";
+const CTX: &str = "librepcb::kicadimport::KiCadLibraryImport";
 
 /// Name of the categories created for imported elements.
 pub const CATEGORY_NAME: &str = "KiCad Import";

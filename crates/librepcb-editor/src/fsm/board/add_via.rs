@@ -169,7 +169,10 @@ impl Command for PlaceVia {
     type Output = ViaResult;
 
     fn text(&self) -> String {
-        tr!("BoardEditorState_AddVia", "Add via to board")
+        tr!(
+            "librepcb::editor::BoardEditorState_AddVia",
+            "Add via to board"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<ViaResult> {
@@ -208,7 +211,10 @@ impl Default for AddViaState {
 impl AddViaState {
     /// Upstream `addVia()`.
     fn add_via(&mut self, cx: &mut Cx<'_, '_>, pos: Point) -> bool {
-        if let Err(e) = cx.begin(tr!("BoardEditorState_AddVia", "Add via to board")) {
+        if let Err(e) = cx.begin(tr!(
+            "librepcb::editor::BoardEditorState_AddVia",
+            "Add via to board"
+        )) {
             cx.error(e);
             return false;
         }

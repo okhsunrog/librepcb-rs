@@ -319,7 +319,10 @@ impl Command for ConnectNet {
     type Output = ConnectedNet;
 
     fn text(&self) -> String {
-        tr!("SchematicEditorState_DrawWire", "Draw Wire")
+        tr!(
+            "librepcb::editor::SchematicEditorState_DrawWire",
+            "Draw Wire"
+        )
     }
 
     fn execute(self, tx: &mut Transaction<'_>) -> Result<ConnectedNet> {
@@ -876,7 +879,7 @@ impl Command for DisconnectSignals {
 
     fn text(&self) -> String {
         tr!(
-            "CmdRemoveSelectedSchematicItems",
+            "librepcb::editor::CmdRemoveSelectedSchematicItems",
             "Remove Schematic Elements"
         )
     }
