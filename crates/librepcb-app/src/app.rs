@@ -121,6 +121,8 @@ pub struct State {
     /// The opened libraries (`Data.libraries`).
     pub(crate) libraries: Vec<Rc<crate::open_library::OpenLibrary>>,
     pub(crate) libraries_model: Rc<UiModel<ui::LibraryData>>,
+    /// The plane rebuilds of the boards (see [`crate::planes`]).
+    pub(crate) planes: crate::planes::PlaneRebuilds,
 }
 
 thread_local! {
@@ -198,6 +200,7 @@ impl App {
                 remote_libraries: crate::library_manager::LibrariesModel::new(true),
                 libraries: Vec::new(),
                 libraries_model: UiModel::shared(Vec::new()),
+                planes: Default::default(),
             })
         });
         let app = Self {
@@ -996,9 +999,9 @@ impl State {
                 tr!(
                     "librepcb::editor::GuiApplication",
                     "LibrePCB project files ({0})",
-                    "*.lpp"
+                    "*.lpp *.lppz"
                 ),
-                &["lpp"],
+                &["lpp", "lppz"],
             )
             .set_directory(self.workspace.lock().projects_path().as_path());
         if let Some(path) = dialog.pick_file()
@@ -1080,7 +1083,7 @@ impl State {
                     Ok(()) => {
                         self.project_saved(&project);
                         self.show_status(
-                            &tr!("librepcb::editor::ProjectEditor", "Project saved"),
+                            &tr!("librepcb::editor::ProjectEditor", "Project saved!"),
                             2000,
                         );
                     }
@@ -1222,6 +1225,7 @@ impl State {
             }
         }
         self.schedule_rule_checks();
+        self.schedule_plane_rebuilds();
         self.refresh_project_library_tabs(false);
     }
 

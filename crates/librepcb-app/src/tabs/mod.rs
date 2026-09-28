@@ -234,6 +234,9 @@ pub enum TabRequest {
     },
     /// Open the properties dialog of an item.
     Properties(PropertiesTarget),
+    /// Rebuild all planes of the board (upstream
+    /// `BoardEditor::startPlanesRebuild(true)`).
+    RebuildPlanes(librepcb_core::project::BoardId),
     /// Ask for a line width (board "Set Width" dialog); the answer is
     /// passed back with [`Tab::set_line_width()`].
     LineWidth {

@@ -274,6 +274,16 @@ impl Board2dTab {
         self.update_layers_model();
     }
 
+    /// The layers hidden in the layers panel (their planes are not rebuilt
+    /// automatically, upstream `getVisibleCopperLayers()`).
+    pub fn hidden_layers(&self) -> impl Iterator<Item = Layer> + '_ {
+        self.layers
+            .iter()
+            .zip(&self.visible)
+            .filter(|(_, v)| !**v)
+            .map(|(l, _)| *l)
+    }
+
     /// Re-lists the layers after a rebuild (the board's layers may have
     /// changed), keeping the visibility of known layers.
     fn init_layers_keep_visibility(&mut self) {
@@ -1433,6 +1443,9 @@ impl Board2dTab {
                 self.canvas.zoom_out();
                 extra.repaint = true;
             }
+            A::PlanesRebuild => {
+                extra.requests.push(TabRequest::RebuildPlanes(self.board));
+            }
             A::LayersNone | A::LayersTop | A::LayersBottom | A::LayersTopBottom | A::LayersAll => {
                 self.apply_layer_preset(action);
                 extra.repaint = true;
@@ -1545,7 +1558,8 @@ impl Board2dTab {
                 let result = self.project.save();
                 match result {
                     Ok(()) => {
-                        extra.status = Some(tr!("librepcb::editor::ProjectEditor", "Project saved"))
+                        extra.status =
+                            Some(tr!("librepcb::editor::ProjectEditor", "Project saved!"))
                     }
                     Err(e) => extra.requests.push(error_notification(e.to_string())),
                 }

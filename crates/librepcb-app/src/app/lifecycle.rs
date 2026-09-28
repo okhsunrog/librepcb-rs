@@ -110,10 +110,6 @@ impl State {
             self.switch_to_project(i);
             return Some(i);
         }
-        if fp.suffix() == "lppz" {
-            self.not_implemented("*.lppz");
-            return None;
-        }
         let source = self.workspace.lock().shared_library_db();
         let project = match AppProject::open_with(&request, source) {
             Ok(OpenOutcome::Opened(p)) => Rc::new(*p),

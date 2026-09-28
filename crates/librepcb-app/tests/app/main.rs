@@ -14,6 +14,7 @@ mod lifecycle;
 mod live_mcp;
 mod m3d_tools;
 mod output_dialogs;
+mod planes;
 mod rule_checks;
 mod screenshot;
 mod setup_dialogs;

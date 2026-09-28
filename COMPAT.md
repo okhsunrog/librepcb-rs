@@ -979,7 +979,8 @@ upstream `librepcb-cli` 2.1.1 except for:
   crash) is restored after upstream's question (Yes/No/Cancel). Opening
   works in steps (the file system reports the lock or the backup, the
   prompt is shown, opening continues with the answer) instead of blocking
-  callbacks. `*.lppz` archives cannot be opened yet.
+  callbacks. `*.lppz` archives are extracted into a new temporary
+  directory and opened read-only, like upstream.
 - **File format upgrade notification:** like upstream; the migration log
   is written to `logs/migration_preview.html` of the project and opened
   with the default application (not the configured external web
@@ -1170,6 +1171,10 @@ upstream `librepcb-cli` 2.1.1 except for:
   step, the project becomes modified), but not while an undo group is
   active (e.g. a tool is drawing; the next run removes them) or the
   project is read-only.
+- **Plane rebuilds:** the outdated planes on the visible copper layers of
+  the boards shown in board tabs are rebuilt in a worker thread, at most
+  once per second, checked by the project poll timer (250 ms; upstream: a
+  100 ms timer); "Rebuild All Planes" rebuilds all planes of the board.
 - **DRC** runs in a worker thread which locks the project only to rebuild
   the planes and air wires and to extract the check data.
 - **Outputs from the menus:** PDF and image export, pick&place, the BOM
@@ -1237,7 +1242,6 @@ upstream `librepcb-cli` 2.1.1 except for:
 
 ## app (crate librepcb-app)
 
-- **Opening `*.lppz` archives** is not supported yet.
 - **Project lifecycle (M3c):** example projects are not downloaded when a
   workspace is created; wizard locations, EAGLE/KiCad import paths and
   options are not remembered in the client settings; the project library
@@ -1284,8 +1288,8 @@ upstream `librepcb-cli` 2.1.1 except for:
   - *DXF import dialog:* its choices are remembered only while the
     application runs (upstream: in the client settings).
   - *Find:* the suggestions have no icons.
-- **Not available yet in the tabs:** the unplaced components panel and
-  plane rebuilds (board).
+- **Not available yet in the tabs:** the unplaced components panel;
+  "Show All Planes"/"Hide All Planes" (board).
 - **Library management (M4a):**
   - *Libraries panel:* no automatic update check or installation timer;
     the online list is fetched when the panel is shown or "check for

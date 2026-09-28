@@ -359,6 +359,35 @@ fn project_lifecycle_in_app() {
 }
 
 #[test]
+fn open_project_archive() {
+    crate::common::with_headless(W, H, |headless| {
+        let tmp = tempfile::tempdir().unwrap();
+        // A *.lppz of an upstream test project.
+        let src =
+            fp(&Path::new(env!("LIBREPCB_UPSTREAM_DIR")).join("tests/data/projects/Gerber Test"));
+        let lppz = fp(&tmp.path().join("Gerber Test.lppz"));
+        librepcb_core::fileio::TransactionalFileSystem::open_ro(&src)
+            .unwrap()
+            .export_to_zip_file(&lppz, None)
+            .unwrap();
+        let workspace = startup::open_workspace(&tmp.path().join("workspace")).unwrap();
+        librepcb_i18n::set_language("en").unwrap();
+        let window = ui::AppWindow::new().unwrap();
+        slint::select_bundled_translation("en").unwrap();
+        let app = App::new(window, workspace);
+        app.window().show().unwrap();
+        assert_eq!(app.open_project(lppz.as_path()), Some(0));
+        headless.settle(10);
+        let project = app.state().borrow().projects()[0].clone();
+        assert!(!project.is_writable());
+        assert_eq!(*project.path(), lppz);
+        assert!(!project.shared().lock().project().boards().is_empty());
+        // The archive is extracted elsewhere: nothing is written next to it.
+        assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 2);
+    });
+}
+
+#[test]
 fn project_library_updater() {
     crate::common::with_headless(W, H, |headless| {
         let save = |name: &str| {

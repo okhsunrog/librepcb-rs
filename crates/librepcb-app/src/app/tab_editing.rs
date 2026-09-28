@@ -218,6 +218,11 @@ impl State {
                 TabRequest::ProjectLibraryUpdater(fp) => {
                     self.show_project_library_updater(fp, &[]);
                 }
+                TabRequest::RebuildPlanes(board) => {
+                    if let Some(project) = project.clone() {
+                        self.rebuild_all_planes(&project, board);
+                    }
+                }
                 TabRequest::LineWidth { current } => {
                     let Some(project) = project.clone() else {
                         continue;
@@ -403,9 +408,9 @@ pub fn load_image_file(
         "jpg" | "jpeg" => "jpg",
         "svg" => "svg",
         _ => {
-            return Err(tr!(
-                "librepcb::editor::ImageHelpers",
-                "Failed to convert image '{0}' to a supported format. Please try a different image format.",
+            // Not translated upstream (`ImageHelpers::execImageChooserDialog()`).
+            return Err(format!(
+                "Failed to convert image '{}' to a supported format. Please try a different image format.",
                 path.display()
             ));
         }

@@ -3,7 +3,8 @@
 //! Port of the project handling of libs/librepcb/editor/project/projecteditor.{h,cpp}
 //! and `GuiApplication::openProject()`: opening a `*.lpp` file with a
 //! directory lock (read-only if the project is locked by another
-//! application or not writable), and the project's `ProjectData` for the
+//! application or not writable) or a `*.lppz` archive (extracted, read-only),
+//! and the project's `ProjectData` for the
 //! documents panel.
 //!
 //! The project lives in a [`SharedProject`] (`Arc<Mutex<OpenProject>>`
@@ -152,6 +153,9 @@ impl AppProject {
     ) -> Result<OpenOutcome, OpenError> {
         use librepcb_core::fileio::{Error as FileError, LockStatus, RestoreMode};
         let lpp = &request.path;
+        if lpp.suffix() == "lppz" && lpp.is_existing_file() {
+            return Self::open_archive(lpp, source);
+        }
         if lpp.suffix() != "lpp" || !lpp.is_existing_file() {
             return Err(OpenError::NotAProject(lpp.to_native()));
         }
@@ -214,6 +218,34 @@ impl AppProject {
             Err(librepcb_editor::Error::Project(e)) => Err(OpenError::Project(e)),
             Err(e) => Err(OpenError::NotAProject(format!("{}: {e}", lpp.to_native()))),
         }
+    }
+
+    /// Opens a project archive (`*.lppz`) read-only like upstream
+    /// `GuiApplication::openProject()`: the archive is extracted into a new
+    /// temporary directory (without lock) and the project file found there
+    /// is opened.
+    fn open_archive(
+        lppz: &FilePath,
+        source: Arc<dyn LibraryElementSource>,
+    ) -> Result<OpenOutcome, OpenError> {
+        let tmp = FilePath::new(
+            std::env::temp_dir()
+                .join("librepcb")
+                .join(librepcb_core::types::Uuid::new_random().to_string()),
+        )
+        .ok_or_else(|| OpenError::NotAProject(lppz.to_native()))?;
+        let fs = Arc::new(TransactionalFileSystem::open_ro(&tmp)?);
+        fs.remove_dir_recursively("")?;
+        fs.load_from_zip(lppz)?;
+        let Some(file_name) = fs.files("").into_iter().rfind(|f| f.ends_with(".lpp")) else {
+            return Err(OpenError::NotAProject(lppz.to_native()));
+        };
+        let mut loader = ProjectLoader::new();
+        let project = loader.open(TransactionalDirectory::new(Arc::clone(&fs), ""), &file_name)?;
+        let mut open = OpenProject::new(project, fs, false, source);
+        open.migration_log = loader.migration_log().cloned();
+        open.upgraded = open.migration_log.is_some();
+        Ok(OpenOutcome::Opened(Box::new(Self::new(open, lppz, false))))
     }
 
     fn new(project: OpenProject, lpp: &FilePath, writable: bool) -> Self {
