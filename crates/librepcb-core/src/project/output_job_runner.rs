@@ -19,8 +19,8 @@
 //!   jobs fail with [`OutputJobError::Unsupported`].
 //! - 3D (STEP) jobs behave like upstream built without OpenCascade: the
 //!   planes are rebuilt and the output file is announced, then the job
-//!   fails with [`OutputJobError::StepExportUnavailable`] (the STEP export
-//!   is not ported).
+//!   fails with [`OutputJobError::Unsupported`] (the STEP export is not
+//!   ported; the CLI reports upstream's OpenCascade message).
 //! - Archive jobs collect their input files in an in-memory transactional
 //!   file system (upstream opens a writable one in a temporary directory,
 //!   which is left behind); the archive content is the same.
@@ -78,11 +78,6 @@ pub enum OutputJobError {
         "Output jobs of type '{0}' are not supported yet by this LibrePCB version (librepcb-rs)."
     )]
     Unsupported(String),
-    /// A 3D job cannot write its STEP file since the STEP export is not
-    /// available (upstream `OccModel::throwNotAvailable()` of a build
-    /// without OpenCascade, same message).
-    #[error("Attempted to work with STEP file, but LibrePCB was compiled without OpenCascade.")]
-    StepExportUnavailable,
     /// A graphics job has a page size key unknown to Qt's `QPageSize`.
     #[error("Unsupported page size: '{0}'")]
     UnsupportedPageSize(String),
@@ -794,7 +789,11 @@ impl<'a> OutputJobRunner<'a> {
                 .begin_writing_file(&uuid, &output_path(&lookup, &job.output_path))?;
             let suffix = fp.suffix().to_lowercase();
             return Err(if matches!(suffix.as_str(), "step" | "stp") {
-                OutputJobError::StepExportUnavailable
+                // Upstream without OpenCascade fails here (see the module
+                // docs); the CLI reports upstream's message.
+                OutputJobError::Unsupported(
+                    <Board3DOutputJob as crate::job::OutputJobType>::TYPE_NAME.to_owned(),
+                )
             } else {
                 // Upstream reports a "netlist" format here.
                 OutputJobError::UnsupportedNetlistFormat(fp.suffix().to_owned())

@@ -649,10 +649,7 @@ pub fn jobs_run(session: &mut Session, args: JobsRunArgs) -> ToolResult<ToolOutp
         for job in &jobs {
             let written_before = written_in_run.lock().len();
             match runner.run(std::slice::from_ref(job)) {
-                Err(
-                    librepcb_core::project::OutputJobError::Unsupported(_)
-                    | librepcb_core::project::OutputJobError::StepExportUnavailable,
-                ) if skip_unsupported => {
+                Err(librepcb_core::project::OutputJobError::Unsupported(_)) if skip_unsupported => {
                     // The announced files were not written.
                     written_in_run.lock().truncate(written_before);
                     skipped.push(format!(

@@ -276,11 +276,7 @@ fn test_board_3d_without_step_export() {
     let step = job("model.step");
     let uuid = step.uuid();
     let err = runner.run(&[step]).unwrap_err();
-    assert!(matches!(err, OutputJobError::StepExportUnavailable));
-    assert_eq!(
-        err.to_string(),
-        "Attempted to work with STEP file, but LibrePCB was compiled without OpenCascade."
-    );
+    assert!(matches!(&err, OutputJobError::Unsupported(kind) if kind == "3d_model"));
     let written = runner.written_files().get(&uuid).unwrap();
     assert_eq!(written.len(), 1);
     assert!(written[0].as_str().ends_with("out/model.step"));

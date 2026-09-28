@@ -856,8 +856,9 @@ Rendering only; no file is affected.
   dereference a null board).
 - **3D (STEP) jobs** behave like upstream built without OpenCascade (the
   STEP export is not ported): the planes are rebuilt, the output file is
-  announced (`AboutToWriteFile`), then the job fails with "Attempted to
-  work with STEP file, but LibrePCB was compiled without OpenCascade."
+  announced (`AboutToWriteFile`), then the job fails (`Unsupported`; the
+  CLI prints upstream's "Attempted to work with STEP file, but LibrePCB was
+  compiled without OpenCascade.").
   Unknown job types fail with the upstream message.
 - The Qt signals (`jobStarted`, `aboutToWriteFile`, `aboutToRemoveFile`,
   `warning`) are one observer callback (`OutputJobEvent`).
