@@ -55,6 +55,11 @@ pub struct ProjectCreateRequest {
     /// Project directory as given by the agent (`None`: default location in
     /// the workspace).
     pub directory: Option<String>,
+    /// EAGLE schematic to import (as given by the agent); a host which
+    /// delegates must import it itself (`librepcb_import::eagle`).
+    pub eagle_schematic: Option<String>,
+    /// EAGLE board to import with the schematic.
+    pub eagle_board: Option<String>,
 }
 
 /// The host application embedding the MCP server. All methods have

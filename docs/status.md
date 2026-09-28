@@ -58,6 +58,16 @@ Done, in `crates/librepcb-core` unless noted:
   package editor FSMs with all upstream tools except images/DXF),
   headless scenarios in `tests/editor/library_editor_test.rs`; the Slint
   element tabs are still to be wired.
+- **`crates/librepcb-import`:** EAGLE import (parseagle model, type and
+  library converters, library import, project import) and KiCad library
+  import (`*.kicad_sym`, `*.kicad_mod`/`*.pretty`, 3D models), UI
+  independent: element selection with dependency states, wizard options,
+  `Progress` with cancellation and a `MessageLogger` (core
+  `utils::message_logger`). The EAGLE test project is imported byte for
+  byte like upstream's golden sample; imported libraries pass
+  `librepcb-cli open-library --all --strict`. MCP: `library_import`,
+  `project_create` with `eagle_schematic`. The app wizards are still to be
+  built on it.
 - **`crates/librepcb-autoroute`:** built-in grid A* router with rip-up and
   exact clearance verification.
 - **`crates/librepcb-scene`:** scene builders for schematics, boards,
@@ -117,7 +127,7 @@ Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
    intent file (see `mcp-research-konnect.md`), more end-to-end scenarios
    (ICs with multiple gates, multi-page schematics, 4-layer boards).
 3. `Board::updateDrcMessageApprovals()`, STEP/3D (needs an OpenCascade
-   replacement), Eagle/KiCad importers (M5).
+   replacement). Import wizards in the app (on `librepcb-import`).
 
 ## How the work is organized
 

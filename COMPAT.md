@@ -879,6 +879,47 @@ Rendering only; no file is affected.
 - A project without a directory on disk cannot run output jobs (the
   output directory is relative to it).
 
+## import (crate librepcb-import)
+
+- EAGLE XML (parseagle): numbers are parsed with `str::parse` after
+  trimming instead of `QString::toDouble()`/`toInt()`, and XML is read
+  with `roxmltree` (DTDs allowed) instead of `QDomDocument`; realistic
+  files are read the same, exotic number spellings Qt accepts may be
+  rejected.
+- HTML descriptions (EAGLE) are converted to plain text by a small
+  converter (`html::html_to_plain_text`: block elements become line
+  breaks, entities are decoded) instead of `QTextDocument::toPlainText()`;
+  whitespace can differ in unusual markup.
+- Grab areas of EAGLE symbols: the union of the filled outlines is
+  computed with Clipper (only overlapping shapes are united) instead of
+  `QPainterPath::united()`, and "is the text inside the grab area" uses the
+  same union; the imported files of the upstream test data are identical.
+- KiCad footprints: lines are grouped into polygons per (layer, width) in
+  a deterministic order (layer order, then width) instead of upstream's
+  `QMap` order keyed by `Layer` pointers, so the order of polygons in
+  `package.lp` can differ from upstream (upstream's own order is not
+  stable either).
+- Directory scans list entries sorted by Rust string ordering instead of
+  `QDir::Name` ordering (UTF-16 based; differs only for exotic names).
+- KiCad datasheet URLs are taken as written instead of being normalized
+  by `QUrl` (and not checked with `QUrl::isValid()`).
+- `MessageLogger` child loggers prefix messages with `"[group] "` and
+  forward them synchronously (no Qt signals); scan, parse and import run
+  on the caller's thread and report through `Progress` (percent, status,
+  cancellation) instead of `QThread`/`QFuture` and signals.
+- The KiCad import's lookup of already imported elements
+  (`ImportedElementLookup`, implemented for `LibraryDb`) does not wait
+  for a running workspace library scan like upstream; the caller
+  rescans first if needed.
+- EAGLE project import: `Project::create()` of the core does not copy the
+  stroke fonts; callers (MCP `project_create`, tests) write
+  `resources/fontobene` themselves before creating the project.
+- `EagleLibraryImport` enables the "EAGLE Import" categories by default
+  (upstream's class has none, the wizard enables them);
+  `KiCadLibraryImport` keeps upstream's class default (disabled). The
+  MCP tool `library_import` uses the wizards' defaults (name prefix off,
+  categories on) for both.
+
 ## CLI (crate librepcb-cli)
 
 The console output (messages, help texts, exit codes) is identical to

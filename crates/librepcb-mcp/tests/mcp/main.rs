@@ -4,5 +4,6 @@
 mod common;
 mod design;
 mod embedded;
+mod import;
 mod stdio_e2e;
 mod tools;
