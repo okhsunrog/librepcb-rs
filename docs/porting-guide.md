@@ -162,10 +162,12 @@ current-format element (add new element types there).
 - Floating point: basic arithmetic and `sqrt` native, every transcendental
   function (`sin`, `atan2`, `hypot`, ...) from `libm`, for identical results
   on all platforms. Integer nanometer rounding must match upstream exactly.
-- `COMPAT.md` (workspace root) lists every intentional divergence from
-  upstream, grouped by module ("General" for crate-wide rules), including
-  exotic edge cases. Add an entry whenever behavior differs, even if no
-  realistic file is affected, and say whether file output can change.
+- `COMPAT.md` (workspace root) lists every divergence from upstream,
+  grouped by module ("General" for crate-wide rules), including exotic
+  edge cases. Part 1 holds intentional differences (design decisions, not
+  work items), Part 2 features not ported yet (work items, removed when
+  done). Add an entry whenever behavior differs, even if no realistic file
+  is affected, and say whether file output can change.
 
 ## Tests
 

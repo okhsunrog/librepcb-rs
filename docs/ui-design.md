@@ -164,12 +164,12 @@ them into the app):
   wizard.
 - M3d the missing FSM parts: buses, images, standalone board pads, DXF
   import, "find", segment simplification after edits (see COMPAT.md
-  "Schematic editor FSM" / "Board editor FSM"). **Done**: in
+  Part 1, "Schematic editor FSM" / "Board editor FSM"). **Done**: in
   `librepcb-editor` and in the tabs (bus/bus label and image tools,
   bus member menu, board THT/SMT pad tools with their tool bar, DXF
   import dialog, "find" field with suggestions and zoom, plane visibility
   from the context menu, board cross-probing; see COMPAT.md "M3d tools in
-  the tabs"). Test: `tests/app/m3d_tools.rs`.
+  the tabs" under app in Parts 1 and 2). Test: `tests/app/m3d_tools.rs`.
 
 **M4 — library editors and library management** (the `.slint` tabs exist
 upstream: `library/{lib,cat,sym,pkg,cmp,dev,org}`, library tree, create
@@ -208,7 +208,7 @@ and download library tabs, libraries panel):
   through per-tab "row sinks" (deferred to the application state like
   the other UI models). Test: `tests/app/library_elements.rs` (one
   headless test per tab kind, screenshots `element_*.png`). Gaps: see
-  COMPAT.md "Library element editors".
+  COMPAT.md Part 2, app, "Library element editors".
 - M4c library import: Eagle and KiCad library import wizards (parsers in
   core, wizard UI in Slint).
 
