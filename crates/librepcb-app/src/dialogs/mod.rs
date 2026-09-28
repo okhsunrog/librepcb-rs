@@ -159,6 +159,11 @@ pub enum TabDialogResult {
     ElementChosen(chooser::ChooserPurpose, librepcb_core::types::Uuid),
     /// The name of organization PCB design rules.
     DesignRulesName(crate::tabs::organization::DesignRulesNamePurpose, String),
+    /// Close the tab, saving it first if `save`.
+    CloseTab {
+        /// Save before closing.
+        save: bool,
+    },
 }
 
 /// Buttons and size of a form dialog.
@@ -205,6 +210,8 @@ pub enum ButtonResult {
     Modified,
     /// Close the dialog.
     Close,
+    /// Close the dialog with a result for the tab.
+    TabResult(TabDialogResult),
     /// Run output jobs; keep the dialog open.
     RunJobs {
         /// Title of the notifications.

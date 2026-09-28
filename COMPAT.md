@@ -1012,9 +1012,8 @@ upstream `librepcb-cli` 2.1.1 except for:
     `./output/{{VERSION}}/...` relative to the project), closes the dialog;
     no "Browse Output Directory".
   - *Move/align:* the new positions are applied when accepting (upstream:
-    live while editing); only the package editor (M4) will use it.
-  - *Not ported yet:* circle properties (library editors only), the
-    workspace settings, lock handler and project wizard dialogs (M3c).
+    live while editing); used by the package editor.
+  - *Not ported yet:* the workspace settings, lock handler and project wizard dialogs (M3c).
 - **Clipboard:** copy/paste uses the system clipboard with upstream's MIME
   types through `clipboard-rs` (X11, Wayland, macOS, Windows). Exchange
   with upstream LibrePCB (same version) works on X11/Wayland; on Windows
@@ -1042,6 +1041,59 @@ upstream `librepcb-cli` 2.1.1 except for:
     signals the other tab reports (`fsmCrossProbe()`) and buses.
 - **Not available yet in the tabs:** the unplaced components panel and
   plane rebuilds (board).
+- **Library management (M4a):**
+  - *Libraries panel:* no automatic update check or installation timer;
+    the online list is fetched when the panel is shown or "check for
+    updates" is clicked. The download progress of a library is "running"
+    or "done" only (the installer of `librepcb-network` downloads the
+    ZIP and falls back to cloning the repository with git).
+  - *Library tab:* moving/copying elements into other libraries is not
+    ported; the checks run synchronously after each change. Closing a
+    library tab discards its unsaved changes without asking.
+  - *Undo stacks:* the library tab and every element tab have their own
+    undo stack (upstream shares one per library editor).
+  - *No file system watcher:* the "files modified" banner of the tabs is
+    never shown; elements changed on disk are not reloaded.
+- **Library element editors (M4b):**
+  - *Symbol and package editors:* images and DXF import are not
+    available in the symbol and package editors, nor graphics export,
+    printing and the background image. There is no 3D view in the
+    package editor: the 3D models can be added (the STEP file is stored
+    as-is, not minified and not validated since there is no
+    OpenCascade), renamed, replaced, reordered, removed and assigned to
+    footprints with their transform, but not shown. Keepout zones are
+    drawn filled in the zone color with a hairline outline.
+  - *Wizard of new elements:* the pages and the saving per page follow
+    upstream; for components, the variants page is still part of the
+    wizard (adding gates creates the signals) like upstream. The checks
+    run only after the wizard, like upstream. New elements are named
+    like upstream (`"New Symbol"`, ...; not translated) and new packages
+    and components get a `"default"` footprint or symbol variant.
+  - *Interface protection:* elements opened as new or duplicated keep
+    being writable while their tab is open (upstream `mIsNewElement`);
+    others become read-only after an interface-breaking change until
+    "unlock" (upstream: same).
+  - *Symbol previews* in the component and device tabs are images
+    rendered with `librepcb-scene`: the pins are labeled with the
+    connected signal names (component tab) but not with the pad numbers
+    (device tab); texts are shown raw (`{{NAME}}`). The device previews
+    are not zoomable and have no measure tool.
+  - *Chooser dialogs:* symbols, components and packages are chosen from
+    one searchable list with the description of the selected element
+    (upstream: a category tree, the list and a graphical preview).
+  - *Device pinout:* "auto-connect" and "load from file" keep the
+    existing connections (upstream asks whether to reset them first).
+  - *Organizations:* the PCB design rules and the output jobs of an
+    organization cannot be edited yet (upstream opens the board setup
+    and output jobs dialogs on a temporary project); design rules can be
+    added (with default settings), renamed, copied and removed.
+  - *Categories and organizations* use a snapshot undo stack over the
+    element's metadata and content (like the other element editors).
+  - *Opening elements from projects* (upstream: the project library
+    tab) is not available since the project library tab is not ported.
+  - *Slint 1.18.1 workaround:* the footprint tags panel of the package
+    tab has a fixed border radius for its "new tag" field (see
+    `ui/PROVENANCE.md`, item 9).
 - **Keyboard shortcuts:** `Backend.is-shortcut` compares with the default
   shortcut of the `.slint` command set only (no user overrides, no
   alternative shortcuts).

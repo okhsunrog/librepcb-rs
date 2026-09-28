@@ -40,6 +40,7 @@ use librepcb_core::project::{BoardId, SchematicId, SymbolId};
 use librepcb_core::types::{GridStyle, Length, LengthUnit, UnsignedLength, Uuid};
 use librepcb_editor::fsm::board::BoardItemRef;
 use librepcb_editor::fsm::schematic::{ComponentChoice, SchematicTool};
+use librepcb_i18n::tr;
 use slint::language::{PointerEvent, PointerEventButton, PointerEventKind};
 
 pub use board_2d::Board2dTab;
@@ -300,6 +301,16 @@ pub enum TabRequest {
     /// Choose a pinout CSV file (device editor); the application calls
     /// [`Tab::pinout_file_chosen()`].
     ChoosePinoutFile,
+    /// Ask whether to save the unsaved changes before closing the tab
+    /// ("Yes" saves and closes, "No" discards and closes).
+    ConfirmClose {
+        /// Dialog title.
+        title: String,
+        /// Question.
+        text: String,
+        /// Whether saving is possible ("Yes" is shown).
+        can_save: bool,
+    },
     /// Ask for the name of organization PCB design rules; the application
     /// calls [`Tab::design_rules_named()`].
     DesignRulesName {
@@ -536,6 +547,14 @@ impl Tab {
 
     /// Handles a tab action.
     pub fn trigger(&mut self, action: ui::TabAction) -> TabUpdate {
+        if action == ui::TabAction::Close
+            && let Some(question) = self.close_question()
+        {
+            return TabUpdate {
+                requests: vec![question],
+                ..TabUpdate::default()
+            };
+        }
         let update = match self {
             Self::Home(_) => TabUpdate::default(),
             Self::Schematic(t) => t.trigger(action),
@@ -558,6 +577,94 @@ impl Tab {
             };
         }
         update
+    }
+
+    /// The "Save Changes?" question before closing a library element tab
+    /// with unsaved changes (upstream `requestClose()` of the element
+    /// tabs); commits pending UI data first.
+    fn close_question(&mut self) -> Option<TabRequest> {
+        if !matches!(
+            self,
+            Self::Symbol(_)
+                | Self::Package(_)
+                | Self::Component(_)
+                | Self::Device(_)
+                | Self::ComponentCategory(_)
+                | Self::PackageCategory(_)
+                | Self::Organization(_)
+        ) {
+            return None;
+        }
+        let _ = self.trigger(ui::TabAction::Apply);
+        let data = self.ui_data();
+        if !data.unsaved_changes {
+            return None;
+        }
+        let name = data.title.to_string();
+        let (title, text) = match self {
+            Self::Symbol(_) => (
+                tr!("librepcb::editor::SymbolTab", "Save Changes?"),
+                tr!(
+                    "librepcb::editor::SymbolTab",
+                    "The symbol '{0}' contains unsaved changes.\nDo you want to save them before closing it?",
+                    name
+                ),
+            ),
+            Self::Package(_) => (
+                tr!("librepcb::editor::PackageTab", "Save Changes?"),
+                tr!(
+                    "librepcb::editor::PackageTab",
+                    "The package '{0}' contains unsaved changes.\nDo you want to save them before closing it?",
+                    name
+                ),
+            ),
+            Self::Component(_) => (
+                tr!("librepcb::editor::ComponentTab", "Save Changes?"),
+                tr!(
+                    "librepcb::editor::ComponentTab",
+                    "The component '{0}' contains unsaved changes.\nDo you want to save them before closing it?",
+                    name
+                ),
+            ),
+            Self::Device(_) => (
+                tr!("librepcb::editor::DeviceTab", "Save Changes?"),
+                tr!(
+                    "librepcb::editor::DeviceTab",
+                    "The device '{0}' contains unsaved changes.\nDo you want to save them before closing it?",
+                    name
+                ),
+            ),
+            Self::ComponentCategory(_) => (
+                tr!("librepcb::editor::ComponentCategoryTab", "Save Changes?"),
+                tr!(
+                    "librepcb::editor::ComponentCategoryTab",
+                    "The component category '{0}' contains unsaved changes.\nDo you want to save them before closing it?",
+                    name
+                ),
+            ),
+            Self::PackageCategory(_) => (
+                tr!("librepcb::editor::PackageCategoryTab", "Save Changes?"),
+                tr!(
+                    "librepcb::editor::PackageCategoryTab",
+                    "The package category '{0}' contains unsaved changes.\nDo you want to save them before closing it?",
+                    name
+                ),
+            ),
+            Self::Organization(_) => (
+                tr!("librepcb::editor::OrganizationTab", "Save Changes?"),
+                tr!(
+                    "librepcb::editor::OrganizationTab",
+                    "The organization '{0}' contains unsaved changes.\nDo you want to save them before closing it?",
+                    name
+                ),
+            ),
+            _ => return None,
+        };
+        Some(TabRequest::ConfirmClose {
+            title,
+            text,
+            can_save: !data.read_only,
+        })
     }
 
     /// Renders the scene for `Backend.render-scene`.

@@ -255,6 +255,11 @@ impl State {
                 }
             }
             Ok(ButtonResult::Close) => self.close_form_dialog(),
+            Ok(ButtonResult::TabResult(result)) => {
+                let tab = open.tab;
+                self.close_form_dialog();
+                self.form_dialog_tab_result(tab, result);
+            }
             Ok(ButtonResult::RunJobs { title, jobs }) => {
                 self.refresh_form_dialog(true);
                 if let Some(project) = &project {
@@ -287,7 +292,22 @@ impl State {
         let Some((si, ti)) = tab.and_then(|t| self.find_tab(t)) else {
             return;
         };
+        if let TabDialogResult::CloseTab { save } = result {
+            if save {
+                let update = self.sections[si].tabs_mut()[ti].trigger(ui::TabAction::Save);
+                let saved = !self.sections[si].tabs()[ti].ui_data().unsaved_changes;
+                self.apply_update(si, ti, update);
+                if !saved {
+                    return;
+                }
+            }
+            if let Some((si, ti)) = tab.and_then(|t| self.find_tab(t)) {
+                self.close_tab(si, ti);
+            }
+            return;
+        }
         let update = match result {
+            TabDialogResult::CloseTab { .. } => return,
             TabDialogResult::LineWidth(width) => {
                 self.sections[si].tabs_mut()[ti].set_line_width(width)
             }

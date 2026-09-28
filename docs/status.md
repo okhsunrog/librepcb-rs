@@ -51,13 +51,13 @@ Done, in `crates/librepcb-core` unless noted:
   bar's value attribute, pasting graphics from the library editors,
   cross-probing outputs; headless scenarios in
   `tests/editor/{fsm_schematic,board_fsm}_test.rs`); the application tabs
-  do not expose all of them yet. M4b
+  expose them (M3d wiring done). M4b
   groundwork: `library_editor` (element editor with snapshot undo stack,
   dirty state, interface check, save; commands for symbols, packages,
   components and devices; check fixes) and `fsm::library` (symbol and
   package editor FSMs with all upstream tools except images/DXF),
   headless scenarios in `tests/editor/library_editor_test.rs`; the Slint
-  element tabs are still to be wired.
+  element tabs are wired (see `librepcb-app` below).
 - **`crates/librepcb-autoroute`:** built-in grid A* router with rip-up and
   exact clearance verification.
 - **`crates/librepcb-scene`:** scene builders for schematics, boards,
@@ -100,6 +100,17 @@ Done, in `crates/librepcb-core` unless noted:
   group. Tests: `tests/app/{dialogs,setup_dialogs,output_dialogs}.rs`
   (headless) and `tests/app/dialog_screenshots.rs` (the dialogs in the
   headless application, screenshots in `$CARGO_TARGET_TMPDIR`).
+  M3d in the tabs: bus and image tools, board pad tools, DXF import,
+  "find", plane visibility (`tests/app/m3d_tools.rs`). M4a (library
+  management) and M4b (element editors) are done: libraries panel with
+  online libraries and installer, create/download library tabs, library
+  tab, symbol, package, component, device, category and organization
+  tabs with the library FSMs, list panels, properties and chooser
+  dialogs, checks with approvals and autofixes, undo/redo, wizard mode
+  for new elements and saving into the library
+  (`tests/app/{library_management,library_elements}.rs`); see
+  `docs/ui-design.md` (M4) and COMPAT.md "Library management" /
+  "Library element editors" for the gaps.
 
 ## Next steps
 
@@ -109,14 +120,16 @@ install, part search, schematic with `connect`/`schematic_tidy`, board
 outline, connectivity-based placement, Freerouting, GND plane, ERC/DRC,
 Gerber export — and the official `librepcb-cli` reports ERC 0, DRC 0.
 
-1. M2 viewer: finish M2b (library info on the home panel, grid/unit and
+1. M4c: EAGLE/KiCad library import wizards (the `librepcb-import` crate
+   exists on the coordinating branch), then M3c (project lifecycle).
+2. M2 viewer: finish M2b (library info on the home panel, grid/unit and
    layer visibility persisted in the user settings, keyboard handling) and
    the rest of M2d (rule check location markers and autofixes, print and
    image export, opening `*.lppz`); M2c is done.
-2. MCP: stdio MCP mode for Freerouting, subcircuit templates, design
+3. MCP: stdio MCP mode for Freerouting, subcircuit templates, design
    intent file (see `mcp-research-konnect.md`), more end-to-end scenarios
    (ICs with multiple gates, multi-page schematics, 4-layer boards).
-3. `Board::updateDrcMessageApprovals()`, STEP/3D (needs an OpenCascade
+4. `Board::updateDrcMessageApprovals()`, STEP/3D (needs an OpenCascade
    replacement), Eagle/KiCad importers (M5).
 
 ## How the work is organized

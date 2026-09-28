@@ -164,16 +164,22 @@ them into the app):
   wizard.
 - M3d the missing FSM parts: buses, images, standalone board pads, DXF
   import, "find", segment simplification after edits (see COMPAT.md
-  "Schematic editor FSM" / "Board editor FSM"). Done in
-  `librepcb-editor`; wiring the new tools into the application tabs
-  (tool bar buttons, dialogs, "find" field) remains.
+  "Schematic editor FSM" / "Board editor FSM"). **Done**: in
+  `librepcb-editor` and in the tabs (bus/bus label and image tools,
+  bus member menu, board THT/SMT pad tools with their tool bar, DXF
+  import dialog, "find" field with suggestions and zoom, plane visibility
+  from the context menu, board cross-probing; see COMPAT.md "M3d tools in
+  the tabs"). Test: `tests/app/m3d_tools.rs`.
 
 **M4 — library editors and library management** (the `.slint` tabs exist
 upstream: `library/{lib,cat,sym,pkg,cmp,dev,org}`, library tree, create
 and download library tabs, libraries panel):
-- M4a library management UI: libraries panel, download library tab
-  (installer from `librepcb-network`), create library tab, library tab
-  (metadata, dependencies, element list, library checks with approvals).
+- M4a library management UI (**done**): libraries panel (installed and
+  online libraries from `librepcb-network`, install/update/remove with
+  progress), download library tab, create library tab, library tab
+  (metadata, dependencies, element tree per category, library checks
+  with approvals and autofixes, save with undo). Test:
+  `tests/app/library_management.rs`.
 - M4b element editors: symbol editor (FSM port of upstream
   `library/sym/fsm`: pins, lines, polygons, circles, arcs, texts, names/
   values; pin properties dialog), package editor (`library/pkg/fsm`:
@@ -182,6 +188,27 @@ and download library tabs, libraries panel):
   (signals, symbol variants, gates, pin-signal mapping), device editor
   (pinout, parts), category and organization tabs; chooser dialogs
   (category, component, package, symbol); element checks with fixes.
+  **Done** (`crates/librepcb-app/src/tabs/{symbol,package,component,
+  device,category,organization}.rs` on `element_core.rs` (the
+  `LibraryElementEditor` of `librepcb-editor`: undo stack, dirty state,
+  interface check, metadata, checks, wizard pages, saving into the
+  library) and `base_element_core.rs` (categories and organizations: a
+  snapshot undo stack over `BaseMetadata` and the kind specific
+  content)): symbol and package canvases with the library FSMs, tool
+  bars, context menus and the item properties dialogs (pin, pad,
+  polygon, circle, text, stroke text, hole, zone), package pads,
+  footprints (tags, 3D transform, model flags) and 3D models (STEP file
+  chooser), courtyard and move/align dialogs; component signals,
+  variants, gates and pinouts with rendered symbol previews; device
+  component/package choosers with previews, pinout (list, reset,
+  automatic, CSV file, interactive) and parts; category parent chooser;
+  organization logo, URL, priority and PCB design rules list; the
+  symbol/component/package chooser is one searchable list dialog
+  (`dialogs/chooser.rs`). The element list rows written by the UI go
+  through per-tab "row sinks" (deferred to the application state like
+  the other UI models). Test: `tests/app/library_elements.rs` (one
+  headless test per tab kind, screenshots `element_*.png`). Gaps: see
+  COMPAT.md "Library element editors".
 - M4c library import: Eagle and KiCad library import wizards (parsers in
   core, wizard UI in Slint).
 

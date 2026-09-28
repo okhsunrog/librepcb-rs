@@ -996,6 +996,27 @@ fn category_and_organization_editors() {
             std::fs::read_to_string(org_dir.path_to("organization.lp").as_path()).unwrap();
         assert!(content.contains("(priority 40)"), "{content}");
 
+        // Closing with unsaved changes asks; "No" discards them.
+        with_tab(&app, tab, |t| {
+            let Tab::Organization(o) = t else {
+                unreachable!()
+            };
+            let mut d = o.derived_ui_data();
+            d.priority = 50;
+            o.set_derived_ui_data(&d);
+        });
+        backend.invoke_trigger_tab(tab.0 as i32, tab.1 as i32, ui::TabAction::Close);
+        headless.settle(10);
+        assert!(forms.get_form_shown(), "save changes question");
+        save(headless, "element_close_question.png");
+        forms.invoke_form_button(1);
+        headless.settle(10);
+        assert!(!forms.get_form_shown());
+        assert!(find_tab(&app, |t| matches!(t, Tab::Organization(_))).is_none());
+        let content =
+            std::fs::read_to_string(org_dir.path_to("organization.lp").as_path()).unwrap();
+        assert!(content.contains("(priority 40)"));
+
         // A new package category.
         backend.invoke_trigger_library(
             lib.to_native().into(),

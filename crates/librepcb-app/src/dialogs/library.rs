@@ -115,3 +115,63 @@ impl FormDialog for DesignRulesNameDialog {
         )))
     }
 }
+
+/// The "Save Changes?" question before closing a library element tab
+/// (upstream `QMessageBox::question()` of the tabs' `requestClose()`):
+/// "Yes" saves and closes, "No" closes without saving, "Cancel" keeps the
+/// tab open. Without `can_save`, "Yes" is not offered.
+pub struct SaveChangesDialog {
+    form: Form,
+    title: String,
+    can_save: bool,
+}
+
+impl SaveChangesDialog {
+    /// A dialog with the question.
+    pub fn new(title: String, text: &str, can_save: bool) -> Self {
+        let mut form = Form::new(LengthUnit::Millimeters);
+        form.note("message", text);
+        Self {
+            form,
+            title,
+            can_save,
+        }
+    }
+}
+
+impl FormDialog for SaveChangesDialog {
+    fn title(&self) -> String {
+        self.title.clone()
+    }
+
+    form_accessors!();
+
+    fn options(&self) -> DialogOptions {
+        let yes = tr!("QDialogButtonBox", "&Yes").replace('&', "");
+        let no = tr!("QDialogButtonBox", "&No").replace('&', "");
+        DialogOptions {
+            apply: false,
+            ok_text: Some(if self.can_save { yes } else { no.clone() }),
+            extra_buttons: if self.can_save { vec![no] } else { Vec::new() },
+            width: 450.0,
+            label_width: 0.0,
+            ..DialogOptions::default()
+        }
+    }
+
+    fn button(
+        &mut self,
+        _ctx: &DialogContext<'_>,
+        _index: usize,
+    ) -> Result<super::ButtonResult, String> {
+        Ok(super::ButtonResult::TabResult(TabDialogResult::CloseTab {
+            save: false,
+        }))
+    }
+
+    fn apply(&mut self, _ctx: &DialogContext<'_>) -> Result<Applied, String> {
+        Ok(Applied::Tab(TabDialogResult::CloseTab {
+            save: self.can_save,
+        }))
+    }
+}

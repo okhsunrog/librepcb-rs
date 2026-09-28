@@ -326,6 +326,15 @@ impl State {
             TabRequest::MoveAlign { positions } => self.open_move_align_dialog(tab, positions),
             TabRequest::ChooseElement(purpose) => self.open_element_chooser(tab, purpose),
             TabRequest::ChoosePinoutFile => self.choose_pinout_file(tab),
+            TabRequest::ConfirmClose {
+                title,
+                text,
+                can_save,
+            } => {
+                let dialog =
+                    crate::dialogs::library::SaveChangesDialog::new(title, &text, can_save);
+                self.open_library_dialog(Some(tab), Box::new(dialog));
+            }
             TabRequest::DesignRulesName { purpose, name } => {
                 let dialog = crate::dialogs::library::DesignRulesNameDialog::new(purpose, &name);
                 self.open_library_dialog(Some(tab), Box::new(dialog));
