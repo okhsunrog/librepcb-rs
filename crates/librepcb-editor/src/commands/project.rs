@@ -232,17 +232,17 @@ impl Command for RemoveSchematic {
 
 /// Adds a board (upstream `CmdBoardAdd`) with the default settings (layers,
 /// design rules, DRC settings) and, like upstream, a 100x80 mm board
-/// outline (upstream `Board::addDefaultContent()`), or with the settings of
-/// another board (the items are not copied, unlike upstream
-/// `Board::copyFrom()`).
+/// outline (upstream `Board::addDefaultContent()`), or as a copy of another
+/// board (upstream `Board::copyFrom()`: its settings and all items, with new
+/// UUIDs except for the devices and their texts).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AddBoard {
     /// The name, e.g. "default".
     pub name: ElementName,
-    /// Board whose settings are copied (default: the default settings and
-    /// the default board outline).
-    #[serde(default)]
-    pub copy_settings_from: Option<BoardId>,
+    /// Board which is copied (default: the default settings and the
+    /// default board outline).
+    #[serde(default, alias = "copy_settings_from")]
+    pub copy_from: Option<BoardId>,
     /// Whether the default board outline is added when not copying
     /// (default: true).
     #[serde(default = "default_true")]
@@ -258,7 +258,7 @@ impl AddBoard {
     pub fn new(name: ElementName) -> Self {
         Self {
             name,
-            copy_settings_from: None,
+            copy_from: None,
             default_outline: true,
         }
     }
@@ -289,14 +289,18 @@ impl Command for AddBoard {
         let mut board = Board::new(Uuid::new_random(), self.name, dir);
         let id = board.id();
         let mut outline = None;
-        if let Some(other) = self.copy_settings_from {
+        if let Some(other) = self.copy_from {
             let settings: BoardSettings = resolve::board(tx.project(), Some(other))?
                 .settings()
                 .clone();
             board.set_settings(settings);
         }
         tx.apply(Mutation::AddBoard { board, index: None })?;
-        if self.copy_settings_from.is_none() && self.default_outline {
+        if let Some(other) = self.copy_from {
+            let steps = copy_board_items(resolve::board(tx.project(), Some(other))?, id);
+            tx.apply_all(steps)?;
+        }
+        if self.copy_from.is_none() && self.default_outline {
             // upstream `Board::addDefaultContent()`: 100x80mm (1/2 Eurocard).
             let polygon = BoardPolygonData::new(
                 Uuid::new_random(),
@@ -318,6 +322,110 @@ impl Command for AddBoard {
         }
         Ok(AddedBoard { board: id, outline })
     }
+}
+
+/// The mutations copying the items of `from` into the board `to` (upstream
+/// `Board::copyFrom()`): devices with their texts keep their UUIDs, all
+/// other items get new ones; traces are connected to the copied anchors.
+fn copy_board_items(from: &librepcb_core::project::board::Board, to: BoardId) -> Vec<Mutation> {
+    use librepcb_core::geometry::{Trace, TraceAnchor};
+    use librepcb_core::project::board::BoardNetSegment;
+    use std::collections::BTreeMap;
+    let mut steps = Vec::new();
+    for device in from.devices().values() {
+        steps.push(Mutation::Board(BoardMutation::AddDevice {
+            board: to,
+            device: device.clone(),
+        }));
+    }
+    for segment in from.net_segments().values() {
+        let mut anchors: BTreeMap<TraceAnchor, TraceAnchor> = BTreeMap::new();
+        let pads: Vec<_> = segment
+            .pads()
+            .values()
+            .map(|pad| {
+                let copy = pad.with_uuid(Uuid::new_random());
+                anchors.insert(TraceAnchor::Pad(pad.uuid()), TraceAnchor::Pad(copy.uuid()));
+                copy
+            })
+            .collect();
+        let vias: Vec<_> = segment
+            .vias()
+            .values()
+            .map(|via| {
+                let copy = via.with_uuid(Uuid::new_random());
+                anchors.insert(TraceAnchor::Via(via.uuid()), TraceAnchor::Via(copy.uuid()));
+                copy
+            })
+            .collect();
+        let junctions: Vec<_> = segment
+            .junctions()
+            .values()
+            .map(|junction| {
+                let copy = junction.with_uuid(Uuid::new_random());
+                anchors.insert(
+                    TraceAnchor::Junction(junction.uuid()),
+                    TraceAnchor::Junction(copy.uuid()),
+                );
+                copy
+            })
+            .collect();
+        // Footprint pads keep their anchors (same devices).
+        let map = |a: TraceAnchor| anchors.get(&a).copied().unwrap_or(a);
+        let traces: Vec<_> = segment
+            .traces()
+            .values()
+            .map(|t| {
+                Trace::new(
+                    Uuid::new_random(),
+                    t.layer(),
+                    t.width(),
+                    map(t.p1()),
+                    map(t.p2()),
+                )
+            })
+            .collect();
+        steps.push(Mutation::Board(BoardMutation::AddNetSegment {
+            board: to,
+            segment: BoardNetSegment::with_elements(
+                Uuid::new_random(),
+                segment.net(),
+                pads,
+                vias,
+                junctions,
+                traces,
+            ),
+        }));
+    }
+    for plane in from.planes().values() {
+        steps.push(Mutation::Board(BoardMutation::AddPlane {
+            board: to,
+            plane: plane.with_uuid(Uuid::new_random()),
+        }));
+    }
+    let items = from
+        .zones()
+        .values()
+        .map(|z| BoardItem::Zone(z.with_uuid(Uuid::new_random())))
+        .chain(
+            from.polygons()
+                .values()
+                .map(|p| BoardItem::Polygon(p.with_uuid(Uuid::new_random()))),
+        )
+        .chain(
+            from.stroke_texts()
+                .values()
+                .map(|t| BoardItem::StrokeText(t.with_uuid(Uuid::new_random()))),
+        )
+        .chain(
+            from.holes()
+                .values()
+                .map(|h| BoardItem::Hole(h.with_uuid(Uuid::new_random()))),
+        );
+    for item in items {
+        steps.push(Mutation::Board(BoardMutation::AddItem { board: to, item }));
+    }
+    steps
 }
 
 /// Renames a board (upstream `CmdBoardEdit::setName()`).

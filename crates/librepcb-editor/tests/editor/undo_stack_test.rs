@@ -167,7 +167,7 @@ fn test_update_drc_approvals_is_manual_modification() {
     let board = editor
         .execute(AddBoard {
             name: ElementName::new("default").unwrap(),
-            copy_settings_from: None,
+            copy_from: None,
             default_outline: true,
         })
         .unwrap()

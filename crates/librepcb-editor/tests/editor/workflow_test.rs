@@ -386,6 +386,63 @@ fn test_build_save_reopen_undo_redo() {
     assert!(after_redo == full, "{}", diff(&full, &after_redo));
 }
 
+/// Copying a board (upstream `Board::copyFrom()`) copies its settings and
+/// all items; the project stays valid for the official CLI.
+#[test]
+fn test_copy_board() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("project");
+    let mut editor = create_editor(&dir);
+    let demo = build_demo(&mut editor);
+    let copy = editor
+        .execute(AddBoard {
+            name: name("copy"),
+            copy_from: Some(demo.board),
+            default_outline: true,
+        })
+        .unwrap()
+        .board;
+    let p = editor.project();
+    assert!(p.is_ref_index_consistent());
+    let (a, b) = (p.board(demo.board).unwrap(), p.board(copy).unwrap());
+    assert_eq!(a.settings(), b.settings());
+    assert_eq!(a.devices(), b.devices());
+    assert_eq!(a.net_segments().len(), b.net_segments().len());
+    let count = |board: &librepcb_core::project::board::Board| {
+        board
+            .net_segments()
+            .values()
+            .map(|s| {
+                (
+                    s.net(),
+                    s.vias().len(),
+                    s.junctions().len(),
+                    s.traces().len(),
+                )
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    assert_eq!(count(a), count(b));
+    assert_eq!(a.planes().len(), b.planes().len());
+    assert_eq!(a.polygons().len(), b.polygons().len());
+    assert_eq!(a.stroke_texts().len(), b.stroke_texts().len());
+    assert_eq!(a.holes().len(), b.holes().len());
+    // New UUIDs for everything but the devices.
+    assert!(
+        a.polygons()
+            .keys()
+            .all(|uuid| !b.polygons().contains_key(uuid))
+    );
+    editor.save().unwrap();
+    match run_cli_erc(&dir) {
+        Some((ok, output)) => assert!(ok, "librepcb-cli failed:\n{output}"),
+        None => eprintln!("librepcb-cli not found, skipping the upstream check"),
+    }
+    // Undone in one step.
+    editor.undo().unwrap();
+    assert!(editor.project().board(copy).is_none());
+}
+
 #[test]
 fn test_remove_and_modify() {
     let tmp = tempfile::tempdir().unwrap();
@@ -709,7 +766,7 @@ fn test_auto_plane_outline_includes_arcs() {
     let board = editor
         .execute(AddBoard {
             name: name("default"),
-            copy_settings_from: None,
+            copy_from: None,
             default_outline: false,
         })
         .unwrap()
@@ -755,7 +812,7 @@ fn test_auto_plane_outline_includes_arcs() {
     let empty = editor
         .execute(AddBoard {
             name: name("empty"),
-            copy_settings_from: None,
+            copy_from: None,
             default_outline: false,
         })
         .unwrap()

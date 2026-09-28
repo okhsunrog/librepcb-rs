@@ -723,8 +723,9 @@ Rendering only; no file is affected.
   remove unused project library elements; upstream's nested
   `CmdRemoveBoardItems` does. The explicit `RemoveBoardItems` and all
   schematic removals do, like upstream.
-- **`AddBoard`** with `copy_settings_from` copies only the board settings;
-  upstream `Board::copyFrom()` also copies all items.
+- **`AddBoard`** with `copy_from` (upstream `Board::copyFrom()`) does not
+  copy the calculated plane fragments; the planes of the copy are rebuilt
+  like any other planes.
 - **Adding a via** connects it to the traces and junctions of its net at
   its position like upstream's add-via tool (hit test: the trace width
   resp. the widest trace at a junction instead of the graphics items'
