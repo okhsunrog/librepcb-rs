@@ -48,6 +48,8 @@ migrations, library checks, exports. Tests take it from `LIBREPCB_CLI` or the
   headless PNG rendering.
 - `crates/librepcb-autoroute`: built-in grid autorouter (original code, no
   upstream counterpart).
+- `crates/librepcb-import`: EAGLE and KiCad library import and EAGLE project
+  import (port of `libs/librepcb/{eagleimport,kicadimport}`).
 - `crates/librepcb-mcp`: MCP server (rmcp; binary `librepcb-mcp`, stdio or
   streamable HTTP with the feature `http`), see `docs/mcp-design.md`.
 - `tools/ts2po`: converter from Qt `.ts` to gettext `.po`.
